@@ -1,0 +1,75 @@
+
+Capstone Project: Script Execution Guide
+========================================
+
+This guide explains how to run the key .py files in your capstone project repository.
+Make sure you're in your project root directory (where README.md and requirements.txt are located).
+
+-----------------------------------------------------
+1. Set Up the Environment
+-----------------------------------------------------
+
+1.1 Install required packages:
+
+    pip install -r requirements.txt
+
+1.2 If using NLTK for text cleaning:
+    Run this once to download necessary resources:
+
+    python
+    >>> import nltk
+    >>> nltk.download('punkt')
+    >>> nltk.download('stopwords')
+
+
+-----------------------------------------------------
+2. Preprocessing Scripts
+-----------------------------------------------------
+
+2.1 Run text cleaning on your dataset:
+
+    # Inside a script like scripts/run_preprocessing.py
+    from preprocessing import clean_text
+
+    df['clean_text'] = df['text'].apply(clean_text)
+
+2.2 Normalize sources:
+
+    from preprocessing import normalize_source
+
+    df['source'] = df['source'].apply(normalize_source)
+
+
+-----------------------------------------------------
+3. Path Building
+-----------------------------------------------------
+
+Use the `build_paths()` function to create sequential influence paths:
+
+    from path_builder import build_paths
+
+    paths_df = build_paths(mentions_df, events_df, window_days=7)
+    paths_df.to_csv('data/processed/influence_paths.csv', index=False)
+
+
+-----------------------------------------------------
+4. Attribution Modeling
+-----------------------------------------------------
+
+Run the Markov attribution model:
+
+    from modeling import run_attribution_model
+
+    paths_df = pd.read_csv('data/processed/influence_paths.csv')
+    result = run_attribution_model(paths_df)
+    result.to_csv('outputs/attribution_results.csv', index=False)
+
+
+-----------------------------------------------------
+5. Notes
+-----------------------------------------------------
+
+- All Python scripts should be run using Python 3.8+.
+- Ensure all timestamp columns are in datetime format.
+- You can modularize these steps in Jupyter Notebooks or a full pipeline script.
+
