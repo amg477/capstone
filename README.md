@@ -1,67 +1,92 @@
-# capstone
-MSBA Capstone Project
+Capstone Project: Influencer Identification in Healthcare Policy
+=======================================================
 
-# Capstone Project: Influencer Identification in Healthcare Policy Narratives
+This guide provides everything you need to know to run scripts, manage files, and contribute code to the capstone repository.
 
-This project aims to develop a data-driven framework to identify and rank influential voices shaping healthcare policy narratives across both traditional and social media platforms. Through a combination of data ingestion, sentiment analysis, and influence modeling, the project will surface the origin, amplification, and impact of key healthcare narratives in the U.S.
+-----------------------------------------------------
+0. Navigate to Project Root
+-----------------------------------------------------
 
----
+Open terminal and navigate to your repo folder:
 
-## 👥 Team & Roles
+    cd ~/capstone/capstone
 
-- **Project Manager**: Posy Olivetti  
-- **Team Liaison**: Mark Saba  
-- **Technical Leads**: Anna Glass, Jasmin Mendoza  
-- **Reporting Coordinator**: Mohammad Waqas  
+-----------------------------------------------------
+1. Set Up the Environment
+-----------------------------------------------------
 
----
+1.1 Install all dependencies:
 
-## 🔍 Objectives
+    pip install -r requirements.txt
 
-1. **Influencer Identification Framework**  
-   Develop a method to determine who originates vs. amplifies healthcare narratives.
+1.2 (If using NLTK for text processing):
 
-2. **Influence Scoring Model**  
-   Quantify influence based on reach, engagement, sentiment, and timing.
+    python
+    >>> import nltk
+    >>> nltk.download('punkt')
+    >>> nltk.download('stopwords')
 
-3. **Narrative Propagation Analysis**  
-   Visualize and track how narratives evolve over time across platforms.
+-----------------------------------------------------
+2. Run Preprocessing Scripts
+-----------------------------------------------------
 
-4. **Interactive Tool (Optional)**  
-   Deliver a prototype application (e.g., Streamlit) to support real-time insights for stakeholders.
+Clean text:
 
----
+    from text_cleaning import clean_text
+    df['clean_text'] = df['text'].apply(clean_text)
 
-## 🧠 Problem Statement
+Normalize sources:
 
-Despite the abundance of healthcare-related content across media, there's no standardized, scalable way to identify who truly drives narrative adoption and how those narratives reach and influence policymakers. This project seeks to fill that gap with a quantitative, repeatable methodology.
+    from source_normalization import normalize_source
+    df['source'] = df['source'].apply(normalize_source)
 
----
+-----------------------------------------------------
+3. Build Narrative Paths
+-----------------------------------------------------
 
-## 📊 Data Sources (Planned)
+Generate influence paths based on events:
 
-- Twitter/X (2020–present, top 30 public health influencers)
-- Reddit Threads (e.g., r/Health, r/AskDocs)
-- Google Search Trends
-- Podcasts (Health-related content)
-- YouTube and Streamers
-- TV News / Beltway Publications
-- TikTok / Instagram Public Posts
-- Lobbying Disclosures
-- Patent & Trademark Filings
-- Media Cloud (open-source news coverage)
+    from path_building import build_paths
+    paths_df = build_paths(mentions_df, events_df, window_days=7)
 
----
+-----------------------------------------------------
+4. Run Attribution Modeling
+-----------------------------------------------------
 
-## 🗂 Project Structure
+Run Markov attribution model:
 
-```plaintext
-capstone-influencer-healthcare/
+    from attribution_modeling import run_attribution_model
+    result = run_attribution_model(paths_df)
+
+-----------------------------------------------------
+5. Git Workflow (Use Daily)
+-----------------------------------------------------
+
+    git status
+    git add .
+    git commit -m "Brief description of your change"
+    git pull origin main
+    git push origin main
+
+-----------------------------------------------------
+6. Project Structure
+-----------------------------------------------------
+
+capstone/
 ├── data/              ← raw and processed data files
-├── notebooks/         ← exploratory notebooks (EDA, modeling)
-├── src/               ← all core scripts (ingestion, modeling, etc.)
-├── reports/           ← figures and presentation files
-├── app/               ← Streamlit or app files
-├── README.md
-├── requirements.txt
-└── .gitignore
+├── notebooks/         ← EDA and modeling notebooks
+├── src/               ← all Python scripts
+├── reports/           ← figures and presentation content
+├── app/               ← Streamlit app (optional)
+├── requirements.txt   ← dependencies
+└── README.md
+
+-----------------------------------------------------
+7. Project Goals
+-----------------------------------------------------
+
+- Identify who originates vs. amplifies healthcare narratives
+- Quantify influence based on timing, reach, engagement
+- Analyze how narratives propagate over time and across platforms
+- (Optional) Deliver interactive dashboard for real-time exploration
+
