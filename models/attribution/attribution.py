@@ -1,307 +1,169 @@
-# markov_attribution.py
+"""
+---------------------------------
+FILE INFORMATION: 
+1. Adds 'is_conversion' as bool value 
+2. Builds Markov paths using 'tag_name' as the journey key
+3. Computes removal-effect for chosen dimensions. 
+4. Saves a csv file of credit/credit-share/rating (1-5)
+
+---------------------------------
+CONVERSION DEFINITION: 
+-- source_name_type is in {National News, Government, Wires, General News, Regional News, Trade News}
+-- circulation_size is in the top quartile (>= 75th percentile)
+-- vipr_weight is in top quartile 
+-- sentiment_score absolute value >= |75| (strongly positive or negative )
+
+---------------------------------
+RUN: 
+python attribution.py
+"""
+
+# Import packages 
 from __future__ import annotations
 import numpy as np
 import pandas as pd
-import re
-from typing import Iterable, List, Optional, Tuple, Dict, Callable
+from scipy.sparse import coo_matrix, identity
+from scipy.sparse.linalg import spsolve
+from pathlib import Path
 
-START = "<START>"
-CONV = "<CONV>"
 
-# ---------------------------
-# Helpers
-# ---------------------------
-def _to_datetime(s: pd.Series) -> pd.Series:
-    return pd.to_datetime(s, errors="coerce", utc=True).dt.tz_localize(None)
+#### Load data & clean 
+df = pd.read_csv('..data/final_dataset_sampled.csv')
 
-def _extract_keywords(text: str, keywords: Iterable[str]) -> List[str]:
-    if not isinstance(text, str):
-        return []
-    t = text.lower()
-    found = []
-    for k in keywords:
-        if re.search(rf"\b{re.escape(k.lower())}\b", t):
-            found.append(k)
-    return found
+df["load_date"] = pd.to_datetime(df["load_date"], errors = 'coerce')
 
-def _ensure_nonneg_weights(w: pd.Series) -> pd.Series:
-    w = pd.to_numeric(w, errors="coerce").fillna(0.0)
-    if (w < 0).any():
-        w = (w - w.min()).clip(lower=0)
-    return w
+#### Define conversion
+reliable_types = {"National News", "Government", "Wires", "General News", "Regional News", "Trade News"}
 
-def _collapse_consecutive(seq: List[str]) -> List[str]:
-    out = []
-    last = None
-    for x in seq:
-        if x != last:
-            out.append(x)
-            last = x
-    return out
+circ_cutoff = df["circulation_size"].quantile(0.75)
+vipr_cutoff = df["vipr_weight"].quantile(0.75)
 
-# ---------------------------
-# Path builder
-# ---------------------------
-def build_paths(
-    df: pd.DataFrame,
-    path_key: str,                  # e.g., "tag_name" (grouping for a sequence)
-    time_col: str,                  # e.g., "load_date"
-    state_col: str,                 # e.g., "publication_name" (or "source_type_name" / "author_name")
-    weight_col: Optional[str] = None,  # e.g., "vipr_weight" to weight paths
-    keyword_mode: bool = False,     # if True, states become publication::keyword (see below)
-    keywords: Optional[Iterable[str]] = None,
-    article_text_col: str = "article_body",
-    filter_fn: Optional[Callable[[pd.DataFrame], pd.DataFrame]] = None,
-    drop_na_states: bool = True,
-) -> pd.DataFrame:
+# Conversion flag
+df["conversion"] = (
+    df["source_type_name"].isin(reliable_types) 
+    | (df["circulation_size"] >= circ_cutoff)
+    | (df["vipr_weight"] >= vipr_cutoff)
+    | (df["sentiment_score"].abs() >= 75)
+)
+
+#### Markov Attribution (Removal Effect)
+def markov_attribution(
+        df: pd.DataFrame,
+        path_key: str = "tag_name", 
+        time_col: str = "load_date", 
+        state_col: str = "publication_name", 
+        weight_col: str = "vipr_weight", 
+        conv_flag: str = "conversion",
+) -> pd.DataFrame: 
+    
     """
-    Returns a tidy DataFrame with columns:
-      - path: list[str]  (sequence of states)
-      - weight: float     (path weight; default 1.0 or sum of weights within the group)
-
-    Notes
-    -----
-    - Each path groups rows by `path_key` and orders them by `time_col`.
-    - States normally come from `state_col`. If `keyword_mode=True`, states become
-      f"{state_col_value}::{keyword}", repeating an item for each matched keyword.
-    - `filter_fn` can subset df before building paths (e.g. only certain authors or channels).
+    Computes removal-effect credit for 'state_col' given a conversion flag. 
+    Returns: state, credit_, credit_share
     """
-    data = df.copy()
-    data[time_col] = _to_datetime(data[time_col])
 
-    if filter_fn is not None:
-        data = filter_fn(data)
+    # keep only needed columns
+    keep = [path_key, time_col, state_col, weight_col, conv_flag]
+    dff = df[keep].dropna(subset=[path_key, time_col, state_col])
+    dff[time_col] = pd.to_datetime(dff[time_col], errors="coerce")
+    dff = dff.dropna(subset=[time_col])
+    dff = dff.sort_values([path_key, time_col])
 
-    if drop_na_states:
-        data = data[~data[state_col].isna()]
+    # weight 
+    w = pd.to_numeric(dff[weight_col], errors='coerce').fillna(1.0)
+    dff["_w"] = w
 
-    if keyword_mode:
-        if not keywords:
-            raise ValueError("keyword_mode=True requires a non-empty `keywords` list.")
-        # create exploded rows per matched keyword
-        data["_keywords"] = data[article_text_col].apply(lambda t: _extract_keywords(t, keywords))
-        data = data.explode("_keywords", ignore_index=False)
-        data = data.dropna(subset=["_keywords"])
-        data["_state"] = data[state_col].astype(str) + "::" + data["_keywords"].astype(str)
-    else:
-        data["_state"] = data[state_col].astype(str)
+    START, CONV = "<START>", "<CONV>"
 
-    # order within each path_key by time
-    data = data.sort_values([path_key, time_col])
-    # weight per row (used to aggregate path-level weight)
-    if weight_col and (weight_col in data.columns):
-        data["_row_w"] = _ensure_nonneg_weights(data[weight_col])
-    else:
-        data["_row_w"] = 1.0
-
-    # group into paths
+    # group into sequences
     paths = []
-    for g_key, g in data.groupby(path_key, sort=False):
-        seq = g["_state"].tolist()
-        seq = [s for s in seq if isinstance(s, str) and len(s)]
-        seq = _collapse_consecutive(seq)  # avoid self-loops inflated by duplicates
-        if not seq:
-            continue
-        w = float(g["_row_w"].sum())  # path weight = sum of row weights in that sequence
-        paths.append({"path_key": g_key, "path": seq, "weight": w})
+    for k, g in dff.groupby(path_key, sort=False):
+        seq = []
+        last = None
+        for _, row in g.iterrows():
+            if row[state_col] != last:  
+                seq.append(row[state_col])
+                last = row[state_col]
+            if row[conv_flag]:
+                seq.append(CONV)
+                break
+        if seq:
+            paths.append((seq, g[weight_col].sum()))
 
     if not paths:
-        return pd.DataFrame(columns=["path_key", "path", "weight"])
+        return pd.DataFrame(columns=["state","credit","credit_share"])
 
-    return pd.DataFrame(paths)
+    # encode states
+    all_states = sorted({s for seq,_ in paths for s in seq if s != CONV})
+    states = all_states + [CONV]
+    sid = {s:i for i,s in enumerate(states)}
 
+    # build transition counts
+    src, dst, wt = [], [], []
+    for seq, w in paths:
+        src.append(len(states)) 
+        dst.append(sid[seq[0]])
+        wt.append(w)
+        for a,b in zip(seq[:-1], seq[1:]):
+            src.append(sid[a]); dst.append(sid[b]); wt.append(w)
 
-# ---------------------------
-# Markov Attribution (Removal Effect)
-# ---------------------------
+    n_all = len(states)+1
+    T = coo_matrix((wt,(src,dst)), shape=(n_all,n_all)).tocsr()
+    rs = np.asarray(T.sum(axis=1)).ravel()
+    rs[rs==0] = 1
+    P = T.multiply(1/rs[:,None]).tocsr()
 
-def _transition_counts(
-    paths_df: pd.DataFrame,
-    var_path: str = "path",
-    var_weight: str = "weight",
-) -> Dict[Tuple[str, str], float]:
-    """
-    Count weighted transitions, including START->first and last->CONV.
-    """
-    counts: Dict[Tuple[str, str], float] = {}
-    for _, row in paths_df.iterrows():
-        path: List[str] = row[var_path]
-        w: float = float(row[var_weight])
+    transient = np.array([i for i,s in enumerate(states) if s != CONV], int)
+    absorbing = np.array([sid[CONV]], int)
+    order = np.r_[ [len(states)], transient, absorbing ]
+    P = P[order][:, order]
 
-        if not path:
-            # empty path -> START->CONV directly
-            counts[(START, CONV)] = counts.get((START, CONV), 0.0) + w
-            continue
+    t_slice = slice(1, 1+len(transient))
+    a_slice = slice(1+len(transient), None)
+    Q = P[t_slice, t_slice]
+    R = P[t_slice, a_slice]
+    P0 = P[0, t_slice]
 
-        # START -> first
-        counts[(START, path[0])] = counts.get((START, path[0]), 0.0) + w
-        # internal transitions
-        for a, b in zip(path[:-1], path[1:]):
-            counts[(a, b)] = counts.get((a, b), 0.0) + w
-        # last -> CONV
-        counts[(path[-1], CONV)] = counts.get((path[-1], CONV), 0.0) + w
+    I = identity(Q.shape[0], format="csr")
+    N = spsolve(I - Q, identity(Q.shape[0]))
+    baseline = float((P0 @ N @ R).A.ravel()[0])
 
-    return counts
+    credits = []
+    for i in range(Q.shape[0]):
+        Q2 = Q.copy().tocsr(); R2 = R.copy().tocsr()
+        Q2.data[Q2.indptr[i]:Q2.indptr[i+1]] = 0.0
+        R2.data[R2.indptr[i]:R2.indptr[i+1]] = 0.0
+        N2 = spsolve(I - Q2, identity(Q2.shape[0]))
+        conv2 = float((P0 @ N2 @ R2).A.ravel()[0])
+        credits.append(max(0.0, baseline - conv2))
 
-def _normalize_transition_matrix(counts: Dict[Tuple[str, str], float]):
-    """
-    Build row-stochastic transition matrix (P), along with state index mapping.
-    """
-    states = sorted(set([a for (a, b) in counts] + [b for (a, b) in counts]))
-    idx = {s: i for i, s in enumerate(states)}
-    P = np.zeros((len(states), len(states)), dtype=float)
+    credits = np.array(credits)
+    share = credits / credits.sum() if credits.sum() else np.zeros_like(credits)
 
-    # row sums by origin
-    row_sums: Dict[str, float] = {}
-    for (a, b), c in counts.items():
-        row_sums[a] = row_sums.get(a, 0.0) + c
+    return pd.DataFrame({
+        "state": [states[i] for i in transient],
+        "credit": credits,
+        "credit_share": share
+    }).sort_values("credit", ascending=False, ignore_index=True)
 
-    for (a, b), c in counts.items():
-        if row_sums[a] > 0:
-            P[idx[a], idx[b]] += c / row_sums[a]
+#### Run Attribution for Key Dimensions 
+dimensions = [
+    "tag_name","source_feed_name","feed_name","author_name",
+    "source_type_name","channel_name","genre","publisher_name",
+    "publication_name","circulation_size","sentiment_score",
+    "source_type","sentiment_band"
+]
 
-    return P, states, idx
-
-def _absorbing_conversion_probability(P: np.ndarray, states: List[str], start_state: str = START, conv_state: str = CONV) -> float:
-    """
-    Compute probability of absorption in CONV when starting from START.
-    Uses the standard absorbing Markov chain formulation with fundamental matrix N = (I - Q)^(-1).
-    """
-    # identify absorbing vs transient
-    absorbing = []
-    transient = []
-    for i, s in enumerate(states):
-        if np.isclose(P[i].sum(), 1.0) and np.isclose(P[i, i], 1.0):
-            # perfectly absorbing self-loop (not typical here)
-            absorbing.append(i)
-        elif s == conv_state:
-            absorbing.append(i)
-        else:
-            transient.append(i)
-
-    if not transient:
-        return 0.0
-
-    # Build Q (transient->transient) and R (transient->absorbing)
-    Q = P[np.ix_(transient, transient)]
-    R = P[np.ix_(transient, absorbing)]
-
-    I = np.eye(Q.shape[0])
+results = []
+for dim in dimensions:
+    print(f"[run] {dim}")
     try:
-        N = np.linalg.inv(I - Q)
-    except np.linalg.LinAlgError:
-        # fallback: pseudo-inverse if ill-conditioned
-        N = np.linalg.pinv(I - Q)
+        out = markov_attribution(df, state_col=dim)
+        out["dimension"] = dim
+        results.append(out)
+    except Exception as e:
+        print(f"   skipped {dim}: {e}")
 
-    # starting vector: 1 at START (must be transient), else return 0
-    try:
-        start_idx_full = states.index(start_state)
-    except ValueError:
-        return 0.0
-    if start_idx_full not in transient:
-        return 0.0
+all_attr = pd.concat(results, ignore_index=True)
+all_attr.to_csv("data/attribution_data.csv", index = False)
 
-    start_idx = transient.index(start_idx_full)
-    e_start = np.zeros((1, len(transient)))
-    e_start[0, start_idx] = 1.0
-
-    # probability of absorption into each absorbing state
-    B = e_start @ N @ R  # shape (1, n_absorb)
-    # find the absorbing column for CONV
-    try:
-        conv_abs_idx_full = states.index(conv_state)
-    except ValueError:
-        return 0.0
-    if conv_abs_idx_full not in absorbing:
-        return 0.0
-
-    conv_abs_idx = absorbing.index(conv_abs_idx_full)
-    p_conv = float(B[0, conv_abs_idx])
-    # clip numerical noise
-    return float(np.clip(p_conv, 0.0, 1.0))
-
-def _remove_state_from_paths(paths_df: pd.DataFrame, state_to_remove: str,
-                             var_path: str = "path", var_weight: str = "weight") -> pd.DataFrame:
-    """
-    Remove a state from every path, collapsing duplicates, dropping paths
-    that become empty (they will count as START->CONV when counting transitions).
-    """
-    new_rows = []
-    for _, row in paths_df.iterrows():
-        seq = [s for s in row[var_path] if s != state_to_remove]
-        seq = _collapse_consecutive(seq)
-        new_rows.append({var_path: seq, var_weight: row[var_weight]})
-    return pd.DataFrame(new_rows)
-
-def markov_attribution_removal_effect(
-    paths_df: pd.DataFrame,
-    var_path: str = "path",
-    var_weight: str = "weight",
-) -> pd.DataFrame:
-    """
-    Computes removal-effect attribution for every state:
-      credit(state) = P_conv_baseline - P_conv_without_state
-
-    Returns tidy DataFrame with:
-      state, credit, credit_share
-    """
-    if paths_df.empty:
-        return pd.DataFrame(columns=["state", "credit", "credit_share"])
-
-    # Baseline conversion probability
-    counts = _transition_counts(paths_df, var_path, var_weight)
-    P, states, _ = _normalize_transition_matrix(counts)
-    baseline = _absorbing_conversion_probability(P, states, START, CONV)
-
-    # Evaluate removal effect for each state except START/CONV
-    credits = {}
-    for s in states:
-        if s in (START, CONV):
-            continue
-        mod_paths = _remove_state_from_paths(paths_df, s, var_path, var_weight)
-        mod_counts = _transition_counts(mod_paths, var_path, var_weight)
-        Pm, Sm, _ = _normalize_transition_matrix(mod_counts)
-        p_conv = _absorbing_conversion_probability(Pm, Sm, START, CONV)
-        credits[s] = max(0.0, baseline - p_conv)  # non-negative
-
-    if not credits:
-        return pd.DataFrame(columns=["state", "credit", "credit_share"])
-
-    out = pd.DataFrame({"state": list(credits.keys()), "credit": list(credits.values())})
-    total = out["credit"].sum()
-    if total > 0:
-        out["credit_share"] = out["credit"] / total
-    else:
-        out["credit_share"] = 0.0
-    out = out.sort_values("credit", ascending=False).reset_index(drop=True)
-    return out
-
-# ---------------------------
-# Convenience runner
-# ---------------------------
-
-def run_markov_attribution(
-    df: pd.DataFrame,
-    path_key: str = "tag_name",
-    time_col: str = "load_date",
-    state_col: str = "publication_name",    # swap to "source_type_name" or "author_name" easily
-    weight_col: Optional[str] = "vipr_weight",
-    keyword_mode: bool = False,
-    keywords: Optional[Iterable[str]] = None,
-    filter_fn: Optional[Callable[[pd.DataFrame], pd.DataFrame]] = None,
-) -> pd.DataFrame:
-    """
-    One-call helper: build paths -> compute removal-effect attribution.
-    """
-    paths = build_paths(
-        df=df,
-        path_key=path_key,
-        time_col=time_col,
-        state_col=state_col,
-        weight_col=weight_col,
-        keyword_mode=keyword_mode,
-        keywords=keywords,
-        article_text_col="article_body",
-        filter_fn=filter_fn,
-    )
-    return markov_attribution_removal_effect(paths)
+print("\n[OK] Saved -> data/attribution_data.csv")
