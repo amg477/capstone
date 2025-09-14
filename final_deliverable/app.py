@@ -25,8 +25,6 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-# ---------- Optional secret (unused but kept for future use) ----------
-GITHUB_TOKEN = st.secrets.get("GITHUB_TOKEN") or os.getenv("GITHUB_TOKEN")
 
 # ---------- Paths ----------
 ROOT = Path("/Users/annaglass/capstone/capstone")
@@ -158,7 +156,7 @@ def download_button_for_df(df_in: pd.DataFrame, label: str, fname: str):
 # ---------- View selector (replaces tabs) ----------
 view = st.selectbox(
     "View",
-    ["🔎 Item Lookup", "🔎 Term Lookup", "📚 Browse Attribution"],
+    ["Item Lookup", "Term Lookup", "📚 Browse Attribution"],
     index=0
 )
 
