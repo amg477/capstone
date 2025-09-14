@@ -12,3 +12,7 @@ data/external/*
 *.bak
 .DS_Store
 Thumbs.db
+.env
+
+# large data files
+/data/final_model_dataset.csv
