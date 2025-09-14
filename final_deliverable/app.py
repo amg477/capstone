@@ -1,3 +1,6 @@
+# app.py — Attribution Explorer (single view + selector)
+from __future__ import annotations
+
 import os
 os.environ["STREAMLIT_SERVER_FILE_WATCHER_TYPE"] = "poll"
 
@@ -49,9 +52,6 @@ with st.spinner("Loading data from Azure…"):
         st.error(f"Data load failed: {e}")
         st.expander("Details").code(traceback.format_exc())
         st.stop()
-
-# app.py — Attribution Explorer (single view + selector)
-from __future__ import annotations
 
 import io, re
 from typing import Tuple
