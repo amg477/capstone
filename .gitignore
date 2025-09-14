@@ -16,3 +16,7 @@ Thumbs.db
 
 # large data files
 /data/final_model_dataset.csv
+
+data/*.csv
+*.parquet
+
