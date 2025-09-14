@@ -1,0 +1,11 @@
+[server]
+fileWatcherType = "poll"   # use "none" to fully disable watching
+runOnSave = false
+
+# Optional: reduce what Streamlit tries to watch
+folderWatchBlacklist = [
+  "data/.*",
+  "models/.*",
+  "\\.venv/.*",
+  ".*\\.(csv|parquet|gpickle)$"
+]
