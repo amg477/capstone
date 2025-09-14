@@ -1,3 +1,55 @@
+import os
+os.environ["STREAMLIT_SERVER_FILE_WATCHER_TYPE"] = "poll"
+
+import io
+import traceback
+import streamlit as st
+import pandas as pd
+from azure.storage.blob import BlobServiceClient
+
+st.set_page_config(page_title="Capstone Explorer", layout="wide")
+st.write("boot_ok")  # lets healthz succeed even if data later fails
+
+@st.cache_data(show_spinner=False)
+def load_both():
+    conn_str  = st.secrets.get("AZURE_STORAGE_CONNECTION_STRING") or os.getenv("AZURE_STORAGE_CONNECTION_STRING")
+    container = st.secrets.get("AZURE_CONTAINER") or os.getenv("AZURE_CONTAINER")
+    acct_url  = st.secrets.get("AZURE_ACCOUNT_URL") or os.getenv("AZURE_ACCOUNT_URL")
+    sas       = st.secrets.get("AZURE_SAS") or os.getenv("AZURE_SAS")
+    key       = st.secrets.get("AZURE_STORAGE_KEY") or os.getenv("AZURE_STORAGE_KEY")
+
+    if not container:
+        raise ValueError("Missing AZURE_CONTAINER secret.")
+
+    # Prefer full connection string; else URL+SAS/Key
+    if conn_str and "AccountName=" in conn_str and ("AccountKey=" in conn_str or "SharedAccessSignature=" in conn_str):
+        svc = BlobServiceClient.from_connection_string(conn_str)
+    elif acct_url and (sas or key):
+        cred = (sas or "").lstrip("?") or key
+        svc = BlobServiceClient(account_url=acct_url, credential=cred)
+    else:
+        raise ValueError("Provide AZURE_STORAGE_CONNECTION_STRING or AZURE_ACCOUNT_URL + (AZURE_SAS or AZURE_STORAGE_KEY).")
+
+    c = svc.get_container_client(container)
+
+    def _read_csv(blob):
+        data = c.get_blob_client(blob=blob).download_blob().readall()
+        return pd.read_csv(io.BytesIO(data))
+
+    df   = _read_csv("data/processed/final_model_dataset.csv")
+    attr = _read_csv("data/processed/attribution_all_scored.csv")
+    return df, attr
+
+# Lazy load with clear error UI (won't crash process)
+with st.spinner("Loading data from Azure…"):
+    try:
+        df, attr = load_both()
+        st.success(f"Loaded {len(df):,} rows ✅")
+    except Exception as e:
+        st.error(f"Data load failed: {e}")
+        st.expander("Details").code(traceback.format_exc())
+        st.stop()
+
 # app.py — Attribution Explorer (single view + selector)
 from __future__ import annotations
 
