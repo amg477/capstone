@@ -156,14 +156,14 @@ def download_button_for_df(df_in: pd.DataFrame, label: str, fname: str):
 # ---------- View selector (replaces tabs) ----------
 view = st.selectbox(
     "View",
-    ["Item Lookup", "Term Lookup", "📚 Browse Attribution"],
+    ["Item Lookup", "Term Lookup", "Browse Attribution"],
     index=0
 )
 
 # ==========================
 # VIEW — ITEM LOOKUP
 # ==========================
-if view == "🔎 Item Lookup":
+if view == "Item Lookup":
     st.subheader("Item Lookup (dimensions & values)")
 
     if not available_dims:
@@ -203,7 +203,7 @@ if view == "🔎 Item Lookup":
 # ==========================
 # VIEW — TERM LOOKUP
 # ==========================
-elif view == "🔎 Term Lookup":
+elif view == "Term Lookup":
     st.subheader("Term Lookup (keywords & bigrams)")
 
     # Controls
