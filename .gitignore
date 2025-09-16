@@ -20,3 +20,5 @@ Thumbs.db
 data/*.csv
 *.parquet
 
+.streamlit/secrets.toml
+.streamlit/secrets.toml
