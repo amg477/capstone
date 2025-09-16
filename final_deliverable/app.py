@@ -1,351 +1,437 @@
-# final_deliverable/app.py
-# ------------------------------------------------------------
-# Capstone Explorer (Streamlit + DuckDB, Azure Blob, Paginated)
-#
+# app.py — Attribution Explorer (single view + selector, DuckDB backend)
+# ---------------------------------------------------------------------
 # What this app does
-# - Ensures a local Parquet cache of your main dataset
-# - Queries with DuckDB (server-side filtering/sorting/paging)
-# - Displays only a paged slice (fast & reliable on 350k+ rows)
-# - Optionally loads an attribution CSV if present
+# - Loads (LOCAL or AZURE):
+#     final_model_dataset.(parquet|csv)  -> DuckDB view: v
+#     attribution_all_scored.csv         -> DuckDB view: v_attr (and v_item_attr, v_term_attr)
+# - Lets you (via a single view selector):
+#     • Item Lookup — influence by any item dimension/value
+#     • Term Lookup — search keywords/bigrams + see hits
+#     • Browse — scan attribution tables
+# - Global sidebar filters apply everywhere (date, sentiment, pubs, thresholds)
+# - All filtering/search/limits run in DuckDB (fast on 300k+)
 #
-# Required secrets (Streamlit Cloud: App -> Settings -> Secrets):
-#   AZURE_CONTAINER = "capstone"
-#   EITHER:
-#     AZURE_STORAGE_CONNECTION_STRING = "DefaultEndpointsProtocol=...;AccountName=...;AccountKey=...;EndpointSuffix=core.windows.net"
-#   OR:
-#     AZURE_ACCOUNT_URL = "https://<account>.blob.core.windows.net"
-#     AZURE_SAS = "sv=...&ss=...&srt=...&se=...&sp=...&sig=..."    # no leading '?'
-#   OR:
-#     AZURE_ACCOUNT_URL = "https://<account>.blob.core.windows.net"
-#     AZURE_STORAGE_KEY = "<account key==>"
-#
-# Optional (repo root): .streamlit/config.toml
-#   [server]
-#   fileWatcherType = "poll"
-#   runOnSave = false
-#   folderWatchBlacklist = ["data/.*", "\\.venv/.*", ".*\\.(csv|parquet|gpickle)$"]
-# ------------------------------------------------------------
+# Notes
+# - Read-only: does NOT mutate files.
+# - Works with LOCAL paths by default; switches to AZURE if AZURE_CONTAINER is set.
+# - For Azure, you can use secrets.toml or environment variables.
+# ---------------------------------------------------------------------
+
+from __future__ import annotations
 
 import os
-# Force polling watcher (avoid inotify limit on Streamlit Cloud)
-os.environ["STREAMLIT_SERVER_FILE_WATCHER_TYPE"] = "poll"
-
-import io
+import re
 import pathlib
-import traceback
 import datetime as dt
+from typing import List, Tuple, Optional
 
 import streamlit as st
 import pandas as pd
 import duckdb
-import pyarrow as pa
-import pyarrow.csv as pacsv
-import pyarrow.parquet as papq
-from azure.storage.blob import BlobServiceClient
 
+# Optional Azure imports (only used if AZURE mode)
+try:
+    from azure.storage.blob import BlobServiceClient  # type: ignore
+    _has_azure = True
+except Exception:
+    _has_azure = False
 
-# ----------------------- CONFIG -----------------------------
+# ---------- Page config ----------
+st.set_page_config(page_title="Attribution Explorer", layout="wide")
+st.title("Attribution Explorer")
 
-# Blob paths (adjust if your paths differ)
-PARQUET_BLOB_MAIN = "data/processed/final_model_dataset.parquet"       # preferred main dataset
-CSV_BLOB_MAIN     = "data/processed/final_model_dataset.csv"           # fallback if parquet not present
+# ---------- Paths (LOCAL defaults like your original app) ----------
+ROOT = pathlib.Path("/Users/annaglass/capstone/capstone")
+LOCAL_PARQUET = ROOT / "data" / "final_model_dataset.parquet"
+LOCAL_CSV     = ROOT / "data" / "final_model_dataset.csv"
+LOCAL_ATTR    = ROOT / "data" / "attribution_all_scored.csv"
 
-# Optional 2nd dataset (attribution). If not present, app still runs.
-ATTR_BLOB_CSV     = "data/processed/attribution_all_scored.csv"
+TMP_PARQUET = pathlib.Path("/tmp/final_model_dataset.parquet")
+TMP_ATTR    = pathlib.Path("/tmp/attribution_all_scored.csv")
 
-# Local cache (ephemeral on Streamlit Cloud; recreated per boot)
-LOCAL_CACHE_MAIN  = pathlib.Path("/tmp/final_model_dataset.parquet")
+# ---------- Secrets helpers (safe if secrets.toml is absent) ----------
+def _get_secret_safe(key: str):
+    try:
+        return st.secrets.get(key)
+    except Exception:
+        return None
 
+def _sql_str(path_like) -> str:
+    """Return a single-quoted SQL string literal with quotes escaped."""
+    s = str(path_like)
+    return "'" + s.replace("'", "''") + "'"
 
-# --------------------- STREAMLIT SETUP ----------------------
+def _quote_ident(col: str) -> str:
+    """Return a DuckDB-safe double-quoted identifier."""
+    return '"' + col.replace('"', '""') + '"'
 
-st.set_page_config(page_title="Capstone Explorer", layout="wide")
-st.write("boot_ok ✅")  # ensures /healthz succeeds even if data later fails
+# ---------- Determine mode (LOCAL vs AZURE) ----------
+AZURE_CONTAINER = _get_secret_safe("AZURE_CONTAINER") or os.getenv("AZURE_CONTAINER")
+USE_AZURE = bool(AZURE_CONTAINER)
 
+# ---------- Azure helpers (only used if USE_AZURE) ----------
+def _resolve_blob_service() -> "BlobServiceClient":
+    conn_str = _get_secret_safe("AZURE_STORAGE_CONNECTION_STRING") or os.getenv("AZURE_STORAGE_CONNECTION_STRING")
+    acct_url = _get_secret_safe("AZURE_ACCOUNT_URL") or os.getenv("AZURE_ACCOUNT_URL")
+    sas      = _get_secret_safe("AZURE_SAS") or os.getenv("AZURE_SAS")
+    key      = _get_secret_safe("AZURE_STORAGE_KEY") or os.getenv("AZURE_STORAGE_KEY")
 
-# --------------------- AZURE HELPERS ------------------------
-
-def _resolve_blob_service() -> BlobServiceClient:
-    """Create a BlobServiceClient from secrets/environment."""
-    conn_str = st.secrets.get("AZURE_STORAGE_CONNECTION_STRING") or os.getenv("AZURE_STORAGE_CONNECTION_STRING")
-    acct_url = st.secrets.get("AZURE_ACCOUNT_URL") or os.getenv("AZURE_ACCOUNT_URL")
-    sas      = st.secrets.get("AZURE_SAS") or os.getenv("AZURE_SAS")
-    key      = st.secrets.get("AZURE_STORAGE_KEY") or os.getenv("AZURE_STORAGE_KEY")
-
-    if conn_str and "AccountName=" in conn_str and ("AccountKey=" in conn_str or "SharedAccessSignature=" in conn_str):
+    if conn_str and "AccountName=" in conn_str:
         return BlobServiceClient.from_connection_string(conn_str)
     if acct_url and (sas or key):
         cred = (sas or "").lstrip("?") or key
         return BlobServiceClient(account_url=acct_url, credential=cred)
+    raise RuntimeError("Azure credentials missing: set connection string OR (account url + SAS/key).")
 
-    raise RuntimeError(
-        "Azure credentials missing. Provide AZURE_STORAGE_CONNECTION_STRING "
-        "or AZURE_ACCOUNT_URL + (AZURE_SAS or AZURE_STORAGE_KEY)."
-    )
-
-
-def _blob_client(container: str, blob: str):
+def _blob_to_tmp(container: str, blob: str, dest: pathlib.Path) -> pathlib.Path:
     svc = _resolve_blob_service()
-    return svc.get_container_client(container).get_blob_client(blob)
+    bc = svc.get_container_client(container).get_blob_client(blob)
+    if not bc.exists():
+        raise FileNotFoundError(f"Blob not found: {container}/{blob}")
+    data = bc.download_blob().readall()
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_bytes(data)
+    return dest
 
-
-def _blob_exists(container: str, blob: str) -> bool:
-    try:
-        return _blob_client(container, blob).exists()
-    except Exception:
-        return False
-
-
-def _download_blob_bytes(container: str, blob: str) -> bytes:
-    return _blob_client(container, blob).download_blob().readall()
-
-
-# --------------- PARQUET CACHE (ONE-TIME PER BOOT) ----------
-
+# ---------- Bootstrap data to local files (LOCAL or AZURE) ----------
 @st.cache_resource(show_spinner=True)
-def ensure_main_parquet_cached(container: str) -> pathlib.Path:
+def materialize_inputs() -> Tuple[pathlib.Path, Optional[pathlib.Path]]:
     """
-    Ensure we have a local Parquet copy of the main dataset at LOCAL_CACHE_MAIN.
-    Prefer downloading an existing Parquet from blob; otherwise convert CSV -> Parquet once.
+    Returns (parquet_path, attr_csv_path).
+    - If Parquet exists locally, use it; else convert local CSV -> Parquet.
+    - In AZURE mode, download blobs to /tmp and prefer Parquet if present in blob.
     """
-    LOCAL_CACHE_MAIN.parent.mkdir(parents=True, exist_ok=True)
-    if LOCAL_CACHE_MAIN.exists() and LOCAL_CACHE_MAIN.stat().st_size > 0:
-        return LOCAL_CACHE_MAIN
+    if USE_AZURE:
+        if not _has_azure:
+            raise RuntimeError("azure-storage-blob not installed but AZURE mode requested.")
+        container = AZURE_CONTAINER
+        # Expected blob names (match your previous structure)
+        PARQUET_BLOB = "data/processed/final_model_dataset.parquet"
+        CSV_BLOB     = "data/processed/final_model_dataset.csv"
+        ATTR_BLOB    = "data/processed/attribution_all_scored.csv"
 
-    if _blob_exists(container, PARQUET_BLOB_MAIN):
-        # Download Parquet directly (fast path)
-        data = _download_blob_bytes(container, PARQUET_BLOB_MAIN)
-        LOCAL_CACHE_MAIN.write_bytes(data)
-        return LOCAL_CACHE_MAIN
+        # Try Parquet first
+        try:
+            parquet_path = _blob_to_tmp(container, PARQUET_BLOB, TMP_PARQUET)
+        except Exception:
+            # Fallback: CSV -> Parquet one-time
+            csv_path = _blob_to_tmp(container, CSV_BLOB, TMP_PARQUET.with_suffix(".csv"))
+            # Convert CSV to Parquet using DuckDB (streaming)
+            con = duckdb.connect()
+            con.execute(f"COPY (SELECT * FROM read_csv_auto({_sql_str(csv_path)})) TO {_sql_str(TMP_PARQUET)} (FORMAT PARQUET)")
+            parquet_path = TMP_PARQUET
 
-    # Fallback: CSV -> Parquet one-time conversion
-    if not _blob_exists(container, CSV_BLOB_MAIN):
-        raise FileNotFoundError(
-            f"Neither Parquet nor CSV found for main dataset. "
-            f"Looked for:\n - {PARQUET_BLOB_MAIN}\n - {CSV_BLOB_MAIN}"
-        )
+        # Attribution (optional)
+        try:
+            attr_path = _blob_to_tmp(container, ATTR_BLOB, TMP_ATTR)
+        except Exception:
+            attr_path = None
 
-    data = _download_blob_bytes(container, CSV_BLOB_MAIN)
-    # Use Arrow CSV reader (streaming & lower memory vs pandas.read_csv)
-    table = pacsv.read_csv(pa.py_buffer(data))
+        return parquet_path, attr_path
 
-    # Optional: example type tweaks (uncomment/adapt as needed)
-    # if "load_date" in table.column_names:
-    #     table = table.set_column(
-    #         table.column_names.index("load_date"),
-    #         "load_date",
-    #         pa.compute.strptime(table["load_date"], format="%Y-%m-%d", unit="us"),
-    #     )
+    # LOCAL mode
+    if LOCAL_PARQUET.exists():
+        parquet_path = LOCAL_PARQUET
+    elif LOCAL_CSV.exists():
+        # Convert once to /tmp to avoid creating big local files in your repo
+        con = duckdb.connect()
+        con.execute(f"COPY (SELECT * FROM read_csv_auto({_sql_str(LOCAL_CSV)})) TO {_sql_str(TMP_PARQUET)} (FORMAT PARQUET)")
+        parquet_path = TMP_PARQUET
+    else:
+        raise FileNotFoundError(f"Could not find local data at:\n- {LOCAL_PARQUET}\n- {LOCAL_CSV}")
 
-    papq.write_table(table, LOCAL_CACHE_MAIN)
-    return LOCAL_CACHE_MAIN
+    attr_path = LOCAL_ATTR if LOCAL_ATTR.exists() else None
+    return parquet_path, attr_path
 
-
-# ------------------- DUCKDB CONNECTION ----------------------
-
+# ---------- DuckDB connection & views ----------
 @st.cache_resource(show_spinner=False)
-def get_duck_conn(local_parquet_path: pathlib.Path) -> duckdb.DuckDBPyConnection:
+def get_duck_conn(parquet_path: pathlib.Path, attr_path: Optional[pathlib.Path]) -> duckdb.DuckDBPyConnection:
     con = duckdb.connect()
-    # Register main dataset view; DuckDB lazily scans Parquet & pushes down filters/sorts.
-    con.execute("""
+
+    # Main view: cast load_date once to a proper timestamp
+    con.execute(f"""
         CREATE OR REPLACE VIEW v AS
-        SELECT * FROM read_parquet(?, hive_partitioning=FALSE)
-    """, [str(local_parquet_path)])
+        SELECT
+            *,
+            TRY_CAST(load_date AS TIMESTAMP) AS load_ts
+        FROM read_parquet({_sql_str(parquet_path)}, hive_partitioning=FALSE)
+    """)
+
+    # Attribution views (optional)
+    if attr_path and attr_path.exists():
+        con.execute(f"""
+            CREATE OR REPLACE VIEW v_attr AS
+            SELECT * FROM read_csv_auto({_sql_str(attr_path)}, IGNORE_ERRORS=TRUE)
+        """)
+        con.execute("CREATE OR REPLACE VIEW v_item_attr AS SELECT * FROM v_attr WHERE kind = 'item'")
+        con.execute("CREATE OR REPLACE VIEW v_term_attr AS SELECT * FROM v_attr WHERE kind = 'term'")
+    else:
+        # Create empty stubs so downstream queries can succeed
+        con.execute("""
+            CREATE OR REPLACE VIEW v_attr AS SELECT * FROM (SELECT 1 WHERE 0)
+        """)
+        con.execute("""
+            CREATE OR REPLACE VIEW v_item_attr AS SELECT * FROM (SELECT 1 WHERE 0)
+        """)
+        con.execute("""
+            CREATE OR REPLACE VIEW v_term_attr AS SELECT * FROM (SELECT 1 WHERE 0)
+        """)
+
     return con
 
+# ---------- Sidebar: global filters ----------
+st.sidebar.header("Global Filters")
 
-def register_optional_attr(con: duckdb.DuckDBPyConnection, container: str) -> bool:
-    """If the attribution CSV exists, register it as a DuckDB view (v_attr). Returns True/False."""
-    try:
-        if not _blob_exists(container, ATTR_BLOB_CSV):
-            return False
-        data = _download_blob_bytes(container, ATTR_BLOB_CSV)
-        # Read via Arrow then register as DuckDB relation
-        attr_tbl = pacsv.read_csv(pa.py_buffer(data))
-        con.register("attr_arrow", attr_tbl)  # temp table from Arrow
-        con.execute("CREATE OR REPLACE VIEW v_attr AS SELECT * FROM attr_arrow")
-        return True
-    except Exception:
-        return False
-
-
-# ------------------- SERVER-SIDE QUERY ----------------------
-
-def query_rows(
-    con: duckdb.DuckDBPyConnection,
-    *,
-    pub: list[str] | None = None,
-    band: list[str] | None = None,
-    dmin: dt.date | None = None,
-    dmax: dt.date | None = None,
-    search: str | None = None,
-    sort_col: str | None = None,
-    sort_dir: str = "asc",
-    page: int = 0,
-    page_size: int = 100,
-) -> tuple[pa.Table, int]:
-    """
-    Filter/sort/paginate in DuckDB and return an Arrow table slice + total count.
-    """
-    clauses = ["SELECT * FROM v WHERE 1=1"]
-    args = {}
-
-    if pub:
-        clauses.append("AND publication_name IN $pub")
-        args["pub"] = pub
-    if band:
-        clauses.append("AND sentiment_band IN $band")
-        args["band"] = band
-    if dmin:
-        clauses.append("AND load_date >= $dmin")
-        args["dmin"] = pd.to_datetime(dmin)
-    if dmax:
-        # exclusive upper bound for easy day-range filtering
-        clauses.append("AND load_date <  $dmax")
-        args["dmax"] = pd.to_datetime(dmax) + pd.Timedelta(days=1)
-    if search:
-        clauses.append("AND lower(coalesce(processed_headline, '')) LIKE $q")
-        args["q"] = f"%{search.lower()}%"
-
-    # Sorting (identifier-escaped)
-    if sort_col:
-        ident = duckdb.escape_identifier(sort_col)
-        direction = "DESC" if str(sort_dir).lower() == "desc" else "ASC"
-        clauses.append(f"ORDER BY {ident} {direction}")
-
-    # Pagination
-    clauses.append("LIMIT $lim OFFSET $off")
-    args["lim"] = int(page_size)
-    args["off"] = int(page) * int(page_size)
-
-    sql = " ".join(clauses)
-
-    cur = con.execute(sql, args)
-    page_tbl = cur.fetch_arrow_table()
-
-    # Count total with same filters (no sort/limit/offset)
-    base = " ".join(s for s in clauses if not s.startswith("ORDER BY") and not s.startswith("LIMIT"))
-    total_sql = f"SELECT COUNT(*) FROM ({base}) t"
-    total = con.execute(total_sql, args).fetchone()[0]
-
-    return page_tbl, int(total)
-
-
-# ------------------------ UI LOGIC --------------------------
-
-st.header("Attribution Lookup — DuckDB (Azure Blob)")
-
-container = st.secrets.get("AZURE_CONTAINER") or os.getenv("AZURE_CONTAINER")
-if not container:
-    st.error("Missing AZURE_CONTAINER secret. Set it in Streamlit Secrets.")
+# materialize inputs and connect
+try:
+    parquet_path, attr_path = materialize_inputs()
+    con = get_duck_conn(parquet_path, attr_path)
+except Exception as e:
+    st.error(f"Data bootstrap failed: {e}")
     st.stop()
 
-# Bootstrap data (safe: shows error in UI instead of crashing process)
-with st.spinner("Bootstrapping data (Parquet cache + DuckDB)…"):
+# read summary stats
+n_rows = con.execute("SELECT COUNT(*) FROM v").fetchone()[0]
+min_max = con.execute("SELECT MIN(load_ts), MAX(load_ts) FROM v").fetchone()
+min_d = min_max[0].date() if min_max[0] is not None else None
+max_d = min_max[1].date() if min_max[1] is not None else None
+
+# Date range
+if min_d and max_d:
+    date_range = st.sidebar.date_input("Load date range", value=(min_d, max_d))
+else:
+    date_range = None
+
+# Sentiment bands
+sent_bands = con.execute("SELECT DISTINCT sentiment_band FROM v WHERE sentiment_band IS NOT NULL ORDER BY 1").fetchdf()
+sel_bands = st.sidebar.multiselect("Sentiment band", sent_bands["sentiment_band"].tolist(), default=sent_bands["sentiment_band"].tolist())
+
+# Publications
+pubs = con.execute("SELECT DISTINCT publication_name FROM v WHERE publication_name IS NOT NULL ORDER BY 1").fetchdf()
+sel_pubs = st.sidebar.multiselect("Publication (optional)", pubs["publication_name"].tolist(), default=[])
+
+# Threshold sliders (read maxes safely)
+def _max_or_zero(sql: str) -> float:
+    val = con.execute(sql).fetchone()[0]
     try:
-        pq_path = ensure_main_parquet_cached(container)
-        con = get_duck_conn(pq_path)
-        has_attr = register_optional_attr(con, container)
-    except Exception as e:
-        st.error(f"Data bootstrap failed: {e}")
-        st.expander("Traceback").code(traceback.format_exc())
-        st.stop()
+        return float(val or 0.0)
+    except Exception:
+        return 0.0
 
-# ---- Top summary / metadata
-meta_cols = st.columns([1, 1, 1, 1])
-with meta_cols[0]:
-    n_rows = con.execute("SELECT COUNT(*) FROM v").fetchone()[0]
-    st.metric("Rows (main)", f"{n_rows:,}")
-with meta_cols[1]:
-    n_pubs = con.execute("SELECT COUNT(DISTINCT publication_name) FROM v").fetchone()[0]
-    st.metric("Distinct publications", f"{n_pubs:,}")
-with meta_cols[2]:
-    date_min, date_max = con.execute("SELECT min(load_date), max(load_date) FROM v").fetchone()
-    min_d = date_min.date() if pd.notna(date_min) else None
-    max_d = date_max.date() if pd.notna(date_max) else None
-    st.metric("Date range", f"{min_d} → {max_d}" if (min_d and max_d) else "n/a")
-with meta_cols[3]:
-    st.metric("Attribution table", "Loaded" if has_attr else "Not found")
+max_pub_credit  = _max_or_zero("SELECT MAX(pub_credit_share)  FROM v")
+max_term_credit = _max_or_zero("SELECT MAX(max_term_credit)   FROM v")
 
-st.divider()
+min_pub_credit = st.sidebar.slider("Min pub_credit_share", 0.0, max(0.0, float(max_pub_credit)), 0.0, 0.01)
+min_term_credit = st.sidebar.slider("Min max_term_credit", 0.0, max(0.0, float(max_term_credit)), 0.0, 0.01)
 
-# ---- Filters
-f1, f2, f3, f4 = st.columns([1, 1, 1, 1])
+# Row limit
+row_limit = st.sidebar.number_input("Rows to display (for speed)", min_value=50, max_value=50000, value=2000, step=50)
 
-with f1:
-    pubs = con.execute("SELECT DISTINCT publication_name FROM v ORDER BY 1").fetchdf()["publication_name"].dropna().tolist()
-    sel_pub = st.multiselect("Publication", pubs, max_selections=10, placeholder="Select up to 10…")
+# ---------- Build WHERE clause + args from global filters ----------
+def build_where_and_args(extra: str = "", extra_args: dict | None = None) -> Tuple[str, dict]:
+    clauses = ["1=1"]
+    args: dict = {}
 
-with f2:
-    bands = con.execute("SELECT DISTINCT sentiment_band FROM v ORDER BY 1").fetchdf()["sentiment_band"].dropna().tolist()
-    sel_band = st.multiselect("Sentiment band", bands)
+    # dates
+    if date_range and isinstance(date_range, (tuple, list)) and len(date_range) == 2 and date_range[0] and date_range[1]:
+        dmin = pd.to_datetime(date_range[0])
+        dmax = pd.to_datetime(date_range[1]) + pd.Timedelta(days=1)  # exclusive upper bound
+        clauses.append("load_ts >= $dmin AND load_ts < $dmax")
+        args["dmin"] = dmin
+        args["dmax"] = dmax
 
-with f3:
-    default_range = (min_d, max_d) if (min_d and max_d) else None
-    dr = st.date_input("Date range", value=default_range)
+    # sentiment
+    if sel_bands:
+        clauses.append("sentiment_band IN $bands")
+        args["bands"] = sel_bands
 
-with f4:
-    q = st.text_input("Search headline (contains)")
+    # publications
+    if sel_pubs:
+        clauses.append("publication_name IN $pubs")
+        args["pubs"] = sel_pubs
 
-s1, s2, s3 = st.columns([1, 1, 1])
-with s1:
-    sort_col = st.selectbox(
-        "Sort by",
-        ["load_date", "publication_name", "sentiment_score", "vipr_score", "hit_strength"],
-        index=0,
-    )
-with s2:
-    sort_dir = st.radio("Direction", ["asc", "desc"], horizontal=True, index=0)
-with s3:
-    page_size = st.selectbox("Page size", [50, 100, 200, 500], index=1)
+    # numeric thresholds
+    clauses.append("COALESCE(pub_credit_share, 0.0) >= $thr_pub")
+    args["thr_pub"] = float(min_pub_credit)
+    clauses.append("COALESCE(max_term_credit, 0.0) >= $thr_term")
+    args["thr_term"] = float(min_term_credit)
 
-page = st.number_input("Page (0-based)", min_value=0, step=1, value=0)
+    if extra:
+        clauses.append(extra)
+    if extra_args:
+        args.update(extra_args)
 
-# ---- Query + results
-with st.spinner("Querying…"):
-    try:
-        tbl, total = query_rows(
-            con,
-            pub=sel_pub or None,
-            band=sel_band or None,
-            dmin=dr[0] if isinstance(dr, (list, tuple)) and len(dr) == 2 else (dr[0] if isinstance(dr, list) and dr else None),
-            dmax=dr[1] if isinstance(dr, (list, tuple)) and len(dr) == 2 else (dr[1] if isinstance(dr, list) and len(dr) > 1 else None),
-            search=q or None,
-            sort_col=sort_col,
-            sort_dir=sort_dir,
-            page=page,
-            page_size=page_size,
-        )
-    except Exception as e:
-        st.error(f"Query failed: {e}")
-        st.expander("Traceback").code(traceback.format_exc())
-        st.stop()
+    return " AND ".join(clauses), args
 
-shown = min((page + 1) * page_size, total)
-st.write(f"Showing {shown:,} of {total:,} (page {page})")
+# ---------- Helpers ----------
+def download_button_for_df(df_in: pd.DataFrame, label: str, fname: str):
+    csv_bytes = df_in.to_csv(index=False).encode("utf-8")
+    st.download_button(label, csv_bytes, file_name=fname, mime="text/csv")
 
-# Display current slice
-slice_df = tbl.to_pandas()
-st.dataframe(slice_df, use_container_width=True, hide_index=True)
+def get_v_columns(con: duckdb.DuckDBPyConnection) -> List[str]:
+    cols = con.execute("DESCRIBE v").fetchdf()["column_name"].tolist()
+    return [c for c in cols if c not in ("load_ts",)]  # hide computed helper
 
-# Download just the current page
-st.download_button(
-    "Download current page (CSV)",
-    data=slice_df.to_csv(index=False).encode("utf-8"),
-    file_name=f"results_page{page}.csv",
-    mime="text/csv",
+# ---------- Available item dimensions present in both (attr + df) ----------
+# from attribution (distinct dimensions)
+dims_df = con.execute("SELECT DISTINCT dimension FROM v_item_attr WHERE dimension IS NOT NULL").fetchdf()
+dim_candidates = set(dims_df["dimension"].tolist())
+df_cols = set(get_v_columns(con))
+available_dims = sorted([d for d in dim_candidates if d in df_cols])
+
+# ---------- View selector ----------
+view = st.selectbox("View", ["🔎 Item Lookup", "🔎 Term Lookup", "📚 Browse Attribution"], index=0)
+
+# ==========================
+# VIEW — ITEM LOOKUP
+# ==========================
+if view == "🔎 Item Lookup":
+    st.subheader("Item Lookup (dimensions & values)")
+
+    if not available_dims:
+        st.info("No item dimensions available for lookup.")
+    else:
+        col1, col2 = st.columns([1, 2])
+
+        with col1:
+            default_idx = available_dims.index("publication_name") if "publication_name" in available_dims else 0
+            dim = st.selectbox("Dimension", available_dims, index=default_idx)
+
+            values_df = con.execute(
+                "SELECT DISTINCT value FROM v_item_attr WHERE dimension = $dim AND value IS NOT NULL ORDER BY 1",
+                {"dim": dim},
+            ).fetchdf()
+            dim_values = values_df["value"].tolist()
+            value = st.selectbox("Value", dim_values)
+
+        with col2:
+            score_df = con.execute(
+                """
+                SELECT dimension, value, credit, credit_share, rating
+                FROM v_item_attr
+                WHERE dimension = $dim AND value = $val
+                ORDER BY credit_share DESC
+                """,
+                {"dim": dim, "val": value},
+            ).fetchdf()
+            st.write("**Attribution Score**")
+            st.dataframe(score_df, use_container_width=True)
+
+        # Matching articles in v with global filters AND dim=value
+        where, args = build_where_and_args(extra=f"{_quote_ident(dim)} = $val", extra_args={"val": value})
+        sql = f"SELECT * FROM v WHERE {where} LIMIT $lim"
+        args["lim"] = int(row_limit)
+        filtered = con.execute(sql, args).fetchdf()
+
+        st.write(f"**Matching Articles** ({len(filtered):,} rows shown; cap = {row_limit:,})")
+        st.dataframe(filtered, use_container_width=True)
+
+        safe_val = re.sub(r"[^A-Za-z0-9_-]+", "_", str(value))
+        fname = f"{dim}__{safe_val}.csv"
+        download_button_for_df(filtered, "⬇️ Download filtered rows (CSV)", fname)
+
+# ==========================
+# VIEW — TERM LOOKUP
+# ==========================
+elif view == "🔎 Term Lookup":
+    st.subheader("Term Lookup (keywords & bigrams)")
+
+    # Controls
+    term_input = st.text_input("Type a term to search (exact or substring)", "")
+    whole_word = st.checkbox("Whole word match (uses regex)", value=True)
+
+    # Top terms table
+    topN = st.number_input("Show top N terms by credit_share", min_value=10, max_value=2000, value=100, step=10)
+    top_terms = con.execute(
+        """
+        SELECT value, credit, credit_share, rating
+        FROM v_term_attr
+        QUALIFY ROW_NUMBER() OVER (PARTITION BY value ORDER BY credit_share DESC) = 1
+        ORDER BY credit_share DESC
+        LIMIT $n
+        """,
+        {"n": int(topN)},
+    ).fetchdf()
+    st.write("**Top Terms by Credit Share**")
+    st.dataframe(top_terms, use_container_width=True)
+
+    # Selected term details + article hits
+    if term_input:
+        tscore = con.execute(
+            "SELECT value, credit, credit_share, rating FROM v_term_attr WHERE value = $val ORDER BY credit_share DESC",
+            {"val": term_input},
+        ).fetchdf()
+        if tscore.empty:
+            st.info("Term not found in attribution table; showing substring matches in articles only.")
+        else:
+            st.write("**Term Attribution**")
+            st.dataframe(tscore, use_container_width=True)
+
+        where_base, args = build_where_and_args()
+        # Build a combined text to search; prefer processed fields if present
+        text_expr = "COALESCE(processed_headline,'') || ' ' || COALESCE(processed_body,'')"
+
+        if whole_word:
+            # Regex whole-word (case-insensitive) — duckdb REGEXP_MATCHES supports PCRE
+            # (?i) for case-insensitive; use \b boundaries
+            pattern = r"(?i)\b" + re.escape(term_input) + r"\b"
+            where = f"{where_base} AND REGEXP_MATCHES({text_expr}, $rx)"
+            args["rx"] = pattern
+        else:
+            where = f"{where_base} AND LOWER({text_expr}) LIKE $pat"
+            args["pat"] = f"%{term_input.lower()}%"
+
+        hits_sql = f"SELECT * FROM v WHERE {where} LIMIT $lim"
+        args["lim"] = int(row_limit)
+        hits = con.execute(hits_sql, args).fetchdf()
+
+        st.write(f"**Articles containing “{term_input}”** ({len(hits):,}; showing up to {row_limit:,})")
+        st.dataframe(hits, use_container_width=True)
+
+        fname = f"term__{re.sub(r'[^A-Za-z0-9_-]+','_', term_input)}.csv"
+        download_button_for_df(hits, f"⬇️ Download rows with '{term_input}' (CSV)", fname)
+
+# ==========================
+# VIEW — BROWSE ATTRIBUTION
+# ==========================
+else:
+    st.subheader("Browse All Attribution")
+
+    # Items
+    st.markdown("### Items (dimensions/values)")
+    if available_dims:
+        dim_browse = st.selectbox("Dimension to browse", available_dims)
+        items_view = con.execute(
+            """
+            SELECT dimension, value, credit, credit_share, rating
+            FROM v_item_attr
+            WHERE dimension = $dim
+            ORDER BY credit_share DESC, value ASC
+            LIMIT $lim
+            """,
+            {"dim": dim_browse, "lim": int(row_limit)},
+        ).fetchdf()
+        st.dataframe(items_view, use_container_width=True)
+    else:
+        st.info("No item dimensions available for browsing.")
+
+    # Terms
+    st.markdown("### Terms")
+    terms_view = con.execute(
+        """
+        SELECT value, credit, credit_share, rating
+        FROM v_term_attr
+        QUALIFY ROW_NUMBER() OVER (PARTITION BY value ORDER BY credit_share DESC) = 1
+        ORDER BY credit_share DESC
+        LIMIT $lim
+        """,
+        {"lim": int(row_limit)},
+    ).fetchdf()
+    st.dataframe(terms_view, use_container_width=True)
+
+# ---------- Footer ----------
+st.caption(
+    "Tip: Use the sidebar to filter by date & sentiment. "
+    "Switch the view selector to move between Item Lookup, Term Lookup, and Browse. "
+    f"Rows in main table: {n_rows:,}."
 )
-
-st.caption("Tip: Increase Page size or change Sort to navigate quickly. For full exports, add a server-side export button that writes a filtered Parquet/CSV to Blob.")
-
-
-# -------------------- OPTIONAL: ATTR VIEW -------------------
-# If your attribution CSV was found, offer a very simple peek.
-if has_attr:
-    with st.expander("Attribution table (sample)"):
-        try:
-            attr_head = con.execute("SELECT * FROM v_attr LIMIT 200").fetchdf()
-            st.dataframe(attr_head, use_container_width=True, hide_index=True)
-            st.caption("This is a small sample for inspection; integrate with filters as needed.")
-        except Exception as e:
-            st.warning(f"Unable to preview attribution: {e}")

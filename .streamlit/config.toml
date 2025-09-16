@@ -1,8 +1,4 @@
 [server]
-fileWatcherType = "poll"   # or "none"
+fileWatcherType = "poll"
 runOnSave = false
-folderWatchBlacklist = [
-  "data/.*",
-  "\\.venv/.*",
-  ".*\\.(csv|parquet|gpickle)$"
-]
+folderWatchBlacklist = ["data/.*", "\\.venv/.*", ".*\\.(csv|parquet|gpickle)$"]
