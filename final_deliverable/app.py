@@ -44,17 +44,14 @@ st.markdown(
     """
     **Instructions**
 
-    1. **Choose a view** from the dropdown at the top:
+    **Choose a view** from the dropdown at the top:
        * *Item Lookup* – See influence scores by any item dimension and value.
        * *Term Lookup* – Search keywords or bigrams and view matching articles.
        * *Browse Attribution* – Explore all attribution data.
 
-    2. **Apply global filters** in the sidebar (date range, sentiment band,
+    **Apply global filters** in the sidebar (date range, sentiment band,
        publications, and minimum influence thresholds).  
        These filters affect every view.
-
-    3. **Inspect and download** the results. Use the download buttons in each
-       section to export the filtered rows as CSV.
     """
 )
 
@@ -244,16 +241,6 @@ try:
 except Exception as e:
     st.error(f"Data bootstrap failed: {e}")
     st.stop()
-
-# --- Debug info (appears collapsed in the app) ---
-with st.expander("Debug (data bootstrap)", expanded=False):
-    st.write({
-        "mode": "AZURE" if USE_AZURE else "LOCAL",
-        "parquet_path": str(parquet_path),
-        "attr_path": str(attr_path) if attr_path else None
-    })
-    st.write("Columns in v:")
-    st.dataframe(con.execute("DESCRIBE v").fetchdf(), use_container_width=True)
 
 # read summary stats
 n_rows = con.execute("SELECT COUNT(*) FROM v").fetchone()[0]
