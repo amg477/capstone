@@ -42,7 +42,7 @@ st.title("Attribution Explorer")
 
 st.markdown(
     """
-    **Instructions*
+    **Instructions**
 
     1. **Choose a view** from the dropdown at the top:
        * *Item Lookup* – See influence scores by any item dimension and value.
