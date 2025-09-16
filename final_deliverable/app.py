@@ -40,6 +40,24 @@ except Exception:
 st.set_page_config(page_title="Attribution Explorer", layout="wide")
 st.title("Attribution Explorer")
 
+st.markdown(
+    """
+    **Instructions*
+
+    1. **Choose a view** from the dropdown at the top:
+       * *Item Lookup* – See influence scores by any item dimension and value.
+       * *Term Lookup* – Search keywords or bigrams and view matching articles.
+       * *Browse Attribution* – Explore all attribution data.
+
+    2. **Apply global filters** in the sidebar (date range, sentiment band,
+       publications, and minimum influence thresholds).  
+       These filters affect every view.
+
+    3. **Inspect and download** the results. Use the download buttons in each
+       section to export the filtered rows as CSV.
+    """
+)
+
 # ---------- Paths (LOCAL defaults like your original app) ----------
 ROOT = pathlib.Path("/Users/annaglass/capstone/capstone")
 LOCAL_PARQUET = ROOT / "data" / "final_model_dataset.parquet"
@@ -148,14 +166,33 @@ def materialize_inputs() -> Tuple[pathlib.Path, Optional[pathlib.Path]]:
 def get_duck_conn(parquet_path: pathlib.Path, attr_path: Optional[pathlib.Path]) -> duckdb.DuckDBPyConnection:
     con = duckdb.connect()
 
-    # Main view: cast load_date once to a proper timestamp
+    # 1) Create a raw view over the file
     con.execute(f"""
-        CREATE OR REPLACE VIEW v AS
-        SELECT
-            *,
-            TRY_CAST(load_date AS TIMESTAMP) AS load_ts
-        FROM read_parquet({_sql_str(parquet_path)}, hive_partitioning=FALSE)
+        CREATE OR REPLACE VIEW v_raw AS
+        SELECT * FROM read_parquet({_sql_str(parquet_path)}, hive_partitioning=FALSE)
     """)
+
+    # 2) Inspect columns to decide how to build load_ts
+    cols_df = con.execute("DESCRIBE v_raw").fetchdf()
+    has_load_date = "load_date" in set(cols_df["column_name"].tolist())
+
+    if has_load_date:
+        con.execute("""
+            CREATE OR REPLACE VIEW v AS
+            SELECT
+                *,
+                TRY_CAST(load_date AS TIMESTAMP) AS load_ts
+            FROM v_raw
+        """)
+    else:
+        # No load_date column -> still create v and provide a NULL timestamp so the app runs
+        con.execute("""
+            CREATE OR REPLACE VIEW v AS
+            SELECT
+                *,
+                CAST(NULL AS TIMESTAMP) AS load_ts
+            FROM v_raw
+        """)
 
     # Attribution views (optional)
     if attr_path and attr_path.exists():
@@ -166,18 +203,11 @@ def get_duck_conn(parquet_path: pathlib.Path, attr_path: Optional[pathlib.Path])
         con.execute("CREATE OR REPLACE VIEW v_item_attr AS SELECT * FROM v_attr WHERE kind = 'item'")
         con.execute("CREATE OR REPLACE VIEW v_term_attr AS SELECT * FROM v_attr WHERE kind = 'term'")
     else:
-        # Create empty stubs so downstream queries can succeed
-        con.execute("""
-            CREATE OR REPLACE VIEW v_attr AS SELECT * FROM (SELECT 1 WHERE 0)
-        """)
-        con.execute("""
-            CREATE OR REPLACE VIEW v_item_attr AS SELECT * FROM (SELECT 1 WHERE 0)
-        """)
-        con.execute("""
-            CREATE OR REPLACE VIEW v_term_attr AS SELECT * FROM (SELECT 1 WHERE 0)
-        """)
+        con.execute("CREATE OR REPLACE VIEW v_attr AS SELECT * FROM (SELECT 1 WHERE 0)")
+        con.execute("CREATE OR REPLACE VIEW v_item_attr AS SELECT * FROM (SELECT 1 WHERE 0)")
+        con.execute("CREATE OR REPLACE VIEW v_term_attr AS SELECT * FROM (SELECT 1 WHERE 0)")
 
-    return con
+    return con 
 
 # ---------- Sidebar: global filters ----------
 st.sidebar.header("Global Filters")
@@ -189,6 +219,16 @@ try:
 except Exception as e:
     st.error(f"Data bootstrap failed: {e}")
     st.stop()
+
+# --- Debug info (appears collapsed in the app) ---
+with st.expander("Debug (data bootstrap)", expanded=False):
+    st.write({
+        "mode": "AZURE" if USE_AZURE else "LOCAL",
+        "parquet_path": str(parquet_path),
+        "attr_path": str(attr_path) if attr_path else None
+    })
+    st.write("Columns in v:")
+    st.dataframe(con.execute("DESCRIBE v").fetchdf(), use_container_width=True)
 
 # read summary stats
 n_rows = con.execute("SELECT COUNT(*) FROM v").fetchone()[0]
