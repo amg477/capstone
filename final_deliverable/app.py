@@ -164,50 +164,75 @@ def materialize_inputs() -> Tuple[pathlib.Path, Optional[pathlib.Path]]:
 # ---------- DuckDB connection & views ----------
 @st.cache_resource(show_spinner=False)
 def get_duck_conn(parquet_path: pathlib.Path, attr_path: Optional[pathlib.Path]) -> duckdb.DuckDBPyConnection:
+    """
+    Create DuckDB connection and view `v`.
+    - Try Parquet first.
+    - If Parquet fails, fall back to CSV (AZURE: download to /tmp; LOCAL: use local CSV if present),
+      then (optionally) materialize a new /tmp parquet so future boots are fast.
+    """
     con = duckdb.connect()
 
-    # 1) Create a raw view over the file
-    con.execute(f"""
-        CREATE OR REPLACE VIEW v_raw AS
-        SELECT * FROM read_parquet({_sql_str(parquet_path)}, hive_partitioning=FALSE)
-    """)
+    def _build_v_from_parquet(pq_path: pathlib.Path):
+        con.execute(f"CREATE OR REPLACE VIEW v_raw AS SELECT * FROM read_parquet({_sql_str(pq_path)}, hive_partitioning=FALSE)")
+        cols = set(con.execute("DESCRIBE v_raw").fetchdf()["column_name"].tolist())
+        if "load_date" in cols:
+            con.execute("CREATE OR REPLACE VIEW v AS SELECT *, TRY_CAST(load_date AS TIMESTAMP) AS load_ts FROM v_raw")
+        else:
+            con.execute("CREATE OR REPLACE VIEW v AS SELECT *, CAST(NULL AS TIMESTAMP) AS load_ts FROM v_raw")
 
-    # 2) Inspect columns to decide how to build load_ts
-    cols_df = con.execute("DESCRIBE v_raw").fetchdf()
-    has_load_date = "load_date" in set(cols_df["column_name"].tolist())
+    def _build_v_from_csv(csv_path: pathlib.Path):
+        con.execute(f"CREATE OR REPLACE VIEW v_raw AS SELECT * FROM read_csv_auto({_sql_str(csv_path)}, IGNORE_ERRORS=TRUE)")
+        cols = set(con.execute("DESCRIBE v_raw").fetchdf()["column_name"].tolist())
+        if "load_date" in cols:
+            con.execute("CREATE OR REPLACE VIEW v AS SELECT *, TRY_CAST(load_date AS TIMESTAMP) AS load_ts FROM v_raw")
+        else:
+            con.execute("CREATE OR REPLACE VIEW v AS SELECT *, CAST(NULL AS TIMESTAMP) AS load_ts FROM v_raw")
 
-    if has_load_date:
-        con.execute("""
-            CREATE OR REPLACE VIEW v AS
-            SELECT
-                *,
-                TRY_CAST(load_date AS TIMESTAMP) AS load_ts
-            FROM v_raw
-        """)
-    else:
-        # No load_date column -> still create v and provide a NULL timestamp so the app runs
-        con.execute("""
-            CREATE OR REPLACE VIEW v AS
-            SELECT
-                *,
-                CAST(NULL AS TIMESTAMP) AS load_ts
-            FROM v_raw
-        """)
+    # --- Try Parquet first
+    try:
+        if not parquet_path.exists() or parquet_path.stat().st_size == 0:
+            raise FileNotFoundError("Parquet not found or empty")
+        _build_v_from_parquet(parquet_path)
+    except Exception as e_parq:
+        # Fallback: CSV
+        try:
+            csv_tmp = pathlib.Path("/tmp/final_model_dataset.csv")
+            if USE_AZURE:
+                # Download CSV blob to /tmp if not already there
+                try:
+                    _blob_to_tmp(AZURE_CONTAINER, "data/processed/final_model_dataset.csv", csv_tmp)
+                except Exception:
+                    raise RuntimeError("Could not read Parquet and CSV blob is not available") from e_parq
+            else:
+                # LOCAL mode: try your original local CSV path
+                local_csv = pathlib.Path("/Users/annaglass/capstone/capstone/data/final_model_dataset.csv")
+                if local_csv.exists():
+                    csv_tmp = local_csv
+                elif not csv_tmp.exists():
+                    raise RuntimeError("Could not read Parquet and no CSV found locally") from e_parq
 
-    # Attribution views (optional)
+            _build_v_from_csv(csv_tmp)
+
+            # Optional: write a fresh parquet to /tmp for speed next boot
+            try:
+                con.execute(f"COPY (SELECT * FROM v_raw) TO {_sql_str(pathlib.Path('/tmp/final_model_dataset.parquet'))} (FORMAT PARQUET)")
+            except Exception:
+                pass  # non-fatal
+        except Exception as e_csv:
+            # Bubble up a clear error; the UI will show it
+            raise RuntimeError(f"Failed to create view from Parquet ({e_parq}) or CSV fallback ({e_csv})")
+
+    # --- Attribution views (optional)
     if attr_path and attr_path.exists():
-        con.execute(f"""
-            CREATE OR REPLACE VIEW v_attr AS
-            SELECT * FROM read_csv_auto({_sql_str(attr_path)}, IGNORE_ERRORS=TRUE)
-        """)
+        con.execute(f"CREATE OR REPLACE VIEW v_attr AS SELECT * FROM read_csv_auto({_sql_str(attr_path)}, IGNORE_ERRORS=TRUE)")
         con.execute("CREATE OR REPLACE VIEW v_item_attr AS SELECT * FROM v_attr WHERE kind = 'item'")
-        con.execute("CREATE OR REPLACE VIEW v_term_attr AS SELECT * FROM v_attr WHERE kind = 'term'")
+        con.execute("CREATE OR REPLACE VIEW v_term_attr  AS SELECT * FROM v_attr WHERE kind = 'term'")
     else:
         con.execute("CREATE OR REPLACE VIEW v_attr AS SELECT * FROM (SELECT 1 WHERE 0)")
         con.execute("CREATE OR REPLACE VIEW v_item_attr AS SELECT * FROM (SELECT 1 WHERE 0)")
-        con.execute("CREATE OR REPLACE VIEW v_term_attr AS SELECT * FROM (SELECT 1 WHERE 0)")
+        con.execute("CREATE OR REPLACE VIEW v_term_attr  AS SELECT * FROM (SELECT 1 WHERE 0)")
 
-    return con 
+    return con
 
 # ---------- Sidebar: global filters ----------
 st.sidebar.header("Global Filters")
