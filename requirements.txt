@@ -1,4 +1,6 @@
-streamlit>=1.36
-duckdb>=1.0.0
-pandas>=2.2
 azure-storage-blob>=12.20  # only needed if you use Azure mode
+streamlit>=1.37
+duckdb>=1.4
+pandas>=2.2
+matplotlib>=3.8
+seaborn>=0.13
