@@ -1,14 +1,17 @@
-# app.py — Influence Explorer (Tabbed Dashboard: Attribution • Dashboard • Network)
-# ------------------------------------------------------------------------------
-# Compact, Python 3.9–friendly, local-only version with three tabs:
-#   1) Attribution — Item & Term lookups + "What this means"
-#   2) Dashboard   — KPIs + simple charts (fast, DuckDB-backed)
-#   3) Network     — Lightweight network preview from an optional edges file
+# app.py — Influence Explorer (Tabbed: Attribution • Dashboard • Network)
+# -----------------------------------------------------------------------
+# - Python 3.9 compatible (no "|" union types)
+# - Local + Streamlit Cloud friendly path resolution
+# - Optional secrets override for data locations
+# - DuckDB backend, fast filters, simple UI
 #
-# Expects local files under ../data/ relative to this file (adjust ROOT as needed):
-#   - final_model_dataset.parquet (preferred) or final_model_dataset.csv  -> view v
-#   - attribution_all_scored.csv (optional) -> views v_attr, v_item_attr, v_term_attr
-#   - network_edges.csv (optional) with columns: source, target, weight
+# Secrets (optional) you can set in Deploy → Settings → Secrets:
+# [data]
+# data_dir = "data/processed"
+# parquet  = "final_model_dataset.parquet"
+# csv      = "final_model_dataset.csv"
+# attr_csv = "attribution_all_scored.csv"
+# logo     = "final_deliverable/penta_logo.png"
 
 from __future__ import annotations
 
@@ -20,15 +23,17 @@ import duckdb
 import pandas as pd
 import streamlit as st
 
-# Set Brand Colors
+# Optional: for brand styling charts
 import matplotlib.pyplot as plt
 import seaborn as sns
 from matplotlib import rcParams
 
+# -------------------- Page config --------------------
+st.set_page_config(page_title="Influence Explorer", layout="wide")
+
+# -------------------- Brand styling --------------------
 def apply_penta_style():
-    """
-    Apply Penta Group brand styling to matplotlib/seaborn plots.
-    """
+    """Apply Penta Group brand styling to matplotlib/seaborn plots."""
     PRIMARY_GREEN = "#12715D"   # Deep green
     ACCENT_GREEN  = "#4AB48E"   # Mint accent
 
@@ -52,27 +57,97 @@ def apply_penta_style():
     rcParams['figure.facecolor'] = "white"
     rcParams['axes.facecolor']   = "white"
 
-# -------------------- Config --------------------
-st.set_page_config(page_title="Influence Explorer", layout="wide")
+# -------------------- Secrets helpers --------------------
+def s(path: str, default=None):
+    """
+    Safe nested get from st.secrets using 'section.key' (e.g., 'data.data_dir').
+    Returns default if not found.
+    """
+    try:
+        cur = st.secrets
+        for part in path.split("."):
+            cur = cur[part]
+        return cur
+    except Exception:
+        return default
 
-from pathlib import Path
+# -------------------- Paths that work everywhere --------------------
 APP_DIR = Path(__file__).resolve().parent
-ROOT = APP_DIR.parent                # repo root (one level up from final_deliverable/)
-DATA_DIR = ROOT / "data"
+ROOT    = APP_DIR.parent  # repo root (one level up from final_deliverable/)
 
-DATA_PARQUET = DATA_DIR / "final_model_dataset.parquet"
-DATA_CSV     = DATA_DIR / "final_model_dataset.csv"
-ATTR_CSV     = DATA_DIR / "attribution_all_scored.csv"
-EDGES_CSV    = DATA_DIR / "network_edges.csv"   # if you use the network tab
-LOGO_PATH    = APP_DIR / "penta_logo.png"       # or APP_DIR/"assets"/"penta_logo.png"
+# Let secrets override defaults (works on Cloud too)
+DATA_DIR = (ROOT / s("data.data_dir", "data")).resolve()
+PARQUET_NAME = s("data.parquet", "final_model_dataset.parquet")
+CSV_NAME     = s("data.csv",     "final_model_dataset.csv")
+ATTR_NAME    = s("data.attr_csv","attribution_all_scored.csv")
+LOGO_NAME    = s("data.logo",    "final_deliverable/penta_logo.png")
 
-if LOGO_PATH.exists():
-    st.image(str(LOGO_PATH), width=200)
+# Search in both data/ and data/processed/ if not found in the configured folder
+CANDIDATE_DIRS: List[Path] = [
+    DATA_DIR,
+    ROOT / "data",
+    ROOT / "data" / "processed",
+]
 
-st.title("Healthcare Policy: Influence and Networks")
+def _find_first_existing(*names: str) -> Optional[Path]:
+    for d in CANDIDATE_DIRS:
+        for nm in names:
+            p = d / nm
+            if p.exists():
+                return p
+    return None
 
-# -------------------- Helpers --------------------
+DATA_PARQUET = _find_first_existing(PARQUET_NAME)
+DATA_CSV     = _find_first_existing(CSV_NAME)
+ATTR_CSV     = _find_first_existing(ATTR_NAME)
 
+# Logo can be outside data dir; try exact then fallback to app dir
+LOGO_PATH = (ROOT / LOGO_NAME) if LOGO_NAME else (APP_DIR / "penta_logo.png")
+if not LOGO_PATH.exists():
+    # fallback: try in app dir
+    if (APP_DIR / "penta_logo.png").exists():
+        LOGO_PATH = APP_DIR / "penta_logo.png"
+
+# -------------------- Small utilities --------------------
+def _q(p: Path) -> str:
+    return "'" + str(p).replace("'", "''") + "'"
+
+def _quote_ident(name: str) -> str:
+    """DuckDB-safe identifier quoting."""
+    return '"' + name.replace('"', '""') + '"'
+
+# -------------------- Connect & create views --------------------
+@st.cache_resource(show_spinner=True)
+def connect_duckdb() -> duckdb.DuckDBPyConnection:
+    con = duckdb.connect()
+
+    # main table v
+    if DATA_PARQUET:
+        con.execute(f"CREATE OR REPLACE VIEW v AS SELECT * FROM read_parquet({_q(DATA_PARQUET)})")
+    elif DATA_CSV:
+        con.execute(f"CREATE OR REPLACE VIEW v AS SELECT * FROM read_csv_auto({_q(DATA_CSV)}, IGNORE_ERRORS=TRUE)")
+    else:
+        st.error(
+            "Could not find dataset. Searched:\n"
+            + "\n".join(f"- {d}" for d in CANDIDATE_DIRS)
+            + "\nLooking for: "
+            + f"{PARQUET_NAME} or {CSV_NAME}"
+        )
+        raise FileNotFoundError("Dataset not found in expected folders.")
+
+    # optional attribution
+    if ATTR_CSV:
+        con.execute(f"CREATE OR REPLACE VIEW v_attr AS SELECT * FROM read_csv_auto({_q(ATTR_CSV)}, IGNORE_ERRORS=TRUE)")
+        con.execute("CREATE OR REPLACE VIEW v_item_attr AS SELECT * FROM v_attr WHERE kind='item'")
+        con.execute("CREATE OR REPLACE VIEW v_term_attr  AS SELECT * FROM v_attr WHERE kind='term'")
+    else:
+        con.execute("CREATE OR REPLACE VIEW v_attr AS SELECT * FROM (SELECT 1 WHERE 0)")
+        con.execute("CREATE OR REPLACE VIEW v_item_attr AS SELECT * FROM (SELECT 1 WHERE 0)")
+        con.execute("CREATE OR REPLACE VIEW v_term_attr  AS SELECT * FROM (SELECT 1 WHERE 0)")
+
+    return con
+
+# -------------------- Attribution explainer --------------------
 def explain_attribution(row: pd.Series, universe: Optional[pd.DataFrame] = None) -> str:
     dim   = str(row.get("dimension", "dimension"))
     val   = str(row.get("value", "value"))
@@ -82,11 +157,13 @@ def explain_attribution(row: pd.Series, universe: Optional[pd.DataFrame] = None)
 
     parts = [f"**{dim} = {val}**"]
     parts.append(
-        f"within the current selection" + (f" (rating = **{int(rating)}**)" if pd.notna(rating) else "") + "."
+        "within the current selection"
+        + (f" (rating = **{int(rating)}**)" if pd.notna(rating) else "")
+        + "."
     )
     parts.append(f"It contributes **{share:.2%}** of total attribution credit (raw credit **{cred:,.4f}**).")
 
-    if universe is not None and not universe.empty and "dimension" in universe.columns:
+    if universe is not None and not universe.empty:
         peers = universe[universe["dimension"] == dim]
         if not peers.empty and val in peers.get("value", pd.Series(dtype=str)).values:
             peers = peers.assign(_rank=peers["credit"].rank(ascending=False, method="min"))
@@ -100,49 +177,22 @@ def explain_attribution(row: pd.Series, universe: Optional[pd.DataFrame] = None)
 
     if share < 0.001:
         parts.append("Very small share — likely low standalone influence.")
+
     return " ".join(parts)
 
-
-def _q(s: str) -> str:
-    return "'" + s.replace("'", "''") + "'"
-
-def _quote_ident(name: str) -> str:
-    return '"' + name.replace('"', '""') + '"'
-
-# -------------------- Data bootstrap (local only) --------------------
-
-@st.cache_resource(show_spinner=True)
-def connect_duckdb() -> duckdb.DuckDBPyConnection:
-    con = duckdb.connect()
-
-    # Build view v from parquet or csv
-    if DATA_PARQUET.exists():
-        con.execute(f"CREATE OR REPLACE VIEW v AS SELECT * FROM read_parquet({_q(str(DATA_PARQUET))})")
-    elif DATA_CSV.exists():
-        con.execute(f"CREATE OR REPLACE VIEW v AS SELECT * FROM read_csv_auto({_q(str(DATA_CSV))}, IGNORE_ERRORS=TRUE)")
-    else:
-        raise FileNotFoundError("Missing final_model_dataset.parquet/csv under data/")
-
-    # Optional attribution
-    if ATTR_CSV.exists():
-        con.execute(f"CREATE OR REPLACE VIEW v_attr AS SELECT * FROM read_csv_auto({_q(str(ATTR_CSV))}, IGNORE_ERRORS=TRUE)")
-        con.execute("CREATE OR REPLACE VIEW v_item_attr AS SELECT * FROM v_attr WHERE kind='item'")
-        con.execute("CREATE OR REPLACE VIEW v_term_attr  AS SELECT * FROM v_attr WHERE kind='term'")
-    else:
-        con.execute("CREATE OR REPLACE VIEW v_attr AS SELECT * FROM (SELECT 1 WHERE 0)")
-        con.execute("CREATE OR REPLACE VIEW v_item_attr AS SELECT * FROM (SELECT 1 WHERE 0)")
-        con.execute("CREATE OR REPLACE VIEW v_term_attr  AS SELECT * FROM (SELECT 1 WHERE 0)")
-
-    return con
-
+# -------------------- Bootstrap, style, header --------------------
 con = connect_duckdb()
-
-# call style
 apply_penta_style()
-# -------------------- Sidebar filters --------------------
 
+if LOGO_PATH and LOGO_PATH.exists():
+    st.image(str(LOGO_PATH), width=200)
+
+st.title("Influence Explorer")
+
+# -------------------- Sidebar filters --------------------
 st.sidebar.header("Filters")
-# Date range (based on optional load_ts)
+
+# Date range (if load_ts exists)
 try:
     min_ts, max_ts = con.execute("SELECT MIN(load_ts), MAX(load_ts) FROM v").fetchone()
 except Exception:
@@ -157,25 +207,19 @@ else:
 
 # Sentiment band options
 try:
-    bands = con.execute("SELECT DISTINCT sentiment_band FROM v WHERE sentiment_band IS NOT NULL ORDER BY 1").fetchdf()[
-        "sentiment_band"
-    ].tolist()
+    bands = con.execute("SELECT DISTINCT sentiment_band FROM v WHERE sentiment_band IS NOT NULL ORDER BY 1").fetchdf()["sentiment_band"].tolist()
 except Exception:
     bands = []
 sel_bands = st.sidebar.multiselect("Sentiment band", bands, default=bands)
 
 # Publications
 try:
-    pubs = con.execute("SELECT DISTINCT publication_name FROM v WHERE publication_name IS NOT NULL ORDER BY 1").fetchdf()[
-        "publication_name"
-    ].tolist()
+    pubs = con.execute("SELECT DISTINCT publication_name FROM v WHERE publication_name IS NOT NULL ORDER BY 1").fetchdf()["publication_name"].tolist()
 except Exception:
     pubs = []
 sel_pubs = st.sidebar.multiselect("Publication", pubs, default=[])
 
 row_limit = st.sidebar.number_input("Rows to display", 50, 50000, 2000, 50)
-
-# WHERE builder shared by tabs
 
 def build_where(extra: str = "", params: Optional[Dict] = None) -> Tuple[str, Dict]:
     clauses: List[str] = ["1=1"]
@@ -200,9 +244,14 @@ def build_where(extra: str = "", params: Optional[Dict] = None) -> Tuple[str, Di
 
     return " AND ".join(clauses), args
 
-# -------------------- Tabs --------------------
+# Debug block (optional)
+with st.sidebar.expander("Debug: data paths"):
+    st.write("DATA_PARQUET:", DATA_PARQUET)
+    st.write("DATA_CSV:", DATA_CSV)
+    st.write("ATTR_CSV:", ATTR_CSV)
 
-attr_tab, dash_tab, net_tab = st.tabs(["Attribution", "Dashboard", "Network"])
+# -------------------- Tabs --------------------
+attr_tab, dash_tab, net_tab = st.tabs(["🧮 Attribution", "📊 Dashboard", "🕸️ Network"])
 
 # ==========================
 # TAB 1 — ATTRIBUTION
@@ -238,6 +287,7 @@ with attr_tab:
                     """,
                     {"d": sel_dim, "v": sel_val},
                 ).fetchdf()
+
                 st.markdown("**Attribution Score**")
                 st.dataframe(score_df, use_container_width=True)
 
@@ -252,6 +302,7 @@ with attr_tab:
                 quoted_dim = _quote_ident(sel_dim)
                 where_sql, args = build_where(extra=f"{quoted_dim} = $val", params={"val": sel_val})
                 rows = con.execute(f"SELECT * FROM v WHERE {where_sql} LIMIT $lim", {**args, "lim": int(row_limit)}).fetchdf()
+
                 st.markdown(f"**Matching Articles** ({len(rows):,} shown; cap = {int(row_limit):,})")
                 st.dataframe(rows, use_container_width=True)
 
@@ -290,17 +341,22 @@ with attr_tab:
             if not tscore.empty:
                 st.markdown("**Term Attribution**")
                 st.dataframe(tscore, use_container_width=True)
-                # Build peers universe for terms (all rows for that value's dimension ~ terms only)
+
+                # Build peers universe for terms (use a synthetic 'dimension'='term' for the explainer)
                 term_peers = con.execute(
-                    "SELECT 'term' AS dimension, value, credit, credit_share, rating FROM v_term_attr",
+                    "SELECT 'term' AS dimension, value, credit, credit_share, rating FROM v_term_attr"
                 ).fetchdf()
                 st.markdown("#### What this means")
-                st.info(explain_attribution(tscore.iloc[0], term_peers))
+                # Inject dimension/value fields so the helper reads it naturally
+                row = tscore.iloc[0].copy()
+                row["dimension"] = "term"
+                row["value"] = row["value"]
+                st.info(explain_attribution(row, term_peers))
 
             base_where, args = build_where()
             text_expr = "COALESCE(processed_headline,'') || ' ' || COALESCE(processed_body,'')"
             if whole_word:
-                pattern = r"(?i)\\b" + re.escape(term) + r"\\b"
+                pattern = r"(?i)\b" + re.escape(term) + r"\b"
                 where_sql = f"{base_where} AND REGEXP_MATCHES({text_expr}, $rx)"
                 args["rx"] = pattern
             else:
@@ -315,9 +371,8 @@ with attr_tab:
 # TAB 2 — DASHBOARD
 # ==========================
 with dash_tab:
-    st.subheader("Dashboard")
+    st.subheader("Dashboard (quick stats)")
 
-    # KPIs
     c1, c2, c3 = st.columns(3)
     try:
         total_rows = con.execute("SELECT COUNT(*) FROM v").fetchone()[0]
@@ -339,25 +394,39 @@ with dash_tab:
     else:
         c3.metric("Date Range", "n/a")
 
-    # Top publications by share (if available)
-    st.markdown("### Top Publications by pub_credit_share")
-    top_pub = con.execute(
-        """
-        SELECT publication_name, AVG(pub_credit_share) AS avg_share, COUNT(*) AS n
-        FROM v
-        WHERE publication_name IS NOT NULL
-        GROUP BY 1
-        ORDER BY avg_share DESC
-        LIMIT 20
-        """
-    ).fetchdf()
-    if not top_pub.empty:
-        st.bar_chart(top_pub.set_index("publication_name")["avg_share"])  # simple built-in chart
-        st.dataframe(top_pub, use_container_width=True)
+    # Top publications by average pub_credit_share (if column exists)
+    st.markdown("### Top Publications by avg(pub_credit_share)")
+    try:
+        cols = con.execute("DESCRIBE v").fetchdf()["column_name"].tolist()
+    except Exception:
+        cols = []
+    if "pub_credit_share" in cols and "publication_name" in cols:
+        top_pub = con.execute(
+            """
+            SELECT publication_name, AVG(pub_credit_share) AS avg_share, COUNT(*) AS n
+            FROM v
+            WHERE publication_name IS NOT NULL
+            GROUP BY 1
+            ORDER BY avg_share DESC
+            LIMIT 20
+            """
+        ).fetchdf()
+        if not top_pub.empty:
+            # Simple brand-styled bar chart (matplotlib/seaborn)
+            fig, ax = plt.subplots(figsize=(8, 4))
+            sns.barplot(data=top_pub, x="publication_name", y="avg_share", ax=ax)
+            ax.set_title("Top Publications by Average pub_credit_share")
+            ax.set_xlabel("")
+            ax.set_ylabel("avg(pub_credit_share)")
+            ax.tick_params(axis='x', rotation=45)
+            st.pyplot(fig)
+            st.dataframe(top_pub, use_container_width=True)
+        else:
+            st.info("No rows for pub_credit_share.")
     else:
-        st.info("No pub_credit_share available to chart.")
+        st.info("Column 'pub_credit_share' not found in v; skipping chart.")
 
-    # Top terms (from attribution) snapshot
+    # Top terms snapshot (if attribution present)
     st.markdown("### Top Terms (credit_share)")
     terms = con.execute(
         """
@@ -372,38 +441,46 @@ with dash_tab:
         st.dataframe(terms, use_container_width=True)
 
 # ==========================
-# TAB 3 — NETWORK
+# TAB 3 — NETWORK (lightweight)
 # ==========================
 with net_tab:
     st.subheader("Network Preview")
-
-    if EDGES_CSV.exists():
-        edges = pd.read_csv(EDGES_CSV)
+    # If you have a CSV edges file committed: data/network_edges.csv (source,target,weight)
+    EDGES_PATH = _find_first_existing("network_edges.csv")
+    if EDGES_PATH and EDGES_PATH.exists():
+        edges = pd.read_csv(EDGES_PATH)
         required = {"source", "target", "weight"}
         if required.issubset(set(edges.columns)):
             st.write("Edges sample:")
             st.dataframe(edges.head(200), use_container_width=True)
 
-            # Quick, dependency-light adjacency stats
-            st.markdown("**Basic stats**")
-            deg = pd.concat([
-                edges.groupby("source")["weight"].sum().rename("out_weight"),
-                edges.groupby("target")["weight"].sum().rename("in_weight"),
-            ], axis=1).fillna(0)
+            st.markdown("**Basic node strength**")
+            deg = pd.concat(
+                [
+                    edges.groupby("source")["weight"].sum().rename("out_weight"),
+                    edges.groupby("target")["weight"].sum().rename("in_weight"),
+                ],
+                axis=1,
+            ).fillna(0)
             deg["strength"] = deg["in_weight"] + deg["out_weight"]
             st.dataframe(deg.sort_values("strength", ascending=False).head(30))
 
-            # Simple edge filter
-            min_w = st.slider("Min edge weight to show", float(edges["weight"].min()), float(edges["weight"].max()), float(edges["weight"].quantile(0.75)))
+            min_w = float(edges["weight"].quantile(0.75)) if not edges.empty else 0.0
+            min_w = st.slider(
+                "Min edge weight to show",
+                float(edges["weight"].min()) if not edges.empty else 0.0,
+                float(edges["weight"].max()) if not edges.empty else 1.0,
+                min_w,
+            )
             sub = edges[edges["weight"] >= min_w].copy()
             st.write(f"Filtered edges: {len(sub):,} (of {len(edges):,})")
             st.dataframe(sub.head(200), use_container_width=True)
 
-            st.caption("Tip: For interactive graphs, consider exporting to pyvis or Plotly. This tab keeps dependencies light.")
+            st.caption("Tip: For interactive graphs, consider pyvis or Plotly (kept out for minimal deps).")
         else:
             st.warning("network_edges.csv found but must contain columns: source, target, weight")
     else:
-        st.info("No network_edges.csv found. Place one under data/ with columns: source,target,weight.")
+        st.info("No network_edges.csv found. Place one under data/ or data/processed with columns: source,target,weight.")
 
 # -------------------- Footer --------------------
 try:
