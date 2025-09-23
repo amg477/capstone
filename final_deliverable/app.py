@@ -55,14 +55,17 @@ def apply_penta_style():
 # -------------------- Config --------------------
 st.set_page_config(page_title="Influence Explorer", layout="wide")
 
-ROOT = Path("/Users/annaglass/capstone/capstone")  # ← adjust if needed
-DATA_PARQUET = ROOT / "data" / "final_model_dataset.parquet"
-DATA_CSV     = ROOT / "data" / "final_model_dataset.csv"
-ATTR_CSV     = ROOT / "data" / "attribution_all_scored.csv"
-EDGES_CSV    = ROOT / "data" / "network_edges.csv"  # optional (source,target,weight)
+from pathlib import Path
+APP_DIR = Path(__file__).resolve().parent
+ROOT = APP_DIR.parent                # repo root (one level up from final_deliverable/)
+DATA_DIR = ROOT / "data"
 
-APP_DIR = Path(__file__).parent
-LOGO_PATH = APP_DIR / "penta_logo.png"
+DATA_PARQUET = DATA_DIR / "final_model_dataset.parquet"
+DATA_CSV     = DATA_DIR / "final_model_dataset.csv"
+ATTR_CSV     = DATA_DIR / "attribution_all_scored.csv"
+EDGES_CSV    = DATA_DIR / "network_edges.csv"   # if you use the network tab
+LOGO_PATH    = APP_DIR / "penta_logo.png"       # or APP_DIR/"assets"/"penta_logo.png"
+
 if LOGO_PATH.exists():
     st.image(str(LOGO_PATH), width=200)
 
