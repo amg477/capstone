@@ -1,12 +1,23 @@
 # app.py — Influence Explorer (Tabbed: Attribution • Dashboard • Network)
 # -----------------------------------------------------------------------
-# - Python 3.9 compatible (no "|" union types)
-# - Local + Streamlit Cloud friendly path resolution
-# - Optional secrets override for data locations
+# - Python 3.9 compatible
+# - Local & Streamlit Cloud friendly (optional Azure via secrets)
 # - DuckDB backend, fast filters, simple UI
 #
-# Secrets (optional) you can set in Deploy → Settings → Secrets:
+# Secrets (put these in Deploy → Settings → Secrets as TOML):
+#
 # [data]
+# mode = "azure"               # or "local" (default if omitted)
+#
+# # If mode="azure"
+# AZURE_STORAGE_CONNECTION_STRING = "DefaultEndpointsProtocol=...;AccountName=...;AccountKey=...;EndpointSuffix=core.windows.net"
+# container     = "capstone"
+# parquet_blob  = "data/processed/final_model_dataset.parquet"   # preferred
+# csv_blob      = "data/processed/final_model_dataset.csv"       # fallback
+# attr_blob     = "data/processed/attribution_all_scored.csv"    # optional
+# # logo_blob   = "final_deliverable/penta_logo.png"             # optional
+#
+# # If mode="local" (files committed in repo)
 # data_dir = "data/processed"
 # parquet  = "final_model_dataset.parquet"
 # csv      = "final_model_dataset.csv"
@@ -23,7 +34,7 @@ import duckdb
 import pandas as pd
 import streamlit as st
 
-# Optional: for brand styling charts
+# Optional brand styling for charts
 import matplotlib.pyplot as plt
 import seaborn as sns
 from matplotlib import rcParams
@@ -71,23 +82,23 @@ def s(path: str, default=None):
     except Exception:
         return default
 
-# -------------------- Paths that work everywhere --------------------
+# -------------------- Azure-aware path resolution --------------------
 APP_DIR = Path(__file__).resolve().parent
-ROOT    = APP_DIR.parent  # repo root (one level up from final_deliverable/)
+ROOT    = APP_DIR.parent  # one level up from final_deliverable/
 
-# Let secrets override defaults (works on Cloud too)
-DATA_DIR = (ROOT / s("data.data_dir", "data")).resolve()
+MODE = (s("data.mode", "local") or "local").lower()
+
+def _q(p: Path) -> str:
+    return "'" + str(p).replace("'", "''") + "'"
+
+# Default local mode config (also used as fallback if Azure missing)
+DATA_DIR     = (ROOT / s("data.data_dir", "data")).resolve()
 PARQUET_NAME = s("data.parquet", "final_model_dataset.parquet")
 CSV_NAME     = s("data.csv",     "final_model_dataset.csv")
 ATTR_NAME    = s("data.attr_csv","attribution_all_scored.csv")
-LOGO_NAME    = s("data.logo",    "final_deliverable/penta_logo.png")
 
-# Search in both data/ and data/processed/ if not found in the configured folder
-CANDIDATE_DIRS: List[Path] = [
-    DATA_DIR,
-    ROOT / "data",
-    ROOT / "data" / "processed",
-]
+# Candidate dirs to search in local mode
+CANDIDATE_DIRS: List[Path] = [DATA_DIR, ROOT / "data", ROOT / "data" / "processed"]
 
 def _find_first_existing(*names: str) -> Optional[Path]:
     for d in CANDIDATE_DIRS:
@@ -101,17 +112,49 @@ DATA_PARQUET = _find_first_existing(PARQUET_NAME)
 DATA_CSV     = _find_first_existing(CSV_NAME)
 ATTR_CSV     = _find_first_existing(ATTR_NAME)
 
-# Logo can be outside data dir; try exact then fallback to app dir
-LOGO_PATH = (ROOT / LOGO_NAME) if LOGO_NAME else (APP_DIR / "penta_logo.png")
-if not LOGO_PATH.exists():
-    # fallback: try in app dir
-    if (APP_DIR / "penta_logo.png").exists():
-        LOGO_PATH = APP_DIR / "penta_logo.png"
+# Logo (optional, local default)
+LOGO_PATH = (ROOT / s("data.logo", "final_deliverable/penta_logo.png"))
+if not LOGO_PATH.exists() and (APP_DIR / "penta_logo.png").exists():
+    LOGO_PATH = APP_DIR / "penta_logo.png"
 
-# -------------------- Small utilities --------------------
-def _q(p: Path) -> str:
-    return "'" + str(p).replace("'", "''") + "'"
+# If Azure mode is enabled, override by downloading blobs to /tmp
+if MODE == "azure":
+    try:
+        from azure.storage.blob import BlobServiceClient
+        conn_str  = s("data.AZURE_STORAGE_CONNECTION_STRING")
+        container = s("data.container")
+        pq_blob   = s("data.parquet_blob")  # preferred
+        csv_blob  = s("data.csv_blob")
+        attr_blob = s("data.attr_blob")
+        logo_blob = s("data.logo_blob", None)
 
+        if not conn_str or not container:
+            st.error("Azure mode enabled but connection string or container is missing in secrets.")
+            st.stop()
+
+        svc = BlobServiceClient.from_connection_string(conn_str)
+        cont = svc.get_container_client(container)
+
+        TMP = Path("/tmp/influence_dl")
+        TMP.mkdir(parents=True, exist_ok=True)
+
+        def _dl(blob_name: str, filename: str) -> Path:
+            dest = TMP / filename
+            bc = cont.get_blob_client(blob_name)
+            data = bc.download_blob().readall()
+            dest.write_bytes(data)
+            return dest
+
+        DATA_PARQUET = _dl(pq_blob,  "final_model_dataset.parquet") if pq_blob  else None
+        DATA_CSV     = _dl(csv_blob, "final_model_dataset.csv")     if csv_blob else None
+        ATTR_CSV     = _dl(attr_blob, "attribution_all_scored.csv") if attr_blob else None
+        LOGO_PATH    = _dl(logo_blob, "penta_logo.png")             if logo_blob else LOGO_PATH
+
+    except Exception as e:
+        st.error(f"Azure init failed: {e}")
+        st.stop()
+
+# -------------------- Utilities --------------------
 def _quote_ident(name: str) -> str:
     """DuckDB-safe identifier quoting."""
     return '"' + name.replace('"', '""') + '"'
@@ -122,9 +165,9 @@ def connect_duckdb() -> duckdb.DuckDBPyConnection:
     con = duckdb.connect()
 
     # main table v
-    if DATA_PARQUET:
+    if DATA_PARQUET and Path(DATA_PARQUET).exists():
         con.execute(f"CREATE OR REPLACE VIEW v AS SELECT * FROM read_parquet({_q(DATA_PARQUET)})")
-    elif DATA_CSV:
+    elif DATA_CSV and Path(DATA_CSV).exists():
         con.execute(f"CREATE OR REPLACE VIEW v AS SELECT * FROM read_csv_auto({_q(DATA_CSV)}, IGNORE_ERRORS=TRUE)")
     else:
         st.error(
@@ -136,7 +179,7 @@ def connect_duckdb() -> duckdb.DuckDBPyConnection:
         raise FileNotFoundError("Dataset not found in expected folders.")
 
     # optional attribution
-    if ATTR_CSV:
+    if ATTR_CSV and Path(ATTR_CSV).exists():
         con.execute(f"CREATE OR REPLACE VIEW v_attr AS SELECT * FROM read_csv_auto({_q(ATTR_CSV)}, IGNORE_ERRORS=TRUE)")
         con.execute("CREATE OR REPLACE VIEW v_item_attr AS SELECT * FROM v_attr WHERE kind='item'")
         con.execute("CREATE OR REPLACE VIEW v_term_attr  AS SELECT * FROM v_attr WHERE kind='term'")
@@ -163,7 +206,7 @@ def explain_attribution(row: pd.Series, universe: Optional[pd.DataFrame] = None)
     )
     parts.append(f"It contributes **{share:.2%}** of total attribution credit (raw credit **{cred:,.4f}**).")
 
-    if universe is not None and not universe.empty:
+    if universe is not None and not universe.empty and "dimension" in universe.columns:
         peers = universe[universe["dimension"] == dim]
         if not peers.empty and val in peers.get("value", pd.Series(dtype=str)).values:
             peers = peers.assign(_rank=peers["credit"].rank(ascending=False, method="min"))
@@ -184,7 +227,7 @@ def explain_attribution(row: pd.Series, universe: Optional[pd.DataFrame] = None)
 con = connect_duckdb()
 apply_penta_style()
 
-if LOGO_PATH and LOGO_PATH.exists():
+if LOGO_PATH and Path(LOGO_PATH).exists():
     st.image(str(LOGO_PATH), width=200)
 
 st.title("Influence Explorer")
@@ -244,11 +287,14 @@ def build_where(extra: str = "", params: Optional[Dict] = None) -> Tuple[str, Di
 
     return " AND ".join(clauses), args
 
-# Debug block (optional)
+# Debug block (optional—remove later)
 with st.sidebar.expander("Debug: data paths"):
+    st.write("MODE:", MODE)
     st.write("DATA_PARQUET:", DATA_PARQUET)
     st.write("DATA_CSV:", DATA_CSV)
     st.write("ATTR_CSV:", ATTR_CSV)
+    st.write("LOGO_PATH:", LOGO_PATH)
+    st.write("Searched dirs:", [str(d) for d in CANDIDATE_DIRS])
 
 # -------------------- Tabs --------------------
 attr_tab, dash_tab, net_tab = st.tabs(["🧮 Attribution", "📊 Dashboard", "🕸️ Network"])
@@ -342,12 +388,11 @@ with attr_tab:
                 st.markdown("**Term Attribution**")
                 st.dataframe(tscore, use_container_width=True)
 
-                # Build peers universe for terms (use a synthetic 'dimension'='term' for the explainer)
+                # Peers universe for terms (synthetic dimension='term' for the explainer)
                 term_peers = con.execute(
                     "SELECT 'term' AS dimension, value, credit, credit_share, rating FROM v_term_attr"
                 ).fetchdf()
                 st.markdown("#### What this means")
-                # Inject dimension/value fields so the helper reads it naturally
                 row = tscore.iloc[0].copy()
                 row["dimension"] = "term"
                 row["value"] = row["value"]
@@ -412,7 +457,6 @@ with dash_tab:
             """
         ).fetchdf()
         if not top_pub.empty:
-            # Simple brand-styled bar chart (matplotlib/seaborn)
             fig, ax = plt.subplots(figsize=(8, 4))
             sns.barplot(data=top_pub, x="publication_name", y="avg_share", ax=ax)
             ax.set_title("Top Publications by Average pub_credit_share")
@@ -445,8 +489,16 @@ with dash_tab:
 # ==========================
 with net_tab:
     st.subheader("Network Preview")
-    # If you have a CSV edges file committed: data/network_edges.csv (source,target,weight)
-    EDGES_PATH = _find_first_existing("network_edges.csv")
+    # Optional: commit data/network_edges.csv with columns: source,target,weight
+    # Search common dirs:
+    def _find_edges():
+        for d in [ROOT / "data", ROOT / "data" / "processed", ROOT / "processed", APP_DIR]:
+            p = d / "network_edges.csv"
+            if p.exists():
+                return p
+        return None
+
+    EDGES_PATH = _find_edges()
     if EDGES_PATH and EDGES_PATH.exists():
         edges = pd.read_csv(EDGES_PATH)
         required = {"source", "target", "weight"}
@@ -476,7 +528,7 @@ with net_tab:
             st.write(f"Filtered edges: {len(sub):,} (of {len(edges):,})")
             st.dataframe(sub.head(200), use_container_width=True)
 
-            st.caption("Tip: For interactive graphs, consider pyvis or Plotly (kept out for minimal deps).")
+            st.caption("Tip: For interactive graphs, consider pyvis or Plotly (left out for minimal deps).")
         else:
             st.warning("network_edges.csv found but must contain columns: source, target, weight")
     else:
