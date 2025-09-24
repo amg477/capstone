@@ -4,4 +4,4 @@ duckdb>=1.4
 pandas>=2.2
 matplotlib>=3.8
 seaborn>=0.13
-plotly
+plotly>=5.24 
