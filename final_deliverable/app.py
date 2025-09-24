@@ -93,48 +93,54 @@ else:
         unsafe_allow_html=True
     )
 
-# ---------- Robust data connection ----------
-SEARCH_DIRS = [ROOT/"data/processed", ROOT/"data", APP_DIR]
-CANDIDATE_FILES = ["final_model_dataset.parquet", "final_model_dataset.csv", "data.parquet", "data.csv"]
+# ---------- Data location helpers (no widgets here) ----------
+SEARCH_DIRS = [ROOT / "data" / "processed", ROOT / "data", APP_DIR]
+CANDIDATE = ["final_model_dataset.parquet", "final_model_dataset.csv", "data.parquet", "data.csv"]
 
-def _first_data() -> Optional[Path]:
+def _first_local_data() -> Optional[Path]:
     for d in SEARCH_DIRS:
-        for nm in CANDIDATE_FILES:
-            p = d/nm
-            if p.exists(): return p
+        for nm in CANDIDATE:
+            p = d / nm
+            if p.exists():
+                return p
     return None
 
-@st.cache_resource
-def connect_duckdb() -> duckdb.DuckDBPyConnection:
-    con = duckdb.connect()
-    found = _first_data()
+def pick_data_path_with_uploader() -> Optional[Path]:
+    """UI helper (NOT cached). Tries local files, else asks user to upload."""
+    found = _first_local_data()
     if found:
-        if found.suffix.lower()==".parquet":
-            con.execute(f"CREATE OR REPLACE VIEW v AS SELECT * FROM read_parquet('{found.as_posix()}')")
-        else:
-            con.execute(f"CREATE OR REPLACE VIEW v AS SELECT * FROM read_csv_auto('{found.as_posix()}', IGNORE_ERRORS=TRUE)")
-    else:
-        st.warning(
-            "No dataset found in common folders.\n\n"
-            "Searched:\n- " + "\n- ".join(p.as_posix() for p in SEARCH_DIRS) +
-            "\n\nUpload a CSV or Parquet to continue."
-        )
-        upl = st.file_uploader("Upload CSV or Parquet", type=["csv","parquet"])
-        if upl is None:
-            con.execute("CREATE OR REPLACE VIEW v AS SELECT 1 WHERE 0")
-            return con
-        tmp = (ROOT / f"tmp_upload{Path(upl.name).suffix}").as_posix()
-        with open(tmp, "wb") as f: f.write(upl.read())
-        if tmp.endswith(".parquet"):
-            con.execute(f"CREATE OR REPLACE VIEW v AS SELECT * FROM read_parquet('{tmp}')")
-        else:
-            con.execute(f"CREATE OR REPLACE VIEW v AS SELECT * FROM read_csv_auto('{tmp}', IGNORE_ERRORS=TRUE)")
+        return found
+    st.warning(
+        "No dataset found in common folders.\n\n"
+        "Searched:\n- " + "\n- ".join(p.as_posix() for p in SEARCH_DIRS) +
+        "\n\nUpload a CSV or Parquet to continue."
+    )
+    upl = st.file_uploader("Upload CSV or Parquet", type=["csv", "parquet"])
+    if upl is None:
+        return None
+    tmp = (ROOT / f"tmp_upload{Path(upl.name).suffix}")
+    tmp.write_bytes(upl.getbuffer())
+    return tmp
 
-    # Optional attribution views
+@st.cache_resource(show_spinner=True)
+def connect_duckdb(data_path: Optional[Path]) -> duckdb.DuckDBPyConnection:
+    con = duckdb.connect()
+
+    # main table v
+    if data_path and data_path.exists():
+        if data_path.suffix.lower() == ".parquet":
+            con.execute(f"CREATE OR REPLACE VIEW v AS SELECT * FROM read_parquet('{data_path.as_posix()}')")
+        else:
+            con.execute(f"CREATE OR REPLACE VIEW v AS SELECT * FROM read_csv_auto('{data_path.as_posix()}', IGNORE_ERRORS=TRUE)")
+    else:
+        # empty view if nothing chosen yet
+        con.execute("CREATE OR REPLACE VIEW v AS SELECT 1 WHERE 0")
+
+    # optional attribution views
     attr_paths = [
-        ROOT/"data/processed/attribution_all_scored.csv",
-        ROOT/"data/attribution_all_scored.csv",
-        APP_DIR/"attribution_all_scored.csv",
+        ROOT / "data" / "processed" / "attribution_all_scored.csv",
+        ROOT / "data" / "attribution_all_scored.csv",
+        APP_DIR / "attribution_all_scored.csv",
     ]
     attr = next((p for p in attr_paths if p.exists()), None)
     if attr:
@@ -147,7 +153,9 @@ def connect_duckdb() -> duckdb.DuckDBPyConnection:
         con.execute("CREATE OR REPLACE VIEW v_term_attr  AS SELECT 1 WHERE 0")
     return con
 
-con = connect_duckdb()
+# ---- Pick path (UI) then connect (cached) ----
+DATA_PATH = pick_data_path_with_uploader()
+con = connect_duckdb(DATA_PATH)
 
 # ---------- Cleaned view ----------
 def _clean_expr(col_sql: str) -> str:
