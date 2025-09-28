@@ -1,0 +1,17 @@
+Within the final_deliverable folder, the structure and purpose of the documents are explained as follows: 
+
+final_deliverable/
+├─ .streamlit/
+│  ├─ config.toml        # Streamlit theme/layout settings
+│  └─ secrets.toml       # Local-only credentials (Azure keys, blob paths)
+│
+├─ .gitignore            # Git ignore rules (env files, large data, etc.)
+├─ app.py                # Main Streamlit entry point and tab router - run this file to run the applciation
+│
+├─ intro_tab.py          # Intro/overview tab
+├─ dashboard_tab.py      # KPI dashboard & visualizations
+├─ network_tab.py        # Network analysis & influence scoring tab
+├─ attribution_tab.py    # Attribution modeling (Markov-chain) tab
+│
+├─ penta_logo.png        # Branding image used in the UI
+└─ structure.py          # Utility module defining directory paths and schema
