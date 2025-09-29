@@ -921,7 +921,7 @@ with st.sidebar:
     st.markdown("---")
     
     # Saved views
-    if st.session_state.saved_views:
+    if hasattr(st.session_state, 'saved_views') and st.session_state.saved_views:
         st.markdown("### 💾 Saved Views")
         for view_name, view_data in st.session_state.saved_views.items():
             if st.button(f"📁 {view_name}", key=f"load_{view_name}"):
@@ -934,7 +934,7 @@ with st.sidebar:
     st.markdown("---")
     
     # Favorites
-    if st.session_state.favorites:
+    if hasattr(st.session_state, 'favorites') and st.session_state.favorites:
         st.markdown("### ⭐ Favorites")
         for fav in st.session_state.favorites[:5]:
             if st.button(f"⭐ {fav}", key=f"fav_{fav}"):
@@ -1005,7 +1005,7 @@ with tab2:
                 show_success_message(f"View '{view_name}' saved successfully!")
 
     # Show recent searches
-    if st.session_state.recent_searches:
+    if hasattr(st.session_state, 'recent_searches') and st.session_state.recent_searches:
         with st.expander("🔍 Recent Searches"):
             for search in st.session_state.recent_searches[:5]:
                 if st.button(f"🔍 {search}", key=f"recent_{search}"):
