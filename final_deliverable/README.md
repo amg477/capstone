@@ -24,7 +24,7 @@ streamlit run app.py
    [data]
    mode = "local"
    data_dir = "data"
-   parquet = "final_model_dataset_sample.parquet"
+   parquet = "final_model_dataset_sample.csv"
    csv = "final_model_dataset_sample.csv"
    attr_csv = "attribution_all_scored_sample.csv"
    logo = "penta_logo.png"
