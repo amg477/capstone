@@ -3,3 +3,5 @@ pandas
 duckdb
 plotly
 azure-storage-blob
+altair
+psutil
