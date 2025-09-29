@@ -6,23 +6,30 @@ A comprehensive Streamlit application for analyzing healthcare policy influence 
 
 ## 🚀 How to Run the Application
 
-### Option 1: Using the launcher (Recommended)
+### Local Development
 ```bash
 cd final_deliverable
 python run.py
-```
-
-### Option 2: Direct Streamlit command
-```bash
-cd final_deliverable
+# or
 streamlit run app.py
 ```
 
-### Option 3: With custom port
-```bash
-cd final_deliverable
-streamlit run app.py --server.port 8502
-```
+### Streamlit Cloud Deployment
+1. **Fork this repository** to your GitHub account
+2. **Go to [Streamlit Cloud](https://share.streamlit.io)**
+3. **Click "New app"** and connect your repository
+4. **Set main file path**: `final_deliverable/app.py`
+5. **Add secrets** in the Streamlit Cloud dashboard:
+   ```toml
+   [data]
+   mode = "local"
+   data_dir = "data"
+   parquet = "final_model_dataset_sample.parquet"
+   csv = "final_model_dataset_sample.csv"
+   attr_csv = "attribution_all_scored_sample.csv"
+   logo = "penta_logo.png"
+   ```
+6. **Deploy!** Your app will be live with sample data
 
 **The application will open in your browser at: http://localhost:8501**
 
