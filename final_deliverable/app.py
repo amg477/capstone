@@ -595,8 +595,16 @@ def date_bounds(con: duckdb.DuckDBPyConnection, col: str) -> Optional[Tuple[pd.T
 
 @st.cache_data
 def distinct_clean(con: duckdb.DuckDBPyConnection, expr_sql: str) -> List[str]:
-    df = con.execute(f"SELECT DISTINCT {expr_sql} AS val FROM v_enriched WHERE {expr_sql} IS NOT NULL ORDER BY 1").fetchdf()
-    return df["val"].tolist()
+    try:
+        df = con.execute(f"SELECT DISTINCT {expr_sql} AS val FROM v_enriched WHERE {expr_sql} IS NOT NULL ORDER BY 1").fetchdf()
+        return df["val"].tolist()
+    except Exception:
+        # Fallback to main view if v_enriched doesn't exist or has issues
+        try:
+            df = con.execute(f"SELECT DISTINCT {expr_sql} AS val FROM v WHERE {expr_sql} IS NOT NULL ORDER BY 1").fetchdf()
+            return df["val"].tolist()
+        except Exception:
+            return []
 
 def explain_attribution(row: pd.Series, universe: Optional[pd.DataFrame] = None) -> str:
     dim = str(row.get("dimension", "dimension"))
@@ -738,8 +746,13 @@ def connect_duckdb_with_azure() -> duckdb.DuckDBPyConnection:
         else:
             con.execute("CREATE OR REPLACE VIEW v_attr AS SELECT 1 WHERE 0")
 
-        con.execute("CREATE OR REPLACE VIEW v_item_attr AS SELECT * FROM v_attr WHERE kind='item'")
-        con.execute("CREATE OR REPLACE VIEW v_term_attr AS SELECT * FROM v_attr WHERE kind='term'")
+        # Create empty views if v_attr is empty or doesn't have the expected columns
+        try:
+            con.execute("CREATE OR REPLACE VIEW v_item_attr AS SELECT * FROM v_attr WHERE kind='item'")
+            con.execute("CREATE OR REPLACE VIEW v_term_attr AS SELECT * FROM v_attr WHERE kind='term'")
+        except Exception:
+            con.execute("CREATE OR REPLACE VIEW v_item_attr AS SELECT 1 as id WHERE 0")
+            con.execute("CREATE OR REPLACE VIEW v_term_attr AS SELECT 1 as id WHERE 0")
 
     except Exception as e:
         st.error(f"Error loading data: {e}")
