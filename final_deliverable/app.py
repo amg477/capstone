@@ -786,7 +786,7 @@ if LOGO_PATH and Path(LOGO_PATH).exists():
             border-bottom: 2px solid #E5F4F1;
         }}
         .penta-logo {{
-            height: 60px;
+            height: 120px;
             width: auto;
             margin-right: 20px;
         }}
