@@ -532,14 +532,14 @@ def shorten(label: str, max_len: int = 28) -> str:
     return s if len(s) <= max_len else s[:max_len-1] + "…"
 
 def build_where(extra: str = "", params: Optional[Dict] = None, 
-                date_range=None, sel_bands=None, sel_pubs=None) -> Tuple[str, Dict]:
+                date_range=None, sel_bands=None, sel_pubs=None, date_col=None) -> Tuple[str, Dict]:
     clauses: List[str] = ["1=1"]
     args: Dict = {} if params is None else dict(params)
 
-    if date_range and isinstance(date_range, (tuple, list)) and len(date_range) == 2 and date_range[0] and date_range[1]:
+    if date_range and isinstance(date_range, (tuple, list)) and len(date_range) == 2 and date_range[0] and date_range[1] and date_col:
         dmin = pd.to_datetime(date_range[0])
         dmax = pd.to_datetime(date_range[1]) + pd.Timedelta(days=1)
-        clauses.append("load_date >= $dmin AND load_date < $dmax")
+        clauses.append(f"{date_col} >= $dmin AND {date_col} < $dmax")
         args["dmin"], args["dmax"] = dmin, dmax
 
     if sel_bands:
@@ -556,13 +556,13 @@ def build_where(extra: str = "", params: Optional[Dict] = None,
     return " AND ".join(clauses), args
 
 def where_from_filters(date_range=None, sel_pubs=None, sel_channels=None, 
-                      sel_bands=None, sel_authors=None, sel_topics=None) -> Tuple[str, Dict]:
+                      sel_bands=None, sel_authors=None, sel_topics=None, date_col=None) -> Tuple[str, Dict]:
     clauses, args = ["1=1"], {}
     
-    if date_range and len(date_range) == 2:
+    if date_range and len(date_range) == 2 and date_col:
         dmin = pd.to_datetime(date_range[0])
         dmax = pd.to_datetime(date_range[1]) + pd.Timedelta(days=1)
-        clauses.append("CAST(load_date AS TIMESTAMP) >= $dmin AND CAST(load_date AS TIMESTAMP) < $dmax")
+        clauses.append(f"CAST({date_col} AS TIMESTAMP) >= $dmin AND CAST({date_col} AS TIMESTAMP) < $dmax")
         args.update(dmin=dmin, dmax=dmax)
     
     if sel_pubs:
@@ -1213,8 +1213,11 @@ with tab2:
                                 create_metric_card("Total Reach", f"{total_reach:,.0f}", icon="📈")
                         
                         with col3:
-                            if 'load_date' in hits.columns:
-                                date_range = hits['load_date'].nunique()
+                            # Find any date column dynamically
+                            date_cols = [col for col in hits.columns if 'date' in col.lower() or 'time' in col.lower()]
+                            if date_cols:
+                                date_col = date_cols[0]
+                                date_range = hits[date_col].nunique()
                                 create_metric_card("Date Range", f"{date_range} days", icon="📅")
                         
                         # Show sample of results
@@ -1260,15 +1263,29 @@ with tab3:
     col1, col2 = st.columns(2)
     
     with col1:
-        date_bounds_result = con.execute("SELECT MIN(CAST(load_date AS TIMESTAMP)), MAX(CAST(load_date AS TIMESTAMP)) FROM v").fetchone()
-        if date_bounds_result and date_bounds_result[0] and date_bounds_result[1]:
-            date_range = st.date_input(
-                "Date range",
-                value=(pd.to_datetime(date_bounds_result[0]).date(), pd.to_datetime(date_bounds_result[1]).date()),
-                min_value=pd.to_datetime(date_bounds_result[0]).date(),
-                max_value=pd.to_datetime(date_bounds_result[1]).date()
-            )
-        else:
+        # Try to find a date column dynamically
+        date_col = None
+        try:
+            columns_df = con.execute("DESCRIBE v").fetchdf()
+            date_columns = columns_df[columns_df['column_name'].str.contains('date|time|ts', case=False, na=False)]['column_name'].tolist()
+            
+            if date_columns:
+                date_col = date_columns[0]  # Use first date column found
+                date_bounds_result = con.execute(f"SELECT MIN(CAST({date_col} AS TIMESTAMP)), MAX(CAST({date_col} AS TIMESTAMP)) FROM v").fetchone()
+                if date_bounds_result and date_bounds_result[0] and date_bounds_result[1]:
+                    date_range = st.date_input(
+                        "Date range",
+                        value=(pd.to_datetime(date_bounds_result[0]).date(), pd.to_datetime(date_bounds_result[1]).date()),
+                        min_value=pd.to_datetime(date_bounds_result[0]).date(),
+                        max_value=pd.to_datetime(date_bounds_result[1]).date()
+                    )
+                else:
+                    date_range = None
+            else:
+                # No date columns found, skip date filter
+                date_range = None
+        except Exception as e:
+            # Fallback if there's any error
             date_range = None
         
         # Get available columns for filtering
@@ -1323,7 +1340,7 @@ with tab3:
             sel_sources = []
     
     # Build where clause
-    w, args = where_from_filters(date_range, sel_pubs, sel_channels, [], sel_authors, [])
+    w, args = where_from_filters(date_range, sel_pubs, sel_channels, [], sel_authors, [], date_col)
     
     # KPI Metrics
     try:
@@ -1520,8 +1537,19 @@ with tab3:
     
     st.divider()
 
-    # Time Series
-    time_col = "conversion_ts" if "conversion_ts" in COLUMNS else ("load_date" if "load_date" in COLUMNS else ("source_time" if "source_time" in COLUMNS else None))
+    # Time Series - find any time/date column dynamically
+    time_col = None
+    time_candidates = ["conversion_ts", "load_date", "source_time", "date", "timestamp"]
+    for candidate in time_candidates:
+        if candidate in COLUMNS:
+            time_col = candidate
+            break
+    
+    # If no exact match, find any column with 'date' or 'time' in the name
+    if not time_col:
+        date_cols = [col for col in COLUMNS if 'date' in col.lower() or 'time' in col.lower()]
+        if date_cols:
+            time_col = date_cols[0]
     conv_col = "conversions" if "conversions" in COLUMNS else None
     
     if time_col:
