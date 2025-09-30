@@ -15,8 +15,8 @@ def upload_to_azure():
     
     # File paths - adjust if your files are in different locations
     FILES_TO_UPLOAD = {
-        "data/final_model_dataset.csv": "data/final_model_dataset.csv",
-        "data/attribution_all_scored.csv": "data/attribution_all_scored.csv", 
+        "../data/final_model_dataset.csv": "data/final_model_dataset.csv",
+        "../data/attribution_all_scored.csv": "data/attribution_all_scored.csv", 
         "penta_logo.png": "data/penta_logo.png"
     }
     
