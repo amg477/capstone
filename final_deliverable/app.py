@@ -650,7 +650,11 @@ ATTR_NAME = s("data.attr_csv", "attribution_all_scored.csv")
 
 CANDIDATE_DIRS = [DATA_DIR, ROOT / "data", ROOT / "data" / "processed"]
 SEARCH_DIRS = [ROOT/"data/processed", ROOT/"data", APP_DIR]
-CANDIDATE_FILES = ["final_model_dataset.parquet", "final_model_dataset.csv", "data.parquet", "data.csv"]
+CANDIDATE_FILES = [
+    "final_model_dataset.parquet", "final_model_dataset.csv", 
+    "final_model_dataset_sample.parquet", "final_model_dataset_sample.csv",
+    "data.parquet", "data.csv"
+]
 
 LOGO_PATH = (ROOT / s("data.logo", "final_deliverable/penta_logo.png"))
 
@@ -744,7 +748,12 @@ def connect_duckdb_with_azure() -> duckdb.DuckDBPyConnection:
         if attr_csv and Path(attr_csv).exists():
             con.execute(f"CREATE OR REPLACE VIEW v_attr AS SELECT * FROM read_csv_auto({_q(attr_csv)}, IGNORE_ERRORS=TRUE)")
         else:
-            con.execute("CREATE OR REPLACE VIEW v_attr AS SELECT 1 WHERE 0")
+            # Try to find attribution file in common locations
+            attr_fallback = _find_first_existing("attribution_all_scored.csv", "attribution_all_scored_sample.csv")
+            if attr_fallback:
+                con.execute(f"CREATE OR REPLACE VIEW v_attr AS SELECT * FROM read_csv_auto({_q(str(attr_fallback))}, IGNORE_ERRORS=TRUE)")
+            else:
+                con.execute("CREATE OR REPLACE VIEW v_attr AS SELECT 1 WHERE 0")
 
         # Create empty views if v_attr is empty or doesn't have the expected columns
         try:
