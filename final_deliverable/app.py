@@ -690,32 +690,43 @@ def _setup_azure_data():
             st.error("Azure mode enabled but connection string or container is missing in secrets.")
             st.stop()
 
-        from azure.storage.blob import BlobServiceClient
-        svc = BlobServiceClient.from_connection_string(conn_str)
-        cont = svc.get_container_client(container)
+        # Show loading indicator
+        with st.spinner("🔄 Connecting to Azure and downloading data..."):
+            from azure.storage.blob import BlobServiceClient
+            svc = BlobServiceClient.from_connection_string(conn_str)
+            cont = svc.get_container_client(container)
 
-        TMP = Path("/tmp/influence_dl")
-        TMP.mkdir(parents=True, exist_ok=True)
+            TMP = Path("/tmp/influence_dl")
+            TMP.mkdir(parents=True, exist_ok=True)
 
-        def _dl(blob_name: str, filename: str) -> Path:
-            dest = TMP / filename
-            bc = cont.get_blob_client(blob_name)
-            data = bc.download_blob().readall()
-            dest.write_bytes(data)
-            return dest
+            def _dl(blob_name: str, filename: str) -> Path:
+                if not blob_name:
+                    return None
+                dest = TMP / filename
+                if dest.exists():
+                    st.info(f"📁 Using cached {filename}")
+                    return dest
+                
+                st.info(f"⬇️ Downloading {blob_name}...")
+                bc = cont.get_blob_client(blob_name)
+                data = bc.download_blob().readall()
+                dest.write_bytes(data)
+                st.success(f"✅ Downloaded {filename}")
+                return dest
 
-        data_parquet = _dl(pq_blob, "final_model_dataset.parquet") if pq_blob else None
-        data_csv = _dl(csv_blob, "final_model_dataset.csv") if csv_blob else None
-        attr_csv = _dl(attr_blob, "attribution_all_scored.csv") if attr_blob else None
-        logo_path = _dl(logo_blob, "penta_logo.png") if logo_blob else LOGO_PATH
+            data_parquet = _dl(pq_blob, "final_model_dataset.parquet") if pq_blob else None
+            data_csv = _dl(csv_blob, "final_model_dataset.csv") if csv_blob else None
+            attr_csv = _dl(attr_blob, "attribution_all_scored.csv") if attr_blob else None
+            logo_path = _dl(logo_blob, "penta_logo.png") if logo_blob else LOGO_PATH
 
         return data_parquet, data_csv, attr_csv, logo_path
 
     except Exception as e:
         st.error(f"Azure init failed: {e}")
-        st.stop()
+        st.warning("Falling back to local data...")
+        return None, None, None, None
 
-@st.cache_resource(show_spinner=True)
+@st.cache_resource(show_spinner=True, ttl=3600)  # Cache for 1 hour
 def connect_duckdb_with_azure() -> duckdb.DuckDBPyConnection:
     con = duckdb.connect()
 
@@ -723,6 +734,13 @@ def connect_duckdb_with_azure() -> duckdb.DuckDBPyConnection:
         data_parquet, data_csv, attr_csv, logo_path = _setup_azure_data()
         global LOGO_PATH
         LOGO_PATH = logo_path
+        
+        # If Azure fails, fall back to local data
+        if not data_parquet and not data_csv:
+            st.warning("Azure data not available, falling back to local data...")
+            data_parquet = _find_first_existing(PARQUET_NAME)
+            data_csv = _find_first_existing(CSV_NAME)
+            attr_csv = _find_first_existing(ATTR_NAME)
     else:
         data_parquet = _find_first_existing(PARQUET_NAME)
         data_csv = _find_first_existing(CSV_NAME)
