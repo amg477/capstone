@@ -3,7 +3,7 @@
 from __future__ import annotations
 import re
 from pathlib import Path
-from typing import Dict, Optional, Tuple, List
+from typing import Dict, Optional, Tuple, List, Set
 import duckdb
 import pandas as pd
 import streamlit as st
@@ -17,14 +17,16 @@ import base64
 st.set_page_config(page_title="PolicyPath", layout="wide")
 
 # -------------------- Session State Initialization --------------------
-if 'dark_mode' not in st.session_state:
-    st.session_state.dark_mode = False
-if 'recent_searches' not in st.session_state:
-    st.session_state.recent_searches = []
-if 'favorites' not in st.session_state:
-    st.session_state.favorites = []
-if 'saved_views' not in st.session_state:
-    st.session_state.saved_views = {}
+def init_session_state():
+    """Initialize session state variables."""
+    if 'dark_mode' not in st.session_state:
+        st.session_state.dark_mode = False
+    if 'recent_searches' not in st.session_state:
+        st.session_state.recent_searches = []
+    if 'favorites' not in st.session_state:
+        st.session_state.favorites = []
+    if 'saved_views' not in st.session_state:
+        st.session_state.saved_views = {}
 
 # -------------------- Global Penta Brand Styling --------------------
 st.markdown("""
@@ -584,8 +586,9 @@ def where_from_filters(date_range=None, sel_pubs=None, sel_channels=None,
     return " AND ".join(clauses), args
 
 @st.cache_data
-def date_bounds(con: duckdb.DuckDBPyConnection, col: str) -> Optional[Tuple[pd.Timestamp, pd.Timestamp]]:
+def date_bounds(col: str) -> Optional[Tuple[pd.Timestamp, pd.Timestamp]]:
     try:
+        con, _ = get_database_connection()
         mn, mx = con.execute(f"SELECT MIN(CAST({col} AS TIMESTAMP)), MAX(CAST({col} AS TIMESTAMP)) FROM v").fetchone()
         if mn and mx: 
             return (pd.to_datetime(mn), pd.to_datetime(mx))
@@ -594,8 +597,9 @@ def date_bounds(con: duckdb.DuckDBPyConnection, col: str) -> Optional[Tuple[pd.T
     return None
 
 @st.cache_data
-def distinct_clean(con: duckdb.DuckDBPyConnection, expr_sql: str) -> List[str]:
+def distinct_clean(expr_sql: str) -> List[str]:
     try:
+        con, _ = get_database_connection()
         df = con.execute(f"SELECT DISTINCT {expr_sql} AS val FROM v_enriched WHERE {expr_sql} IS NOT NULL ORDER BY 1").fetchdf()
         return df["val"].tolist()
     except Exception:
@@ -690,7 +694,7 @@ def _setup_azure_data():
             st.error("Azure mode enabled but connection string or container is missing in secrets.")
             st.stop()
 
-        # Show loading indicator with timeout handling
+        # Show loading indicator
         progress_bar = st.progress(0)
         status_text = st.empty()
         
@@ -755,31 +759,15 @@ def _setup_azure_data():
         return None, None, None, None
 
 @st.cache_resource(show_spinner=True, ttl=3600)  # Cache for 1 hour
-def connect_duckdb_with_azure() -> duckdb.DuckDBPyConnection:
+def connect_duckdb_with_azure_v2() -> duckdb.DuckDBPyConnection:
     con = duckdb.connect()
 
     if MODE == "azure":
-        # Add timeout protection for Azure loading
-        import signal
-        
-        def timeout_handler(signum, frame):
-            raise TimeoutError("Azure data loading timed out")
-        
         try:
-            # Set a 60-second timeout for Azure loading
-            signal.signal(signal.SIGALRM, timeout_handler)
-            signal.alarm(60)
-            
             data_parquet, data_csv, attr_csv, logo_path = _setup_azure_data()
             global LOGO_PATH
             LOGO_PATH = logo_path
             
-            signal.alarm(0)  # Cancel the alarm
-            
-        except TimeoutError:
-            st.error("⏰ Azure data loading timed out after 60 seconds")
-            st.warning("Falling back to local data...")
-            data_parquet, data_csv, attr_csv, logo_path = None, None, None, None
         except Exception as e:
             st.error(f"❌ Azure loading failed: {e}")
             data_parquet, data_csv, attr_csv, logo_path = None, None, None, None
@@ -845,26 +833,42 @@ def connect_duckdb_with_azure() -> duckdb.DuckDBPyConnection:
 
     return con
 
-con = connect_duckdb_with_azure()
+# Global variables for database connection
+con = None
+COLUMNS = set()
 
-try:
-    COLUMNS = set(con.execute("DESCRIBE v").fetchdf()["column_name"].tolist())
-except Exception as e:
-    st.error(f"Error describing table: {e}")
-    COLUMNS = set()
+@st.cache_resource
+def get_database_connection():
+    """Get database connection and initialize columns."""
+    global con, COLUMNS
+    
+    if con is None:
+        con = connect_duckdb_with_azure_v2()
+        
+        try:
+            COLUMNS = set(con.execute("DESCRIBE v").fetchdf()["column_name"].tolist())
+            
+            # Create enriched view
+            select_parts = [
+                "v.*",
+                _cleaned_select(["author","author_name"], "author_clean", COLUMNS),
+                _cleaned_select(["author_name"], "author_name_clean", COLUMNS),
+                _cleaned_select(["publication_name","publication","source"], "publication_clean", COLUMNS),
+                _cleaned_select(["channel","channel_name","source_type"], "channel_clean", COLUMNS),
+                _cleaned_select(["channel_name","source_type"], "channel_name_clean", COLUMNS),
+                _cleaned_select(["topic","topics"], "topic_clean", COLUMNS),
+                _cleaned_select(["topics","topic"], "topics_clean", COLUMNS),
+                _cleaned_select(["source_name","publication_name"], "source_name_clean", COLUMNS),
+            ]
+            con.execute("CREATE OR REPLACE VIEW v_enriched AS SELECT " + ", ".join(select_parts) + " FROM v AS v")
+            
+        except Exception as e:
+            st.error(f"Error describing table: {e}")
+            COLUMNS = set()
+    
+    return con, COLUMNS
 
-select_parts = [
-    "v.*",
-    _cleaned_select(["author","author_name"], "author_clean", COLUMNS),
-    _cleaned_select(["author_name"], "author_name_clean", COLUMNS),
-    _cleaned_select(["publication_name","publication","source"], "publication_clean", COLUMNS),
-    _cleaned_select(["channel","channel_name","source_type"], "channel_clean", COLUMNS),
-    _cleaned_select(["channel_name","source_type"], "channel_name_clean", COLUMNS),
-    _cleaned_select(["topic","topics"], "topic_clean", COLUMNS),
-    _cleaned_select(["topics","topic"], "topics_clean", COLUMNS),
-    _cleaned_select(["source_name","publication_name"], "source_name_clean", COLUMNS),
-]
-con.execute("CREATE OR REPLACE VIEW v_enriched AS SELECT " + ", ".join(select_parts) + " FROM v AS v")
+# Database initialization moved to get_database_connection() function
 
 # -------------------- Logo display --------------------
 if LOGO_PATH and Path(LOGO_PATH).exists():
@@ -963,6 +967,9 @@ else:
         unsafe_allow_html=True
     )
 
+# -------------------- Initialize Session State --------------------
+init_session_state()
+
 # -------------------- Enhanced Sidebar --------------------
 with st.sidebar:
     st.markdown("### 🚀 Quick Actions")
@@ -974,6 +981,7 @@ with st.sidebar:
     if quick_search and len(quick_search) >= 2:
         try:
             # Get suggestions from various columns
+            con, _ = get_database_connection()
             columns_result = con.execute("DESCRIBE v").fetchdf()
             available_cols = columns_result['column_name'].tolist()
             
@@ -1680,15 +1688,18 @@ with tab3:
     
     with col2:
         if st.button("📥 Export CSV", help="Download filtered data as CSV"):
+            con, _ = get_database_connection()
             sample = con.execute(f"SELECT * FROM v WHERE {w} LIMIT {sample_size}", args).fetchdf()
             export_data_button(sample, "filtered_data", "csv")
     
     with col3:
         if st.button("📊 Export JSON", help="Download filtered data as JSON"):
+            con, _ = get_database_connection()
             sample = con.execute(f"SELECT * FROM v WHERE {w} LIMIT {sample_size}", args).fetchdf()
             export_data_button(sample, "filtered_data", "json")
     
     # Display data with enhanced styling
+    con, _ = get_database_connection()
     sample = con.execute(f"SELECT * FROM v WHERE {w} LIMIT {sample_size}", args).fetchdf()
     
     if not sample.empty:
