@@ -690,12 +690,21 @@ def _setup_azure_data():
             st.error("Azure mode enabled but connection string or container is missing in secrets.")
             st.stop()
 
-        # Show loading indicator
-        with st.spinner("🔄 Connecting to Azure and downloading data..."):
+        # Show loading indicator with timeout handling
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        try:
+            status_text.text("🔄 Connecting to Azure...")
+            progress_bar.progress(10)
+            
             from azure.storage.blob import BlobServiceClient
             svc = BlobServiceClient.from_connection_string(conn_str)
             cont = svc.get_container_client(container)
-
+            
+            status_text.text("📁 Setting up cache directory...")
+            progress_bar.progress(20)
+            
             TMP = Path("/tmp/influence_dl")
             TMP.mkdir(parents=True, exist_ok=True)
 
@@ -707,17 +716,36 @@ def _setup_azure_data():
                     st.info(f"📁 Using cached {filename}")
                     return dest
                 
-                st.info(f"⬇️ Downloading {blob_name}...")
-                bc = cont.get_blob_client(blob_name)
-                data = bc.download_blob().readall()
-                dest.write_bytes(data)
-                st.success(f"✅ Downloaded {filename}")
-                return dest
+                try:
+                    status_text.text(f"⬇️ Downloading {blob_name}...")
+                    bc = cont.get_blob_client(blob_name)
+                    data = bc.download_blob().readall()
+                    dest.write_bytes(data)
+                    st.success(f"✅ Downloaded {filename}")
+                    return dest
+                except Exception as e:
+                    st.warning(f"⚠️ Failed to download {blob_name}: {e}")
+                    return None
 
+            status_text.text("📊 Loading main dataset...")
+            progress_bar.progress(40)
             data_parquet = _dl(pq_blob, "final_model_dataset.parquet") if pq_blob else None
             data_csv = _dl(csv_blob, "final_model_dataset.csv") if csv_blob else None
+            
+            status_text.text("📈 Loading attribution data...")
+            progress_bar.progress(70)
             attr_csv = _dl(attr_blob, "attribution_all_scored.csv") if attr_blob else None
+            
+            status_text.text("🖼️ Loading logo...")
+            progress_bar.progress(90)
             logo_path = _dl(logo_blob, "penta_logo.png") if logo_blob else LOGO_PATH
+            
+            status_text.text("✅ Azure data loaded successfully!")
+            progress_bar.progress(100)
+            
+        except Exception as e:
+            st.error(f"❌ Azure connection failed: {e}")
+            return None, None, None, None
 
         return data_parquet, data_csv, attr_csv, logo_path
 
@@ -731,16 +759,43 @@ def connect_duckdb_with_azure() -> duckdb.DuckDBPyConnection:
     con = duckdb.connect()
 
     if MODE == "azure":
-        data_parquet, data_csv, attr_csv, logo_path = _setup_azure_data()
-        global LOGO_PATH
-        LOGO_PATH = logo_path
+        # Add timeout protection for Azure loading
+        import signal
+        
+        def timeout_handler(signum, frame):
+            raise TimeoutError("Azure data loading timed out")
+        
+        try:
+            # Set a 60-second timeout for Azure loading
+            signal.signal(signal.SIGALRM, timeout_handler)
+            signal.alarm(60)
+            
+            data_parquet, data_csv, attr_csv, logo_path = _setup_azure_data()
+            global LOGO_PATH
+            LOGO_PATH = logo_path
+            
+            signal.alarm(0)  # Cancel the alarm
+            
+        except TimeoutError:
+            st.error("⏰ Azure data loading timed out after 60 seconds")
+            st.warning("Falling back to local data...")
+            data_parquet, data_csv, attr_csv, logo_path = None, None, None, None
+        except Exception as e:
+            st.error(f"❌ Azure loading failed: {e}")
+            data_parquet, data_csv, attr_csv, logo_path = None, None, None, None
         
         # If Azure fails, fall back to local data
         if not data_parquet and not data_csv:
-            st.warning("Azure data not available, falling back to local data...")
-            data_parquet = _find_first_existing(PARQUET_NAME)
-            data_csv = _find_first_existing(CSV_NAME)
-            attr_csv = _find_first_existing(ATTR_NAME)
+            st.warning("⚠️ Azure data not available, falling back to local data...")
+            with st.spinner("🔍 Searching for local data files..."):
+                data_parquet = _find_first_existing(PARQUET_NAME)
+                data_csv = _find_first_existing(CSV_NAME)
+                attr_csv = _find_first_existing(ATTR_NAME)
+                
+                if data_parquet or data_csv:
+                    st.success("✅ Found local data files!")
+                else:
+                    st.error("❌ No data files found locally either. Please check your data setup.")
     else:
         data_parquet = _find_first_existing(PARQUET_NAME)
         data_csv = _find_first_existing(CSV_NAME)
