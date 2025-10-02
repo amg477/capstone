@@ -1,2 +1,0 @@
-data/final_model_dataset.csv filter=lfs diff=lfs merge=lfs -text
-*.csv filter=lfs diff=lfs merge=lfs -text
