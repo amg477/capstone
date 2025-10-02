@@ -1,0 +1,7 @@
+{
+  "total_files": 38,
+  "final_chunk_size": 10000,
+  "max_file_size_mb": 50,
+  "input_file": "final_deliverable/data/final_model_dataset.csv",
+  "output_directory": "final_deliverable/data/split"
+}
