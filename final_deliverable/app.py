@@ -13,6 +13,35 @@ import plotly.graph_objects as go
 import base64
 # Using Plotly and Altair instead of matplotlib for better Streamlit Cloud compatibility
 
+# -------------------- Load Split Dataset Files --------------------
+@st.cache_data
+def load_combined_dataset():
+    """Load and combine all split dataset files."""
+    split_dir = Path("final_deliverable/data/split")
+    combined_data = []
+    
+    # Load all split files
+    for i in range(1, 39):  # Files 001 to 038
+        file_path = split_dir / f"final_model_dataset_part_{i:03d}.csv"
+        if file_path.exists():
+            df = pd.read_csv(file_path)
+            combined_data.append(df)
+            st.write(f"Loaded {file_path.name}: {len(df):,} rows")
+    
+    if combined_data:
+        final_df = pd.concat(combined_data, ignore_index=True)
+        st.write(f"Combined dataset: {len(final_df):,} total rows")
+        return final_df
+    else:
+        st.error("No split dataset files found!")
+        return pd.DataFrame()
+
+# Load the dataset
+@st.cache_data
+def get_dataset():
+    """Get the combined dataset."""
+    return load_combined_dataset()
+
 # -------------------- Page config --------------------
 st.set_page_config(page_title="PolicyPath", layout="wide")
 
