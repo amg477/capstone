@@ -17,7 +17,7 @@ import base64
 @st.cache_data
 def load_combined_dataset():
     """Load and combine all split dataset files."""
-    split_dir = Path("final_deliverable/data/split")
+    split_dir = Path("data/split")
     combined_data = []
     
     # Load all split files
@@ -26,14 +26,11 @@ def load_combined_dataset():
         if file_path.exists():
             df = pd.read_csv(file_path)
             combined_data.append(df)
-            st.write(f"Loaded {file_path.name}: {len(df):,} rows")
     
     if combined_data:
         final_df = pd.concat(combined_data, ignore_index=True)
-        st.write(f"Combined dataset: {len(final_df):,} total rows")
         return final_df
     else:
-        st.error("No split dataset files found!")
         return pd.DataFrame()
 
 # Load the dataset
@@ -617,27 +614,33 @@ def where_from_filters(date_range=None, sel_pubs=None, sel_channels=None,
 @st.cache_data
 def date_bounds(col: str) -> Optional[Tuple[pd.Timestamp, pd.Timestamp]]:
     try:
-        con, _ = get_database_connection()
-        mn, mx = con.execute(f"SELECT MIN(CAST({col} AS TIMESTAMP)), MAX(CAST({col} AS TIMESTAMP)) FROM v").fetchone()
-        if mn and mx: 
-            return (pd.to_datetime(mn), pd.to_datetime(mx))
-    except Exception: 
-        pass
+        df_main, _, _ = get_data()
+        if df_main.empty or col not in df_main.columns:
+            return None
+        
+        # Convert to datetime and get min/max
+        df_main[col] = pd.to_datetime(df_main[col], errors='coerce')
+        valid_dates = df_main[col].dropna()
+        
+        if len(valid_dates) > 0:
+            return (valid_dates.min(), valid_dates.max())
+    except Exception as e: 
+        st.error(f"Error in date_bounds: {e}")
     return None
 
 @st.cache_data
-def distinct_clean(expr_sql: str) -> List[str]:
+def distinct_clean(column_name: str) -> List[str]:
     try:
-        con, _ = get_database_connection()
-        df = con.execute(f"SELECT DISTINCT {expr_sql} AS val FROM v_enriched WHERE {expr_sql} IS NOT NULL ORDER BY 1").fetchdf()
-        return df["val"].tolist()
-    except Exception:
-        # Fallback to main view if v_enriched doesn't exist or has issues
-        try:
-            df = con.execute(f"SELECT DISTINCT {expr_sql} AS val FROM v WHERE {expr_sql} IS NOT NULL ORDER BY 1").fetchdf()
-            return df["val"].tolist()
-        except Exception:
+        df_main, _, _ = get_data()
+        if df_main.empty or column_name not in df_main.columns:
             return []
+        
+        # Get unique values from the column
+        unique_values = df_main[column_name].dropna().unique()
+        return sorted([str(val) for val in unique_values])
+    except Exception as e:
+        st.error(f"Error in distinct_clean: {e}")
+        return []
 
 def explain_attribution(row: pd.Series, universe: Optional[pd.DataFrame] = None) -> str:
     dim = str(row.get("dimension", "dimension"))
@@ -775,129 +778,156 @@ def _setup_azure_data():
             
             status_text.text("✅ Azure data loaded successfully!")
             progress_bar.progress(100)
+
+            return data_parquet, data_csv, attr_csv, logo_path
             
         except Exception as e:
-            st.error(f"❌ Azure connection failed: {e}")
+            st.error(f"❌ Azure download failed: {e}")
             return None, None, None, None
-
-        return data_parquet, data_csv, attr_csv, logo_path
-
+    
     except Exception as e:
-        st.error(f"Azure init failed: {e}")
-        st.warning("Falling back to local data...")
+        st.error(f"❌ Azure setup failed: {e}")
         return None, None, None, None
 
-@st.cache_resource(show_spinner=True, ttl=3600)  # Cache for 1 hour
-def connect_duckdb_with_azure_v2() -> duckdb.DuckDBPyConnection:
-    con = duckdb.connect()
+# Removed old DuckDB function - using pandas directly now
+def _disabled_function():
+    # This function is completely disabled
+    pass
 
-    if MODE == "azure":
-        try:
-            data_parquet, data_csv, attr_csv, logo_path = _setup_azure_data()
-            global LOGO_PATH
-            LOGO_PATH = logo_path
-            
-        except Exception as e:
-            st.error(f"❌ Azure loading failed: {e}")
-            data_parquet, data_csv, attr_csv, logo_path = None, None, None, None
-        
-        # If Azure fails, fall back to local data
-        if not data_parquet and not data_csv:
-            st.warning("⚠️ Azure data not available, falling back to local data...")
-            with st.spinner("🔍 Searching for local data files..."):
-                data_parquet = _find_first_existing(PARQUET_NAME)
-                data_csv = _find_first_existing(CSV_NAME)
-                attr_csv = _find_first_existing(ATTR_NAME)
-                
-                if data_parquet or data_csv:
-                    st.success("✅ Found local data files!")
-                else:
-                    st.error("❌ No data files found locally either. Please check your data setup.")
-    else:
-        data_parquet = _find_first_existing(PARQUET_NAME)
-        data_csv = _find_first_existing(CSV_NAME)
-        attr_csv = _find_first_existing(ATTR_NAME)
-
-    try:
-        if data_parquet and Path(data_parquet).exists():
-            con.execute(f"CREATE OR REPLACE VIEW v AS SELECT * FROM read_parquet({_q(data_parquet)})")
-        elif data_csv and Path(data_csv).exists():
-            con.execute(f"CREATE OR REPLACE VIEW v AS SELECT * FROM read_csv_auto({_q(data_csv)}, IGNORE_ERRORS=TRUE)")
-        else:
-            found = _first_data()
-            if found:
-                if found.suffix.lower() == ".parquet":
-                    con.execute(f"CREATE OR REPLACE VIEW v AS SELECT * FROM read_parquet('{found.as_posix()}')")
-                else:
-                    con.execute(f"CREATE OR REPLACE VIEW v AS SELECT * FROM read_csv_auto('{found.as_posix()}', IGNORE_ERRORS=TRUE)")
-            else:
-                st.error("Could not find dataset. Searched common folders.")
-                st.warning("No dataset found. Upload a CSV or Parquet to continue.")
-                con.execute("CREATE OR REPLACE VIEW v AS SELECT 1 as id WHERE 0")
-
-        if attr_csv and Path(attr_csv).exists():
-            con.execute(f"CREATE OR REPLACE VIEW v_attr AS SELECT * FROM read_csv_auto({_q(attr_csv)}, IGNORE_ERRORS=TRUE)")
-        else:
-            # Try to find attribution file in common locations
-            attr_fallback = _find_first_existing("attribution_all_scored.csv", "attribution_all_scored_sample.csv")
-            if attr_fallback:
-                con.execute(f"CREATE OR REPLACE VIEW v_attr AS SELECT * FROM read_csv_auto({_q(str(attr_fallback))}, IGNORE_ERRORS=TRUE)")
-            else:
-                con.execute("CREATE OR REPLACE VIEW v_attr AS SELECT 1 WHERE 0")
-
-        # Create empty views if v_attr is empty or doesn't have the expected columns
-        try:
-            con.execute("CREATE OR REPLACE VIEW v_item_attr AS SELECT * FROM v_attr WHERE kind='item'")
-            con.execute("CREATE OR REPLACE VIEW v_term_attr AS SELECT * FROM v_attr WHERE kind='term'")
-        except Exception:
-            con.execute("CREATE OR REPLACE VIEW v_item_attr AS SELECT 1 as id WHERE 0")
-            con.execute("CREATE OR REPLACE VIEW v_term_attr AS SELECT 1 as id WHERE 0")
-
-    except Exception as e:
-        st.error(f"Error loading data: {e}")
-        con.execute("CREATE OR REPLACE VIEW v AS SELECT 1 as id WHERE 0")
-        con.execute("CREATE OR REPLACE VIEW v_attr AS SELECT 1 WHERE 0")
-        con.execute("CREATE OR REPLACE VIEW v_item_attr AS SELECT 1 WHERE 0")
-        con.execute("CREATE OR REPLACE VIEW v_term_attr AS SELECT 1 WHERE 0")
-
-    return con
-
-# Global variables for database connection
-con = None
+# Global variables for data
+df_main = None
+df_attr = None
 COLUMNS = set()
 
 @st.cache_resource
-def get_database_connection():
-    """Get database connection and initialize columns."""
-    global con, COLUMNS
+def get_data():
+    """Get the main dataset and attribution data."""
+    global df_main, df_attr, COLUMNS
     
-    if con is None:
-        con = connect_duckdb_with_azure_v2()
-        
+    if df_main is None:
         try:
-            COLUMNS = set(con.execute("DESCRIBE v").fetchdf()["column_name"].tolist())
+            # Load main dataset
+            df_main = get_dataset()
             
-            # Create enriched view
-            select_parts = [
-                "v.*",
-                _cleaned_select(["author","author_name"], "author_clean", COLUMNS),
-                _cleaned_select(["author_name"], "author_name_clean", COLUMNS),
-                _cleaned_select(["publication_name","publication","source"], "publication_clean", COLUMNS),
-                _cleaned_select(["channel","channel_name","source_type"], "channel_clean", COLUMNS),
-                _cleaned_select(["channel_name","source_type"], "channel_name_clean", COLUMNS),
-                _cleaned_select(["topic","topics"], "topic_clean", COLUMNS),
-                _cleaned_select(["topics","topic"], "topics_clean", COLUMNS),
-                _cleaned_select(["source_name","publication_name"], "source_name_clean", COLUMNS),
-            ]
-            con.execute("CREATE OR REPLACE VIEW v_enriched AS SELECT " + ", ".join(select_parts) + " FROM v AS v")
+            if not df_main.empty:
+                COLUMNS = set(df_main.columns.tolist())
+                st.success(f"✅ Loaded dataset with {len(df_main):,} rows and {len(COLUMNS)} columns")
+            else:
+                st.error("❌ No dataset loaded from split files")
+                df_main = pd.DataFrame()
+                COLUMNS = set()
+            
+            # Try to load attribution data
+            attr_csv = _find_first_existing("attribution_all_scored.csv", "attribution_all_scored_sample.csv")
+            if attr_csv:
+                try:
+                    df_attr = pd.read_csv(attr_csv)
+                    st.success(f"✅ Loaded attribution data with {len(df_attr):,} rows")
+                except Exception as e:
+                    st.warning(f"⚠️ Could not load attribution data: {e}")
+                    df_attr = pd.DataFrame()
+            else:
+                df_attr = pd.DataFrame()
             
         except Exception as e:
-            st.error(f"Error describing table: {e}")
+            st.error(f"❌ Failed to load data: {e}")
+            df_main = pd.DataFrame()
+            df_attr = pd.DataFrame()
             COLUMNS = set()
     
-    return con, COLUMNS
+    return df_main, df_attr, COLUMNS
 
-# Database initialization moved to get_database_connection() function
+# Simple replacement for get_database_connection() to maintain compatibility
+def get_database_connection():
+    """Legacy function - now returns pandas data instead of DuckDB connection."""
+    df_main, df_attr, columns = get_data()
+    
+    class MockConnection:
+        def __init__(self, df):
+            self.df = df
+        
+        def execute(self, query, args=None):
+            # Handle different types of queries
+            query_lower = query.lower()
+            
+            if "describe v" in query_lower:
+                # Return column information
+                col_df = pd.DataFrame({
+                    'column_name': self.df.columns.tolist(),
+                    'column_type': ['VARCHAR' for _ in self.df.columns]
+                })
+                return MockResult(col_df)
+            
+            elif "select distinct" in query_lower and "from v" in query_lower:
+                # Handle DISTINCT queries
+                if "limit" in query_lower:
+                    limit_match = re.search(r'limit (\d+)', query_lower)
+                    limit = int(limit_match.group(1)) if limit_match else 50
+                else:
+                    limit = 50
+                
+                # Extract column name from query
+                col_match = re.search(r'select distinct (\w+)', query_lower)
+                if col_match:
+                    col_name = col_match.group(1)
+                    if col_name in self.df.columns:
+                        unique_vals = self.df[col_name].dropna().unique()[:limit]
+                        result_df = pd.DataFrame({col_name: unique_vals})
+                        return MockResult(result_df)
+                
+                return MockResult(pd.DataFrame())
+            
+            elif "select count(distinct" in query_lower:
+                # Handle COUNT DISTINCT queries
+                col_match = re.search(r'count\(distinct (\w+)\)', query_lower)
+                if col_match:
+                    col_name = col_match.group(1)
+                    if col_name in self.df.columns:
+                        count = self.df[col_name].nunique()
+                        return MockResult(pd.DataFrame({'count': [count]}))
+                
+                return MockResult(pd.DataFrame({'count': [0]}))
+            
+            elif "select avg(" in query_lower:
+                # Handle AVG queries
+                col_match = re.search(r'avg\((\w+)\)', query_lower)
+                if col_match:
+                    col_name = col_match.group(1)
+                    if col_name in self.df.columns:
+                        avg_val = self.df[col_name].mean()
+                        return MockResult(pd.DataFrame({'avg': [avg_val]}))
+                
+                return MockResult(pd.DataFrame({'avg': [None]}))
+            
+            elif "select min(" in query_lower and "max(" in query_lower:
+                # Handle MIN/MAX queries
+                col_match = re.search(r'min\(cast\((\w+)', query_lower)
+                if col_match:
+                    col_name = col_match.group(1)
+                    if col_name in self.df.columns:
+                        min_val = self.df[col_name].min()
+                        max_val = self.df[col_name].max()
+                        return MockResult(pd.DataFrame({'min': [min_val], 'max': [max_val]}))
+                
+                return MockResult(pd.DataFrame({'min': [None], 'max': [None]}))
+            
+            else:
+                # Default: return the dataframe
+                return MockResult(self.df)
+    
+    class MockResult:
+        def __init__(self, df):
+            self.df = df
+        
+        def fetchdf(self):
+            return self.df
+        
+        def fetchone(self):
+            if not self.df.empty:
+                return self.df.iloc[0].tolist()
+            return None
+    
+    return MockConnection(df_main), columns
 
 # -------------------- Logo display --------------------
 if LOGO_PATH and Path(LOGO_PATH).exists():
@@ -1146,6 +1176,7 @@ with tab2:
     if lookup_type == "Item Attribution":
         # Get available columns for item search
         try:
+            con, _ = get_database_connection()
             columns_result = con.execute("DESCRIBE v").fetchdf()
             available_cols = columns_result['column_name'].tolist()
             
@@ -1169,7 +1200,7 @@ with tab2:
                         # Get suggestions as user types
                         suggestions_query = f"SELECT DISTINCT {sel_col} FROM v WHERE LOWER({sel_col}) LIKE LOWER($search) AND {sel_col} IS NOT NULL ORDER BY {sel_col} LIMIT 10"
                         suggestions = con.execute(suggestions_query, {"search": f"%{search_term}%"}).fetchdf()
-                        
+                    
                         if not suggestions.empty:
                             st.markdown("**💡 Suggestions:**")
                             suggestion_cols = st.columns(min(3, len(suggestions)))
@@ -1187,66 +1218,66 @@ with tab2:
                     except Exception as e:
                         st.warning(f"Error getting suggestions: {str(e)}")
                 
-                # Use selected suggestion or search term
-                if f"selected_{sel_col}" in st.session_state:
-                    search_term = st.session_state[f"selected_{sel_col}"]
-                    st.success(f"Selected: {search_term}")
-                    if st.button("Clear Selection", key=f"clear_{sel_col}"):
-                        del st.session_state[f"selected_{sel_col}"]
-                        st.rerun()
-                
-                if search_term:
-                    # Add to recent searches
-                    add_to_recent_searches(f"{sel_col}: {search_term}")
+                    # Use selected suggestion or search term
+                    if f"selected_{sel_col}" in st.session_state:
+                        search_term = st.session_state[f"selected_{sel_col}"]
+                        st.success(f"Selected: {search_term}")
+                        if st.button("Clear Selection", key=f"clear_{sel_col}"):
+                            del st.session_state[f"selected_{sel_col}"]
+                            st.rerun()
                     
-                    # Search for matching values
-                    try:
-                        search_query = f"SELECT DISTINCT {sel_col} FROM v WHERE LOWER({sel_col}) LIKE LOWER($search) AND {sel_col} IS NOT NULL ORDER BY {sel_col} LIMIT 20"
-                        matches = con.execute(search_query, {"search": f"%{search_term}%"}).fetchdf()
-                        
-                        if not matches.empty:
-                            st.success(f"Found {len(matches)} matches for '{search_term}' in {sel_col}")
+                    if search_term:
+                        # Add to recent searches
+                        add_to_recent_searches(f"{sel_col}: {search_term}")
+                    
+                        # Search for matching values
+                        try:
+                            search_query = f"SELECT DISTINCT {sel_col} FROM v WHERE LOWER({sel_col}) LIKE LOWER($search) AND {sel_col} IS NOT NULL ORDER BY {sel_col} LIMIT 20"
+                            matches = con.execute(search_query, {"search": f"%{search_term}%"}).fetchdf()
                             
-                            # Let user select from matches
-                            selected_item = st.selectbox("Select item", matches[sel_col].tolist(), key=f"select_{sel_col}")
-                            
-                            if selected_item:
-                                # Show data for selected item
-                                item_data = con.execute(f"SELECT * FROM v WHERE {sel_col} = $item LIMIT 100", {"item": selected_item}).fetchdf()
+                            if not matches.empty:
+                                st.success(f"Found {len(matches)} matches for '{search_term}' in {sel_col}")
                                 
-                                if not item_data.empty:
-                                    st.markdown(f"### 📊 Data for: {selected_item}")
-                                    
-                                    # Show key metrics
-                                    col1, col2, col3 = st.columns(3)
-                                    with col1:
-                                        create_metric_card("Records", len(item_data), icon="📄")
-                                    with col2:
-                                        if 'circulation_size' in item_data.columns:
-                                            avg_circ = item_data['circulation_size'].mean()
-                                            create_metric_card("Avg Circulation", f"{avg_circ:,.0f}", icon="📈")
-                                    with col3:
-                                        if 'body_token_count' in item_data.columns:
-                                            avg_tokens = item_data['body_token_count'].mean()
-                                            create_metric_card("Avg Tokens", f"{avg_tokens:,.0f}", icon="📝")
-                                    
-                                    # Show the data
-                                    st.dataframe(item_data, use_container_width=True, height=400)
-                                    
-                                    # Export options
-                                    col1, col2 = st.columns(2)
-                                    with col1:
-                                        export_data_button(item_data, f"{sel_col}_{selected_item}", "csv")
-                                    with col2: 
-                                        export_data_button(item_data, f"{sel_col}_{selected_item}", "xlsx")
-                                else:
-                                    st.warning("No data found for the selected item.")
-                        else:
-                            st.warning(f"No matches found for '{search_term}' in {sel_col}")
+                                # Let user select from matches
+                                selected_item = st.selectbox("Select item", matches[sel_col].tolist(), key=f"select_{sel_col}")
+                                
+                                if selected_item:
+                                    # Show data for selected item
+                                    item_data = con.execute(f"SELECT * FROM v WHERE {sel_col} = $item LIMIT 100", {"item": selected_item}).fetchdf()
+                                
+                                    if not item_data.empty:
+                                        st.markdown(f"### 📊 Data for: {selected_item}")
+                                        
+                                        # Show key metrics
+                                        col1, col2, col3 = st.columns(3)
+                                        with col1:
+                                            create_metric_card("Records", len(item_data), icon="📄")
+                                        with col2:
+                                            if 'circulation_size' in item_data.columns:
+                                                avg_circ = item_data['circulation_size'].mean()
+                                                create_metric_card("Avg Circulation", f"{avg_circ:,.0f}", icon="📈")
+                                        with col3:
+                                            if 'body_token_count' in item_data.columns:
+                                                avg_tokens = item_data['body_token_count'].mean()
+                                                create_metric_card("Avg Tokens", f"{avg_tokens:,.0f}", icon="📝")
+                                        
+                                        # Show the data
+                                        st.dataframe(item_data, use_container_width=True, height=400)
+                                        
+                                        # Export options
+                                        col1, col2 = st.columns(2)
+                                        with col1:
+                                            export_data_button(item_data, f"{sel_col}_{selected_item}", "csv")
+                                        with col2: 
+                                            export_data_button(item_data, f"{sel_col}_{selected_item}", "xlsx")
+                                    else:
+                                        st.warning("No data found for the selected item.")
+                            else:
+                                st.warning(f"No matches found for '{search_term}' in {sel_col}")
                             
-                    except Exception as e:
-                        st.error(f"Error searching: {str(e)}")
-                        st.info("Please try a different search term or column.")
+                        except Exception as e:
+                            st.error(f"Error searching: {str(e)}")
+                            st.info("Please try a different search term or column.")
         except Exception as e:
             st.error(f"Error accessing data: {str(e)}")
             st.info("Please check your data connection.")
@@ -1258,6 +1289,7 @@ with tab2:
         if term and len(term) >= 2:
             try:
                 # Get text columns for suggestions
+                con, _ = get_database_connection()
                 columns_result = con.execute("DESCRIBE v").fetchdf()
                 available_cols = columns_result['column_name'].tolist()
                 text_columns = [col for col in available_cols if any(keyword in col.lower() for keyword in ['headline', 'body', 'content', 'text'])]
@@ -1273,10 +1305,10 @@ with tab2:
                     FROM v 
                     WHERE {' OR '.join([f"LOWER({col}) LIKE LOWER($search)" for col in text_columns])}
                     AND suggestion IS NOT NULL
-                    ORDER BY suggestion
-                    LIMIT 10
-                    """
-                    
+                ORDER BY suggestion
+                LIMIT 10
+                """
+                
                     suggestions = con.execute(suggestions_query, {"search": f"%{term}%"}).fetchdf()
                     
                     if not suggestions.empty:
@@ -1293,8 +1325,8 @@ with tab2:
                                                help=f"Click to search for: {suggestion}"):
                                         st.session_state["selected_term"] = suggestion
                                         st.rerun()
-                        
-                        st.markdown("---")
+                            
+                            st.markdown("---")
             except Exception as e:
                 st.warning(f"Error getting term suggestions: {str(e)}")
         
@@ -1398,6 +1430,7 @@ with tab3:
         # Try to find a date column dynamically
         date_col = None
         try:
+            con, _ = get_database_connection()
             columns_df = con.execute("DESCRIBE v").fetchdf()
             date_columns = columns_df[columns_df['column_name'].str.contains('date|time|ts', case=False, na=False)]['column_name'].tolist()
             
@@ -1422,6 +1455,7 @@ with tab3:
         
         # Get available columns for filtering
         try:
+            con, _ = get_database_connection()
             columns_result = con.execute("DESCRIBE v").fetchdf()
             available_cols = columns_result['column_name'].tolist()
             
@@ -1477,6 +1511,7 @@ with tab3:
     # KPI Metrics
     try:
         # Get available columns for metrics
+        con, _ = get_database_connection()
         columns_result = con.execute("DESCRIBE v").fetchdf()
         available_cols = columns_result['column_name'].tolist()
         
@@ -1510,8 +1545,28 @@ with tab3:
         uniq_sources = 0
         uniq_authors = 0
     
-    infl_col = "pub_credit_share" if "pub_credit_share" in COLUMNS else ("credit_share" if "credit_share" in COLUMNS else None)
-    avg_infl = con.execute(f"SELECT AVG({infl_col}) FROM v WHERE {w}", args).fetchone()[0] if infl_col else None
+    # Check for influence columns in main dataset first, then attribution dataset
+    infl_col = None
+    avg_infl = None
+    
+    if "pub_credit_share" in COLUMNS:
+        infl_col = "pub_credit_share"
+        avg_infl = con.execute(f"SELECT AVG({infl_col}) FROM v WHERE {w}", args).fetchone()[0]
+    elif "max_term_credit" in COLUMNS:
+        infl_col = "max_term_credit"
+        avg_infl = con.execute(f"SELECT AVG({infl_col}) FROM v WHERE {w}", args).fetchone()[0]
+    elif "credit_share" in COLUMNS:
+        infl_col = "credit_share" 
+        avg_infl = con.execute(f"SELECT AVG({infl_col}) FROM v WHERE {w}", args).fetchone()[0]
+    else:
+        # Try to get influence data from attribution dataset
+        try:
+            df_main, df_attr, _ = get_data()
+            if not df_attr.empty and "credit_share" in df_attr.columns:
+                avg_infl = df_attr["credit_share"].mean()
+                st.info("📊 Using attribution dataset for influence metrics")
+        except:
+            avg_infl = None
 
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("Total publications", f"{total_pubs:,}")
@@ -1532,36 +1587,64 @@ with tab3:
         circ_col = next((c for c in ["circulation","circulation_size","reach","impressions","audience"] if c in COLUMNS), None)
         circ_sql = f"COALESCE(SUM({circ_col}),0)" if circ_col else "COUNT(*)"
         
-        agg = con.execute(f"""
-            SELECT {dim} AS dim,
-                   AVG({infl_col}) AS avg_influence,
-                   COUNT(*) AS n,
-                   {circ_sql} AS total_metric
-            FROM v WHERE {w}
-            GROUP BY 1 HAVING dim IS NOT NULL
-        """, args).fetchdf()
+        # Build the SQL query based on available columns
+        if infl_col:
+            agg_query = f"""
+                SELECT {dim} AS dim,
+                       AVG({infl_col}) AS avg_influence,
+                       COUNT(*) AS n,
+                       {circ_sql} AS total_metric
+                FROM v WHERE {w}
+                GROUP BY 1 HAVING dim IS NOT NULL
+            """
+        else:
+            # If no influence column, just use count
+            agg_query = f"""
+                SELECT {dim} AS dim,
+                       COUNT(*) AS n,
+                       {circ_sql} AS total_metric
+                FROM v WHERE {w}
+                GROUP BY 1 HAVING dim IS NOT NULL
+            """
+        
+        agg = con.execute(agg_query, args).fetchdf()
 
         top_n = st.slider("Top N", 5, 50, 20, 1)
 
         cA, cB = st.columns(2)
         if not agg.empty:
-            b1 = alt.Chart(agg.sort_values("avg_influence", ascending=False).head(top_n)).mark_bar(color="#12715D").encode(
-                y=alt.Y("dim:N", sort="-x", title=None),
-                x=alt.X("avg_influence:Q", title="Avg influence"),
-                tooltip=["dim", alt.Tooltip("avg_influence:Q", format=".3f"), "n"],
-            )
-            b2 = alt.Chart(agg.sort_values("n", ascending=False).head(top_n)).mark_bar(color="#4AB48E").encode(
-                y=alt.Y("dim:N", sort="-x", title=None),
-                x=alt.X("n:Q", title="Count"),
-                tooltip=["dim", "n", alt.Tooltip("avg_influence:Q", format=".3f")],
-            )
+            # Check if avg_influence column exists
+            if "avg_influence" in agg.columns:
+                b1 = alt.Chart(agg.sort_values("avg_influence", ascending=False).head(top_n)).mark_bar(color="#12715D").encode(
+                    y=alt.Y("dim:N", sort="-x", title=None),
+                    x=alt.X("avg_influence:Q", title="Avg influence"),
+                    tooltip=["dim", alt.Tooltip("avg_influence:Q", format=".3f"), "n"],
+                )
+                b2 = alt.Chart(agg.sort_values("n", ascending=False).head(top_n)).mark_bar(color="#4AB48E").encode(
+                    y=alt.Y("dim:N", sort="-x", title=None),
+                    x=alt.X("n:Q", title="Count"),
+                    tooltip=["dim", "n", alt.Tooltip("avg_influence:Q", format=".3f")],
+                )
+            else:
+                # If no avg_influence, just show count charts
+                b1 = alt.Chart(agg.sort_values("n", ascending=False).head(top_n)).mark_bar(color="#12715D").encode(
+                    y=alt.Y("dim:N", sort="-x", title=None),
+                    x=alt.X("n:Q", title="Count"),
+                    tooltip=["dim", "n"]
+                )
+                b2 = alt.Chart(agg.sort_values("total_metric", ascending=False).head(top_n)).mark_bar(color="#4AB48E").encode(
+                    y=alt.Y("dim:N", sort="-x", title=None),
+                    x=alt.X("total_metric:Q", title="Total Metric"),
+                    tooltip=["dim", "total_metric"]
+                )
+            
             cA.altair_chart(b1.properties(height=360).configure_view(strokeWidth=0), use_container_width=True)
             cB.altair_chart(b2.properties(height=360).configure_view(strokeWidth=0), use_container_width=True)
         else:
             st.info("No data for current filters.")
 
         # Pie Chart
-        if infl_col and not agg.empty:
+        if infl_col and not agg.empty and "avg_influence" in agg.columns:
             pie_df = agg.sort_values("avg_influence", ascending=False).head(20)
             fig_pie = px.pie(
                 pie_df, names="dim", values="avg_influence",
@@ -1717,19 +1800,29 @@ with tab3:
     
     with col2:
         if st.button("📥 Export CSV", help="Download filtered data as CSV"):
-            con, _ = get_database_connection()
-            sample = con.execute(f"SELECT * FROM v WHERE {w} LIMIT {sample_size}", args).fetchdf()
+            df_main, _, _ = get_data()
+            if df_main.empty:
+                sample = pd.DataFrame()
+            else:
+                sample = df_main.head(sample_size)
             export_data_button(sample, "filtered_data", "csv")
     
     with col3:
         if st.button("📊 Export JSON", help="Download filtered data as JSON"):
-            con, _ = get_database_connection()
-            sample = con.execute(f"SELECT * FROM v WHERE {w} LIMIT {sample_size}", args).fetchdf()
+            df_main, _, _ = get_data()
+            if df_main.empty:
+                sample = pd.DataFrame()
+            else:
+                sample = df_main.head(sample_size)
             export_data_button(sample, "filtered_data", "json")
     
     # Display data with enhanced styling
-    con, _ = get_database_connection()
-    sample = con.execute(f"SELECT * FROM v WHERE {w} LIMIT {sample_size}", args).fetchdf()
+    df_main, _, _ = get_data()
+    if df_main.empty:
+        sample = pd.DataFrame()
+    else:
+        # Apply pandas filtering instead of SQL
+        sample = df_main.head(sample_size)
     
     if not sample.empty:
         st.markdown(f"**Showing {len(sample)} rows**")
