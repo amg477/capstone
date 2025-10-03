@@ -1,3 +1,13 @@
 data/processed/final_model_dataset.csv
 data/processed/sample_dataset.csv
 data/processed/split/final_model_dataset_part_*.csv
+
+# Python virtual environment
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# Environment files
+.env
