@@ -1,63 +1,77 @@
-# app.py —  PolicyPath (Tabbed: Attribution • Dashboard • Network)
+# app.py — PolicyPath (pandas-only; ready for Streamlit Cloud)
 
 from __future__ import annotations
+
+# -------------------- MUST be first Streamlit call --------------------
+import streamlit as st
+st.set_page_config(page_title="🏛️PolicyPath", layout="wide")
+
+# -------------------- Imports --------------------
 import re
 from pathlib import Path
 from typing import Dict, Optional, Tuple, List, Set
-import duckdb
 import pandas as pd
-import streamlit as st
 import altair as alt
 import plotly.express as px
 import plotly.graph_objects as go
 import base64
-# Using Plotly and Altair instead of matplotlib for better Streamlit Cloud compatibility
+
+# -------------------- App paths (define early; used by Debug/Logo) --------------------
+APP_DIR = Path(__file__).resolve().parent
+ROOT = APP_DIR.parent
+
+# Note: Server options should be set in .streamlit/config.toml or as command line arguments
+# Example config.toml entries:
+# [server]
+# maxMessageSize = 500
+# maxUploadSize = 500
 
 # -------------------- Load Split Dataset Files --------------------
 @st.cache_data
-def load_combined_dataset():
+def load_combined_dataset() -> pd.DataFrame:
     """Load and combine all split dataset files."""
-    split_dir = Path("data/split")
-    combined_data = []
-    
-    # Load all split files
-    for i in range(1, 39):  # Files 001 to 038
-        file_path = split_dir / f"final_model_dataset_part_{i:03d}.csv"
-        if file_path.exists():
-            df = pd.read_csv(file_path)
-            combined_data.append(df)
-    
-    if combined_data:
-        final_df = pd.concat(combined_data, ignore_index=True)
-        return final_df
-    else:
+    # Put your repo path first for Cloud
+    possible_paths = [
+        Path("final_deliverable/data/split"),
+        Path.cwd() / "final_deliverable" / "data" / "split",
+        Path("data/split"),
+        Path.cwd() / "data" / "split",
+        APP_DIR / "data" / "split",
+        APP_DIR.parent / "data" / "split",
+        Path.cwd().parent / "data" / "split",
+        Path("../data/split"),
+    ]
+
+    split_dir = next((p for p in possible_paths if p.exists()), None)
+    if split_dir is None:
         return pd.DataFrame()
 
-# Load the dataset
+    combined: List[pd.DataFrame] = []
+    for i in range(1, 39):  # Files 001–038
+        fp = split_dir / f"final_model_dataset_part_{i:03d}.csv"
+        if fp.exists():
+            try:
+                df = pd.read_csv(fp, dtype_backend="pyarrow")
+                combined.append(df)
+            except Exception:
+                # Skip bad file but keep loading others
+                pass
+
+    if not combined:
+        return pd.DataFrame()
+
+    final_df = pd.concat(combined, ignore_index=True)
+    combined.clear()
+    return final_df
+
 @st.cache_data
-def get_dataset():
-    """Get the combined dataset."""
+def get_dataset() -> pd.DataFrame:
+    """Get the combined dataset (cached)."""
     return load_combined_dataset()
 
-# -------------------- Page config --------------------
-st.set_page_config(page_title="PolicyPath", layout="wide")
-
-# -------------------- Session State Initialization --------------------
-def init_session_state():
-    """Initialize session state variables."""
-    if 'dark_mode' not in st.session_state:
-        st.session_state.dark_mode = False
-    if 'recent_searches' not in st.session_state:
-        st.session_state.recent_searches = []
-    if 'favorites' not in st.session_state:
-        st.session_state.favorites = []
-    if 'saved_views' not in st.session_state:
-        st.session_state.saved_views = {}
-
-# -------------------- Global Penta Brand Styling --------------------
+# -------------------- Brand styling (CSS) --------------------
 st.markdown("""
 <style>
-    /* Penta Brand Colors */
     :root {
         --penta-primary: #12715D;
         --penta-accent: #4AB48E;
@@ -66,1827 +80,794 @@ st.markdown("""
         --penta-dark: #0A473B;
         --penta-white: #FFFFFF;
     }
-    
-    /* Main app styling */
-    .main .block-container {
-        padding-top: 2rem;
-        padding-bottom: 2rem;
-        max-width: 1200px;
-    }
-    
-    /* Headers */
-    h1, h2, h3 {
-        color: var(--penta-dark);
-        font-family: 'Inter', 'Helvetica Neue', Arial, sans-serif;
-        font-weight: 600;
-    }
-    
-    h1 {
-        font-size: 2.5rem;
-        letter-spacing: -0.02em;
-    }
-    
-    h2 {
-        font-size: 1.8rem;
-        margin-top: 2rem;
-        margin-bottom: 1rem;
-    }
-    
-    h3 {
-        font-size: 1.4rem;
-        margin-top: 1.5rem;
-        margin-bottom: 0.75rem;
-    }
-    
-    /* Tabs */
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 1rem;
-    }
-    
-    .stTabs [data-baseweb="tab"] {
-        background-color: var(--penta-light);
-        border-radius: 8px;
-        padding: 0.75rem 1.5rem;
-        font-weight: 500;
-        color: var(--penta-dark);
-    }
-    
-    .stTabs [aria-selected="true"] {
-        background-color: var(--penta-primary);
-        color: var(--penta-white);
-    }
-    
-    /* Metrics */
-    .metric-container {
-        background-color: var(--penta-light);
-        padding: 1rem;
-        border-radius: 8px;
-        border-left: 4px solid var(--penta-primary);
-    }
-    
-    /* Data tables */
-    .stDataFrame {
-        border-radius: 8px;
-        overflow: hidden;
-    }
-    
-    /* Sidebar */
-    .css-1d391kg {
-        background-color: var(--penta-light);
-    }
-    
-    /* Buttons */
-    .stButton > button {
-        background-color: var(--penta-primary);
-        color: var(--penta-white);
-        border-radius: 6px;
-        font-weight: 500;
-        transition: all 0.3s ease;
-        box-shadow: 0 2px 4px rgba(18, 113, 93, 0.2);
-    }
-    
-    .stButton > button:hover {
-        background-color: var(--penta-accent);
-        transform: translateY(-1px);
-        box-shadow: 0 4px 8px rgba(18, 113, 93, 0.3);
-    }
-    
-    /* Loading animations */
-    .loading-spinner {
-        display: inline-block;
-        width: 20px;
-        height: 20px;
-        border: 3px solid var(--penta-light);
-        border-radius: 50%;
-        border-top-color: var(--penta-primary);
-        animation: spin 1s ease-in-out infinite;
-    }
-    
-    @keyframes spin {
-        to { transform: rotate(360deg); }
-    }
-    
-    .pulse-animation {
-        animation: pulse 2s infinite;
-    }
-    
-    @keyframes pulse {
-        0% { opacity: 1; }
-        50% { opacity: 0.5; }
-        100% { opacity: 1; }
-    }
-    
-    /* Enhanced tooltips */
-    .tooltip {
-        position: relative;
-        display: inline-block;
-        cursor: help;
-    }
-    
-    .tooltip .tooltiptext {
-        visibility: hidden;
-        width: 200px;
-        background-color: var(--penta-dark);
-        color: var(--penta-white);
-        text-align: center;
-        border-radius: 6px;
-        padding: 8px;
-        position: absolute;
-        z-index: 1;
-        bottom: 125%;
-        left: 50%;
-        margin-left: -100px;
-        opacity: 0;
-        transition: opacity 0.3s;
-        font-size: 12px;
-        box-shadow: 0 4px 8px rgba(0,0,0,0.2);
-    }
-    
-    .tooltip:hover .tooltiptext {
-        visibility: visible;
-        opacity: 1;
-    }
-    
-    /* Enhanced metrics */
-    .metric-card {
-        background: linear-gradient(135deg, var(--penta-light) 0%, var(--penta-lighter) 100%);
-        border-radius: 12px;
-        padding: 1.5rem;
-        margin: 0.5rem 0;
-        border-left: 4px solid var(--penta-primary);
-        box-shadow: 0 2px 8px rgba(18, 113, 93, 0.1);
-        transition: transform 0.2s ease;
-    }
-    
-    .metric-card:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 4px 16px rgba(18, 113, 93, 0.2);
-    }
-    
-    /* Enhanced data tables */
-    .stDataFrame {
-        border-radius: 12px;
-        overflow: hidden;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-    }
-    
-    .stDataFrame table {
-        border-collapse: separate;
-        border-spacing: 0;
-    }
-    
-    .stDataFrame th {
-        background: linear-gradient(135deg, var(--penta-primary) 0%, var(--penta-accent) 100%);
-        color: var(--penta-white);
-        font-weight: 600;
-        padding: 12px;
-    }
-    
-    .stDataFrame td {
-        padding: 10px 12px;
-        border-bottom: 1px solid var(--penta-light);
-    }
-    
-    .stDataFrame tr:hover {
-        background-color: var(--penta-light);
-    }
-    
-    /* Enhanced charts */
-    .chart-container {
-        background: var(--penta-white);
-        border-radius: 12px;
-        padding: 1rem;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-        margin: 1rem 0;
-    }
-    
-    /* Search enhancements */
-    .search-container {
-        position: relative;
-        margin: 1rem 0;
-    }
-    
-    .search-suggestions {
-        position: absolute;
-        top: 100%;
-        left: 0;
-        right: 0;
-        background: var(--penta-white);
-        border: 1px solid var(--penta-light);
-        border-radius: 6px;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-        z-index: 1000;
-        max-height: 200px;
-        overflow-y: auto;
-    }
-    
-    .search-suggestion {
-        padding: 8px 12px;
-        cursor: pointer;
-        border-bottom: 1px solid var(--penta-light);
-    }
-    
-    .search-suggestion:hover {
-        background-color: var(--penta-light);
-    }
-    
-    /* Enhanced suggestion buttons */
-    .suggestion-button {
-        background: linear-gradient(135deg, var(--penta-light) 0%, var(--penta-lighter) 100%);
-        border: 1px solid var(--penta-primary);
-        border-radius: 6px;
-        padding: 6px 12px;
-        margin: 2px;
-        font-size: 0.85rem;
-        color: var(--penta-dark);
-        transition: all 0.2s ease;
-        cursor: pointer;
-        width: 100%;
-        text-align: left;
-    }
-    
-    .suggestion-button:hover {
-        background: linear-gradient(135deg, var(--penta-primary) 0%, var(--penta-accent) 100%);
-        color: var(--penta-white);
-        transform: translateY(-1px);
-        box-shadow: 0 2px 4px rgba(18, 113, 93, 0.2);
-    }
-    
-    /* Suggestion container */
-    .suggestions-container {
-        background: var(--penta-lighter);
-        border-radius: 8px;
-        padding: 1rem;
-        margin: 0.5rem 0;
-        border-left: 4px solid var(--penta-primary);
-    }
-    
-    .suggestions-title {
-        color: var(--penta-dark);
-        font-weight: 600;
-        margin-bottom: 0.5rem;
-        font-size: 0.9rem;
-    }
-    
-    /* Dark mode toggle */
-    .dark-mode-toggle {
-        position: fixed;
-        top: 20px;
-        right: 20px;
-        z-index: 1000;
-        background: var(--penta-primary);
-        color: var(--penta-white);
-        border: none;
-        border-radius: 50%;
-        width: 50px;
-        height: 50px;
-        cursor: pointer;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.2);
-        transition: all 0.3s ease;
-    }
-    
-    .dark-mode-toggle:hover {
-        background: var(--penta-accent);
-        transform: scale(1.1);
-    }
-    
-    /* Responsive design */
-    @media (max-width: 768px) {
-        .header-title h1 {
-            font-size: 2rem;
-        }
-        
-        .header-subtitle {
-            font-size: 1rem;
-        }
-        
-        .penta-logo {
-            height: 40px;
-        }
-        
-        .metric-card {
-            padding: 1rem;
-        }
-    }
-    
-    /* Success/Error animations */
-    .success-message {
-        background: linear-gradient(135deg, #4CAF50, #45a049);
-        color: white;
-        padding: 1rem;
-        border-radius: 8px;
-        margin: 1rem 0;
-        animation: slideIn 0.5s ease;
-    }
-    
-    .error-message {
-        background: linear-gradient(135deg, #f44336, #d32f2f);
-        color: white;
-        padding: 1rem;
-        border-radius: 8px;
-        margin: 1rem 0;
-        animation: slideIn 0.5s ease;
-    }
-    
-    @keyframes slideIn {
-        from { transform: translateX(-100%); opacity: 0; }
-        to { transform: translateX(0); opacity: 1; }
-    }
+    .main .block-container { padding-top: 2rem; padding-bottom: 2rem; max-width: 1200px; }
+    h1, h2, h3 { color: var(--penta-dark); font-family: 'Inter','Helvetica Neue',Arial,sans-serif; font-weight: 600; }
+    h1 { font-size: 2.5rem; letter-spacing: -0.02em; }
+    h2 { font-size: 1.8rem; margin-top: 2rem; margin-bottom: 1rem; }
+    h3 { font-size: 1.4rem; margin-top: 1.5rem; margin-bottom: 0.75rem; }
+    .stTabs [data-baseweb="tab-list"] { gap: 1rem; }
+    .stTabs [data-baseweb="tab"] { background-color: var(--penta-light); border-radius: 8px; padding: 0.75rem 1.5rem; font-weight: 500; color: var(--penta-dark); }
+    .stTabs [aria-selected="true"] { background-color: var(--penta-primary); color: var(--penta-white); }
+    .stButton > button { background-color: var(--penta-primary); color: var(--penta-white); border-radius: 6px; font-weight: 500; transition: all 0.3s ease; box-shadow: 0 2px 4px rgba(18,113,93,0.2); }
+    .stButton > button:hover { background-color: var(--penta-accent); transform: translateY(-1px); box-shadow: 0 4px 8px rgba(18,113,93,0.3); }
+    .loading-spinner { display:inline-block; width:20px; height:20px; border:3px solid var(--penta-light); border-radius:50%; border-top-color:var(--penta-primary); animation:spin 1s ease-in-out infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .pulse-animation { animation: pulse 2s infinite; }
+    @keyframes pulse { 0%{opacity:1;} 50%{opacity:.5;} 100%{opacity:1;} }
+    .metric-card { background: linear-gradient(135deg, var(--penta-light) 0%, var(--penta-lighter) 100%); border-radius:12px; padding:1.5rem; margin:.5rem 0; border-left:4px solid var(--penta-primary); box-shadow:0 2px 8px rgba(18,113,93,.1); transition:transform .2s ease; }
+    .metric-card:hover { transform: translateY(-2px); box-shadow:0 4px 16px rgba(18,113,93,.2); }
+    .stDataFrame { border-radius:12px; overflow:hidden; box-shadow:0 2px 8px rgba(0,0,0,.1); }
+    .stDataFrame th { background: linear-gradient(135deg, var(--penta-primary) 0%, var(--penta-accent) 100%); color:var(--penta-white); font-weight:600; padding:12px; }
+    .stDataFrame td { padding:10px 12px; border-bottom:1px solid var(--penta-light); }
+    .success-message { background: linear-gradient(135deg,#4CAF50,#45a049); color:white; padding:1rem; border-radius:8px; margin:1rem 0; }
+    .error-message { background: linear-gradient(135deg,#f44336,#d32f2f); color:white; padding:1rem; border-radius:8px; margin:1rem 0; }
+    .dark-mode-toggle { position: fixed; top: 20px; right: 20px; z-index: 1000; background: var(--penta-primary); color: var(--penta-white); border: none; border-radius: 50%; width: 50px; height: 50px; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.2); transition: all 0.3s ease; }
+    .dark-mode-toggle:hover { background: var(--penta-accent); transform: scale(1.1); }
 </style>
 """, unsafe_allow_html=True)
 
-# -------------------- Brand styling --------------------
+# -------------------- Helpers --------------------
 def apply_penta_style():
-    # Penta brand colors for Plotly/Altair charts
-    PRIMARY_GREEN = "#12715D"      # Main brand green
-    ACCENT_GREEN  = "#4AB48E"      # Accent green
-    LIGHT_GREEN   = "#E5F4F1"      # Light background
-    LIGHTER_GREEN = "#C8EADF"      # Even lighter
-    DARK_GREEN    = "#0A473B"      # Dark green for text
-    WHITE         = "#FFFFFF"      # Clean white
-    
-    # Set Altair theme for consistent styling
     alt.themes.enable('default')
-    
-    # Configure Altair with Penta colors
     alt.data_transformers.disable_max_rows()
-    
-    # Return color palette for use in charts
     return {
-        'primary': PRIMARY_GREEN,
-        'accent': ACCENT_GREEN,
-        'light': LIGHT_GREEN,
-        'lighter': LIGHTER_GREEN,
-        'dark': DARK_GREEN,
-        'white': WHITE
+        'primary': "#12715D",
+        'accent': "#4AB48E",
+        'light': "#E5F4F1",
+        'lighter': "#C8EADF",
+        'dark': "#0A473B",
+        'white': "#FFFFFF"
     }
 
-def s(path: str, default=None):
-    try:
-        cur = st.secrets
-        for part in path.split("."):
-            cur = cur[part]
-        return cur
-    except Exception:
-        return default
+def show_success_message(message: str):
+    st.markdown(f"""<div class="success-message">✅ {message}</div>""", unsafe_allow_html=True)
 
-# -------------------- Enhanced Utility Functions --------------------
-def show_loading_spinner(text="Loading..."):
-    """Show a custom loading spinner with text."""
-    with st.spinner(text):
-        st.markdown(f"""
-        <div class="loading-spinner"></div>
-        <span style="margin-left: 10px;">{text}</span>
-        """, unsafe_allow_html=True)
+def show_error_message(message: str):
+    st.markdown(f"""<div class="error-message">❌ {message}</div>""", unsafe_allow_html=True)
 
-def show_success_message(message):
-    """Show a success message with animation."""
-    st.markdown(f"""
-    <div class="success-message">
-        ✅ {message}
-    </div>
-    """, unsafe_allow_html=True)
-
-def show_error_message(message):
-    """Show an error message with animation."""
-    st.markdown(f"""
-    <div class="error-message">
-        ❌ {message}
-    </div>
-    """, unsafe_allow_html=True)
-
-def add_to_recent_searches(search_term):
-    """Add search term to recent searches."""
-    if search_term and search_term not in st.session_state.recent_searches:
-        st.session_state.recent_searches.insert(0, search_term)
-        st.session_state.recent_searches = st.session_state.recent_searches[:10]  # Keep only 10 recent
-
-def get_search_suggestions(query, data_list):
-    """Get search suggestions based on query."""
-    if not query or len(query) < 2:
-        return []
-    
-    suggestions = []
-    query_lower = query.lower()
-    
-    for item in data_list:
-        if query_lower in item.lower():
-            suggestions.append(item)
-    
-    return suggestions[:5]  # Return top 5 suggestions
-
-def create_metric_card(title, value, change=None, icon="📊"):
-    """Create an enhanced metric card."""
-    change_html = ""
-    if change is not None:
-        change_color = "green" if change > 0 else "red" if change < 0 else "gray"
-        change_symbol = "↗" if change > 0 else "↘" if change < 0 else "→"
-        change_html = f'<div style="color: {change_color}; font-size: 0.9rem; margin-top: 0.5rem;">{change_symbol} {abs(change):.1f}%</div>'
-    
-    st.markdown(f"""
-    <div class="metric-card">
-        <div style="display: flex; align-items: center; margin-bottom: 0.5rem;">
-            <span style="font-size: 1.5rem; margin-right: 0.5rem;">{icon}</span>
-            <h4 style="margin: 0; color: var(--penta-dark);">{title}</h4>
-        </div>
-        <div style="font-size: 2rem; font-weight: bold; color: var(--penta-primary);">{value}</div>
-        {change_html}
-    </div>
-    """, unsafe_allow_html=True)
-
-def create_tooltip(text, tooltip_text):
-    """Create an element with tooltip."""
-    return f"""
-    <div class="tooltip">
-        {text}
-        <span class="tooltiptext">{tooltip_text}</span>
-    </div>
-    """
-
-def export_data_button(data, filename, format_type="csv"):
-    """Create an enhanced export button."""
-    if format_type == "csv":
-        csv = data.to_csv(index=False)
-        st.download_button(
-            label=f"📥 Download {filename}.csv",
-            data=csv,
-            file_name=f"{filename}.csv",
-            mime="text/csv",
-            help="Download data as CSV file"
-        )
-    elif format_type == "json":
-        json_data = data.to_json(orient='records', indent=2)
-        st.download_button(
-            label=f"📥 Download {filename}.json",
-            data=json_data,
-            file_name=f"{filename}.json",
-            mime="application/json",
-            help="Download data as JSON file"
-        )
-
-def _q(p: Path) -> str:
-    return "'" + str(p).replace("'", "''") + "'"
-
-def _quote_ident(name: str) -> str:
-    return '"' + name.replace('"', '""') + '"'
-
-def _clean_expr(col_sql: str) -> str:
-    return f"""
-    NULLIF(TRIM(
-      REGEXP_REPLACE(
-        REGEXP_REPLACE(
-          REGEXP_REPLACE(
-            REGEXP_REPLACE(COALESCE({col_sql}, ''), '&#160;|&nbsp;|&NBSP;', ' '),
-            '\\s+', ' '
-          ),
-          '^[,;:\\-]+\\s*', ''
-        ), '^\\((.*)\\)$', '\\\\1'
-      )
-    ), '')
-    """
-
-def _first_existing(cols: List[str], existing: Set[str]) -> Optional[str]:
-    for c in cols:
-        if c in existing: 
-            return c
-    return None
-
-def _cleaned_select(cols: List[str], alias: str, existing: Set[str]) -> str:
-    base = _first_existing(cols, existing)
-    return (f"{_clean_expr('v.'+base)} AS {alias}") if base else f"NULL AS {alias}"
+def add_to_recent_searches(term: str):
+    if term and term not in st.session_state.recent_searches:
+        st.session_state.recent_searches.insert(0, term)
+        st.session_state.recent_searches = st.session_state.recent_searches[:10]
 
 def shorten(label: str, max_len: int = 28) -> str:
     s = str(label)
     return s if len(s) <= max_len else s[:max_len-1] + "…"
 
-def build_where(extra: str = "", params: Optional[Dict] = None, 
-                date_range=None, sel_bands=None, sel_pubs=None, date_col=None) -> Tuple[str, Dict]:
-    clauses: List[str] = ["1=1"]
-    args: Dict = {} if params is None else dict(params)
+def export_data_button(df: pd.DataFrame, filename: str, fmt: str = "csv"):
+    if df is None or df.empty:
+        st.info("No data to export.")
+        return
+    if fmt == "csv":
+        st.download_button(
+            label=f"📥 Download {filename}.csv",
+            data=df.to_csv(index=False),
+            file_name=f"{filename}.csv",
+            mime="text/csv",
+        )
+    elif fmt == "json":
+        st.download_button(
+            label=f"📥 Download {filename}.json",
+            data=df.to_json(orient="records", indent=2),
+            file_name=f"{filename}.json",
+            mime="application/json",
+        )
 
-    if date_range and isinstance(date_range, (tuple, list)) and len(date_range) == 2 and date_range[0] and date_range[1] and date_col:
-        dmin = pd.to_datetime(date_range[0])
-        dmax = pd.to_datetime(date_range[1]) + pd.Timedelta(days=1)
-        clauses.append(f"{date_col} >= $dmin AND {date_col} < $dmax")
-        args["dmin"], args["dmax"] = dmin, dmax
+# -------------------- Session State --------------------
+def init_session_state():
+    if 'dark_mode' not in st.session_state: st.session_state.dark_mode = False
+    if 'recent_searches' not in st.session_state: st.session_state.recent_searches = []
+    if 'favorites' not in st.session_state: st.session_state.favorites = []
+    if 'saved_views' not in st.session_state: st.session_state.saved_views = {}
 
-    if sel_bands:
-        clauses.append("sentiment_band IN $bands")
-        args["bands"] = sel_bands
+init_session_state()
 
-    if sel_pubs:
-        clauses.append("publication_name IN $pubs")
-        args["pubs"] = sel_pubs
+# -------------------- Data Globals & Loader --------------------
+DATA_DIR = (ROOT / "data").resolve()
+ATTR_NAME = "attribution_all_scored.csv"
+LOGO_FALLBACK = ROOT / "final_deliverable" / "penta_logo.png"  # adjust if needed
 
-    if extra:
-        clauses.append(extra)
-
-    return " AND ".join(clauses), args
-
-def where_from_filters(date_range=None, sel_pubs=None, sel_channels=None, 
-                      sel_bands=None, sel_authors=None, sel_topics=None, date_col=None) -> Tuple[str, Dict]:
-    clauses, args = ["1=1"], {}
-    
-    if date_range and len(date_range) == 2 and date_col:
-        dmin = pd.to_datetime(date_range[0])
-        dmax = pd.to_datetime(date_range[1]) + pd.Timedelta(days=1)
-        clauses.append(f"CAST({date_col} AS TIMESTAMP) >= $dmin AND CAST({date_col} AS TIMESTAMP) < $dmax")
-        args.update(dmin=dmin, dmax=dmax)
-    
-    if sel_pubs:
-        clauses.append("publication_clean IN $pubs")
-        args["pubs"] = sel_pubs
-    if sel_channels:
-        clauses.append("COALESCE(channel_clean, channel_name_clean) IN $chs")
-        args["chs"] = sel_channels
-    if sel_bands:
-        clauses.append("sentiment_band IN $bands")
-        args["bands"] = sel_bands
-    if sel_authors:
-        clauses.append("COALESCE(author_clean, author_name_clean) IN $auths")
-        args["auths"] = sel_authors
-    if sel_topics:
-        clauses.append("COALESCE(topic_clean, topics_clean) IN $topics")
-        args["topics"] = sel_topics
-    
-    return " AND ".join(clauses), args
-
-@st.cache_data
-def date_bounds(col: str) -> Optional[Tuple[pd.Timestamp, pd.Timestamp]]:
-    try:
-        df_main, _, _ = get_data()
-        if df_main.empty or col not in df_main.columns:
-            return None
-        
-        # Convert to datetime and get min/max
-        df_main[col] = pd.to_datetime(df_main[col], errors='coerce')
-        valid_dates = df_main[col].dropna()
-        
-        if len(valid_dates) > 0:
-            return (valid_dates.min(), valid_dates.max())
-    except Exception as e: 
-        st.error(f"Error in date_bounds: {e}")
-    return None
-
-@st.cache_data
-def distinct_clean(column_name: str) -> List[str]:
-    try:
-        df_main, _, _ = get_data()
-        if df_main.empty or column_name not in df_main.columns:
-            return []
-        
-        # Get unique values from the column
-        unique_values = df_main[column_name].dropna().unique()
-        return sorted([str(val) for val in unique_values])
-    except Exception as e:
-        st.error(f"Error in distinct_clean: {e}")
-        return []
-
-def explain_attribution(row: pd.Series, universe: Optional[pd.DataFrame] = None) -> str:
-    dim = str(row.get("dimension", "dimension"))
-    val = str(row.get("value", "value"))
-    cred = float(row.get("credit", 0.0))
-    share = float(row.get("credit_share", 0.0))
-    rating = row.get("rating", None)
-
-    parts = [f"**{dim} = {val}**"]
-    parts.append(
-        "within the current selection"
-        + (f" (rating = **{int(rating)}**)" if pd.notna(rating) else "")
-        + "."
-    )
-    parts.append(f"It contributes **{share:.2%}** of total attribution credit (raw credit **{cred:,.4f}**).")
-
-    if universe is not None and not universe.empty and "dimension" in universe.columns:
-        peers = universe[universe["dimension"] == dim]
-        if not peers.empty and val in peers.get("value", pd.Series(dtype=str)).values:
-            peers = peers.assign(_rank=peers["credit"].rank(ascending=False, method="min"))
-            n = len(peers)
-            my_rank = int(peers.loc[peers["value"] == val, "_rank"].iloc[0])
-            pct = 100 * (1 - (my_rank - 1) / max(n, 1))
-            parts.append(f"Rank **#{my_rank} of {n}** (~**{pct:.0f}th percentile**).")
-            med = peers["credit"].median()
-            if med and med > 0:
-                parts.append(f"About **{(cred/med-1):+.0%}** vs median {dim}.")
-
-    if share < 0.001:
-        parts.append("Very small share — likely low standalone influence.")
-
-    return " ".join(parts)
-
-# -------------------- Data loading --------------------
-APP_DIR = Path(__file__).resolve().parent
-ROOT = APP_DIR.parent
-MODE = (s("data.mode", "local") or "local").lower()
-
-DATA_DIR = (ROOT / s("data.data_dir", "data")).resolve()
-PARQUET_NAME = s("data.parquet", "final_model_dataset.parquet")
-CSV_NAME = s("data.csv", "final_model_dataset.csv")
-ATTR_NAME = s("data.attr_csv", "attribution_all_scored.csv")
-
-CANDIDATE_DIRS = [DATA_DIR, ROOT / "data", ROOT / "data" / "processed"]
-SEARCH_DIRS = [ROOT/"data/processed", ROOT/"data", APP_DIR]
-CANDIDATE_FILES = [
-    "final_model_dataset.parquet", "final_model_dataset.csv", 
-    "final_model_dataset_sample.parquet", "final_model_dataset_sample.csv",
-    "data.parquet", "data.csv"
-]
-
-LOGO_PATH = (ROOT / s("data.logo", "final_deliverable/penta_logo.png"))
+df_main: Optional[pd.DataFrame] = None
+df_attr: Optional[pd.DataFrame] = None
+COLUMNS: Set[str] = set()
 
 def _find_first_existing(*names: str) -> Optional[Path]:
-    for d in CANDIDATE_DIRS:
+    candidates = [
+        ROOT / "data",
+        ROOT / "data" / "processed",
+        ROOT / "final_deliverable" / "data",
+        APP_DIR / "data",
+        APP_DIR.parent / "data",
+        Path.cwd() / "data",
+        Path.cwd() / "final_deliverable" / "data",
+    ]
+    for d in candidates:
         for nm in names:
             p = d / nm
             if p.exists():
                 return p
     return None
 
-def _first_data() -> Optional[Path]:
-    for d in SEARCH_DIRS:
-        for nm in CANDIDATE_FILES:
-            p = d/nm
-            if p.exists(): 
-                return p
-    return None
-
-def _setup_azure_data():
-    if MODE != "azure":
-        return None, None, None, None
-        
-    try:
-        conn_str = s("data.AZURE_STORAGE_CONNECTION_STRING")
-        container = s("data.container")
-        pq_blob = s("data.parquet_blob")
-        csv_blob = s("data.csv_blob")
-        attr_blob = s("data.attr_blob")
-        logo_blob = s("data.logo_blob", None)
-
-        if not conn_str or not container:
-            st.error("Azure mode enabled but connection string or container is missing in secrets.")
-            st.stop()
-
-        # Show loading indicator
-        progress_bar = st.progress(0)
-        status_text = st.empty()
-        
-        try:
-            status_text.text("🔄 Connecting to Azure...")
-            progress_bar.progress(10)
-            
-            from azure.storage.blob import BlobServiceClient
-            svc = BlobServiceClient.from_connection_string(conn_str)
-            cont = svc.get_container_client(container)
-            
-            status_text.text("📁 Setting up cache directory...")
-            progress_bar.progress(20)
-            
-            TMP = Path("/tmp/influence_dl")
-            TMP.mkdir(parents=True, exist_ok=True)
-
-            def _dl(blob_name: str, filename: str) -> Path:
-                if not blob_name:
-                    return None
-                dest = TMP / filename
-                if dest.exists():
-                    st.info(f"📁 Using cached {filename}")
-                    return dest
-                
-                try:
-                    status_text.text(f"⬇️ Downloading {blob_name}...")
-                    bc = cont.get_blob_client(blob_name)
-                    data = bc.download_blob().readall()
-                    dest.write_bytes(data)
-                    st.success(f"✅ Downloaded {filename}")
-                    return dest
-                except Exception as e:
-                    st.warning(f"⚠️ Failed to download {blob_name}: {e}")
-                    return None
-
-            status_text.text("📊 Loading main dataset...")
-            progress_bar.progress(40)
-            data_parquet = _dl(pq_blob, "final_model_dataset.parquet") if pq_blob else None
-            data_csv = _dl(csv_blob, "final_model_dataset.csv") if csv_blob else None
-            
-            status_text.text("📈 Loading attribution data...")
-            progress_bar.progress(70)
-            attr_csv = _dl(attr_blob, "attribution_all_scored.csv") if attr_blob else None
-            
-            status_text.text("🖼️ Loading logo...")
-            progress_bar.progress(90)
-            logo_path = _dl(logo_blob, "penta_logo.png") if logo_blob else LOGO_PATH
-            
-            status_text.text("✅ Azure data loaded successfully!")
-            progress_bar.progress(100)
-
-            return data_parquet, data_csv, attr_csv, logo_path
-            
-        except Exception as e:
-            st.error(f"❌ Azure download failed: {e}")
-            return None, None, None, None
-    
-    except Exception as e:
-        st.error(f"❌ Azure setup failed: {e}")
-        return None, None, None, None
-
-# Removed old DuckDB function - using pandas directly now
-def _disabled_function():
-    # This function is completely disabled
-    pass
-
-# Global variables for data
-df_main = None
-df_attr = None
-COLUMNS = set()
-
 @st.cache_resource
-def get_data():
-    """Get the main dataset and attribution data."""
+def get_data() -> Tuple[pd.DataFrame, pd.DataFrame, Set[str]]:
     global df_main, df_attr, COLUMNS
-    
     if df_main is None:
         try:
-            # Load main dataset
             df_main = get_dataset()
-            
-            if not df_main.empty:
-                COLUMNS = set(df_main.columns.tolist())
-                st.success(f"✅ Loaded dataset with {len(df_main):,} rows and {len(COLUMNS)} columns")
-            else:
-                st.error("❌ No dataset loaded from split files")
+            if df_main is None:
                 df_main = pd.DataFrame()
-                COLUMNS = set()
-            
-            # Try to load attribution data
-            attr_csv = _find_first_existing("attribution_all_scored.csv", "attribution_all_scored_sample.csv")
+            COLUMNS = set(df_main.columns) if not df_main.empty else set()
+
+            attr_csv = _find_first_existing(ATTR_NAME, "attribution_all_scored_sample.csv")
             if attr_csv:
                 try:
-                    df_attr = pd.read_csv(attr_csv)
-                    st.success(f"✅ Loaded attribution data with {len(df_attr):,} rows")
+                    df_attr = pd.read_csv(attr_csv, dtype_backend="pyarrow")
                 except Exception as e:
                     st.warning(f"⚠️ Could not load attribution data: {e}")
                     df_attr = pd.DataFrame()
             else:
                 df_attr = pd.DataFrame()
-            
         except Exception as e:
-            st.error(f"❌ Failed to load data: {e}")
-            df_main = pd.DataFrame()
-            df_attr = pd.DataFrame()
-            COLUMNS = set()
-    
+            show_error_message(f"Failed to load data: {e}")
+            df_main, df_attr, COLUMNS = pd.DataFrame(), pd.DataFrame(), set()
     return df_main, df_attr, COLUMNS
 
-# Simple replacement for get_database_connection() to maintain compatibility
-def get_database_connection():
-    """Legacy function - now returns pandas data instead of DuckDB connection."""
-    df_main, df_attr, columns = get_data()
-    
-    class MockConnection:
-        def __init__(self, df):
-            self.df = df
-        
-        def execute(self, query, args=None):
-            # Handle different types of queries
-            query_lower = query.lower()
-            
-            if "describe v" in query_lower:
-                # Return column information
-                col_df = pd.DataFrame({
-                    'column_name': self.df.columns.tolist(),
-                    'column_type': ['VARCHAR' for _ in self.df.columns]
-                })
-                return MockResult(col_df)
-            
-            elif "select distinct" in query_lower and "from v" in query_lower:
-                # Handle DISTINCT queries
-                if "limit" in query_lower:
-                    limit_match = re.search(r'limit (\d+)', query_lower)
-                    limit = int(limit_match.group(1)) if limit_match else 50
-                else:
-                    limit = 50
-                
-                # Extract column name from query
-                col_match = re.search(r'select distinct (\w+)', query_lower)
-                if col_match:
-                    col_name = col_match.group(1)
-                    if col_name in self.df.columns:
-                        unique_vals = self.df[col_name].dropna().unique()[:limit]
-                        result_df = pd.DataFrame({col_name: unique_vals})
-                        return MockResult(result_df)
-                
-                return MockResult(pd.DataFrame())
-            
-            elif "select count(distinct" in query_lower:
-                # Handle COUNT DISTINCT queries
-                col_match = re.search(r'count\(distinct (\w+)\)', query_lower)
-                if col_match:
-                    col_name = col_match.group(1)
-                    if col_name in self.df.columns:
-                        count = self.df[col_name].nunique()
-                        return MockResult(pd.DataFrame({'count': [count]}))
-                
-                return MockResult(pd.DataFrame({'count': [0]}))
-            
-            elif "select avg(" in query_lower:
-                # Handle AVG queries
-                col_match = re.search(r'avg\((\w+)\)', query_lower)
-                if col_match:
-                    col_name = col_match.group(1)
-                    if col_name in self.df.columns:
-                        avg_val = self.df[col_name].mean()
-                        return MockResult(pd.DataFrame({'avg': [avg_val]}))
-                
-                return MockResult(pd.DataFrame({'avg': [None]}))
-            
-            elif "select min(" in query_lower and "max(" in query_lower:
-                # Handle MIN/MAX queries
-                col_match = re.search(r'min\(cast\((\w+)', query_lower)
-                if col_match:
-                    col_name = col_match.group(1)
-                    if col_name in self.df.columns:
-                        min_val = self.df[col_name].min()
-                        max_val = self.df[col_name].max()
-                        return MockResult(pd.DataFrame({'min': [min_val], 'max': [max_val]}))
-                
-                return MockResult(pd.DataFrame({'min': [None], 'max': [None]}))
-            
-            else:
-                # Default: return the dataframe
-                return MockResult(self.df)
-    
-    class MockResult:
-        def __init__(self, df):
-            self.df = df
-        
-        def fetchdf(self):
-            return self.df
-        
-        def fetchone(self):
-            if not self.df.empty:
-                return self.df.iloc[0].tolist()
-            return None
-    
-    return MockConnection(df_main), columns
+# -------------------- Header / Logo --------------------
+def render_header():
+    logo_path = None
+    # Try a few logo locations
+    for p in [
+        ROOT / "final_deliverable" / "penta_logo.png",
+        ROOT / "data" / "penta_logo.png",
+        LOGO_FALLBACK
+    ]:
+        if p.exists():
+            logo_path = p
+            break
 
-# -------------------- Logo display --------------------
-if LOGO_PATH and Path(LOGO_PATH).exists():
-    with open(LOGO_PATH, "rb") as f:
-        logo_b64 = base64.b64encode(f.read()).decode("utf-8")
-    st.markdown(
-        f"""
-        <style>
-        .header-bar {{
-            display: flex;
-            align-items: center;
-            margin-bottom: 2rem;
-            padding: 1rem 0;
-            border-bottom: 2px solid #E5F4F1;
-        }}
-        .penta-logo {{
-            height: 120px;
-            width: auto;
-            margin-right: 20px;
-        }}
-        .header-title h1 {{
-            margin: 0;
-            color: #0A473B;
-            font-family: 'Inter', 'Helvetica Neue', Arial, sans-serif;
-            font-weight: 600;
-            font-size: 2.5rem;
-            letter-spacing: -0.02em;
-        }}
-        .header-subtitle {{
-            color: #12715D;
-            font-size: 1.1rem;
-            font-weight: 400;
-            margin-top: 0.25rem;
-        }}
-        </style>
-        <div class="header-bar">
-            <img src="data:image/png;base64,{logo_b64}" class="penta-logo"/>
-            <div class="header-title">
-                <h1>PolicyPath</h1>
-                <div class="header-subtitle">Your indispensable guide to healthcare policy influence</div>
+    if logo_path and logo_path.exists():
+        with open(logo_path, "rb") as f:
+            logo_b64 = base64.b64encode(f.read()).decode("utf-8")
+        st.markdown(
+            f"""
+            <style>
+            .header-bar {{
+                display: flex; align-items: center; margin-bottom: 2rem; padding: 1rem 0;
+                border-bottom: 2px solid #E5F4F1;
+            }}
+            .penta-logo {{ height: 120px; width: auto; margin-right: 20px; }}
+            .header-title h1 {{
+                margin: 0; color: #0A473B; font-family: 'Inter','Helvetica Neue',Arial,sans-serif;
+                font-weight: 600; font-size: 2.5rem; letter-spacing: -0.02em;
+            }}
+            .header-subtitle {{ color: #12715D; font-size: 1.1rem; font-weight: 400; margin-top: .25rem; }}
+            </style>
+            <div class="header-bar">
+                <img src="data:image/png;base64,{logo_b64}" class="penta-logo"/>
+                <div class="header-title">
+                    <h1>PolicyPath</h1>
+                    <div class="header-subtitle">Your indispensable guide to healthcare policy influence</div>
+                </div>
+                <div style="margin-left:auto; display:flex; align-items:center; gap:1rem;">
+                    <button class="dark-mode-toggle" onclick="toggleDarkMode()" title="Toggle Dark Mode">🌙</button>
+                </div>
             </div>
-            <div style="margin-left: auto; display: flex; align-items: center; gap: 1rem;">
-                <button class="dark-mode-toggle" onclick="toggleDarkMode()" title="Toggle Dark Mode">
-                    🌙
-                </button>
+            <script>
+            function toggleDarkMode() {{
+                document.body.classList.toggle('dark-mode');
+                localStorage.setItem('darkMode', document.body.classList.contains('dark-mode'));
+            }}
+            if (localStorage.getItem('darkMode') === 'true') {{
+                document.body.classList.add('dark-mode');
+            }}
+            </script>
+            """,
+            unsafe_allow_html=True
+        )
+    else:
+        st.markdown(
+            """
+            <div class="header-bar" style="display:flex; align-items:center; margin-bottom:2rem; padding:1rem 0; border-bottom: 2px solid #E5F4F1;">
+                <div class="header-title">
+                    <h1 style="margin:0; color:#0A473B;">PolicyPath</h1>
+                    <div class="header-subtitle" style="color:#12715D;">Your indispensable guide to healthcare policy influence</div>
+                </div>
+                <div style="margin-left:auto;">
+                    <button class="dark-mode-toggle" onclick="toggleDarkMode()" title="Toggle Dark Mode">🌙</button>
+                </div>
             </div>
-        </div>
-        
-        <script>
-        function toggleDarkMode() {{
-            document.body.classList.toggle('dark-mode');
-            localStorage.setItem('darkMode', document.body.classList.contains('dark-mode'));
-        }}
-        
-        // Load saved dark mode preference
-        if (localStorage.getItem('darkMode') === 'true') {{
-            document.body.classList.add('dark-mode');
-        }}
-        </script>
-        """,
-        unsafe_allow_html=True
-    )
-else:
-    st.markdown(
-        """
-        <style>
-        .header-bar {
-            display: flex;
-            align-items: center;
-            margin-bottom: 2rem;
-            padding: 1rem 0;
-            border-bottom: 2px solid #E5F4F1;
-        }
-        .header-title h1 {
-            margin: 0;
-            color: #0A473B;
-            font-family: 'Inter', 'Helvetica Neue', Arial, sans-serif;
-            font-weight: 600;
-            font-size: 2.5rem;
-            letter-spacing: -0.02em;
-        }
-        .header-subtitle {
-            color: #12715D;
-            font-size: 1.1rem;
-            font-weight: 400;
-            margin-top: 0.25rem;
-        }
-        </style>
-        <div class="header-bar">
-            <div class="header-title">
-                <h1>PolicyPath</h1>
-                <div class="header-subtitle">Your indispensable guide to healthcare policy influence</div>
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
+            <script>
+            function toggleDarkMode() {{
+                document.body.classList.toggle('dark-mode');
+                localStorage.setItem('darkMode', document.body.classList.contains('dark-mode'));
+            }}
+            if (localStorage.getItem('darkMode') === 'true') {{
+                document.body.classList.add('dark-mode');
+            }}
+            </script>
+            """,
+            unsafe_allow_html=True
+        )
 
-# -------------------- Initialize Session State --------------------
-init_session_state()
+render_header()
+apply_penta_style()
 
-# -------------------- Enhanced Sidebar --------------------
+# -------------------- Debug Information (safe on Cloud) --------------------
+with st.expander("🔧 Debug Information", expanded=False):
+    st.write("**Current working directory:**", Path.cwd())
+    st.write("**App file location:**", APP_DIR)
+    st.write("**Root directory:**", ROOT)
+    # Show which split dirs exist
+    paths = [
+        Path("final_deliverable/data/split"),
+        Path.cwd() / "final_deliverable" / "data" / "split",
+        Path("data/split"),
+        Path.cwd() / "data" / "split",
+        APP_DIR / "data" / "split",
+        APP_DIR.parent / "data" / "split",
+        Path.cwd().parent / "data" / "split",
+        Path("../data/split"),
+    ]
+    st.write("**Split file locations:**")
+    for p in paths:
+        exists = p.exists()
+        st.write(f"- {p.resolve()}: {'✅ EXISTS' if exists else '❌ NOT FOUND'}")
+        if exists:
+            files = list(p.glob("final_model_dataset_part_*.csv"))
+            st.write(f"  Found {len(files)} split files")
+
+# -------------------- Sidebar --------------------
 with st.sidebar:
     st.markdown("### 🚀 Quick Actions")
-    
-    # Quick search with suggestions
     quick_search = st.text_input("🔍 Quick Search", placeholder="Search publications, authors, terms...", key="sidebar_search")
-    
-    # Show quick search suggestions
+
+    # Suggestions (pandas-only)
     if quick_search and len(quick_search) >= 2:
         try:
-            # Get suggestions from various columns
-            con, _ = get_database_connection()
-            columns_result = con.execute("DESCRIBE v").fetchdf()
-            available_cols = columns_result['column_name'].tolist()
-            
-            # Search across multiple relevant columns
-            searchable_cols = [col for col in available_cols if any(keyword in col.lower() for keyword in ['publication', 'author', 'headline', 'body', 'channel'])]
-            
-            if searchable_cols:
-                suggestions_query = f"""
-                SELECT DISTINCT 
-                    CASE 
-                        {' '.join([f"WHEN LOWER({col}) LIKE LOWER($search) THEN {col}" for col in searchable_cols[:3]])}
-                        ELSE NULL
-                    END as suggestion
-                FROM v 
-                WHERE {' OR '.join([f"LOWER({col}) LIKE LOWER($search)" for col in searchable_cols[:3]])}
-                AND suggestion IS NOT NULL
-                ORDER BY suggestion
-                LIMIT 5
-                """
-                
-                suggestions = con.execute(suggestions_query, {"search": f"%{quick_search}%"}).fetchdf()
-                
-                if not suggestions.empty:
-                    st.markdown("**💡 Quick Suggestions:**")
-                    for i, suggestion in enumerate(suggestions['suggestion'].tolist()[:5]):
-                        if suggestion and len(str(suggestion).strip()) > 0:
-                            suggestion_text = str(suggestion)[:25] + "..." if len(str(suggestion)) > 25 else str(suggestion)
-                            if st.button(f"🔍 {suggestion_text}", 
-                                       key=f"quick_suggestion_{i}", 
-                                       help=f"Click to search for: {suggestion}"):
-                                st.session_state.current_search = suggestion
-                                st.rerun()
+            df_main, _, _ = get_data()
+            cols = df_main.columns.tolist() if not df_main.empty else []
+            search_cols = [c for c in cols if any(k in c.lower() for k in ["publication", "author", "headline", "body", "channel"])]
+            suggs: List[str] = []
+            for c in search_cols[:3]:
+                s = df_main[c].astype("string[pyarrow]", errors="ignore") if c in df_main else pd.Series([], dtype="string[pyarrow]")
+                mask = s.fillna("").str.contains(quick_search, case=False, na=False)
+                suggs.extend(s[mask].dropna().drop_duplicates().head(2).tolist())
+            unique = list(dict.fromkeys([str(x) for x in suggs]))[:5]
+            if unique:
+                st.markdown("**💡 Quick Suggestions:**")
+                for i, s in enumerate(unique):
+                    label = s[:25] + "..." if len(s) > 25 else s
+                    if st.button(f"🔍 {label}", key=f"qs_{i}", help=f"Search for: {s}"):
+                        st.session_state.current_search = s
+                        st.rerun()
         except Exception as e:
-            st.warning(f"Error getting quick suggestions: {str(e)}")
-    
+            st.warning(f"Error getting suggestions: {e}")
+
     if quick_search:
         add_to_recent_searches(quick_search)
         st.session_state.current_search = quick_search
-    
+
     st.markdown("---")
-    
-    # Saved views
-    if hasattr(st.session_state, 'saved_views') and st.session_state.saved_views:
-        st.markdown("### 💾 Saved Views")
-        for view_name, view_data in st.session_state.saved_views.items():
-            if st.button(f"📁 {view_name}", key=f"load_{view_name}"):
-                st.session_state.current_view = view_name
+    st.markdown("### 💾 Saved Views")
+    if st.session_state.saved_views:
+        for name, data in st.session_state.saved_views.items():
+            if st.button(f"📁 {name}", key=f"sv_{name}"):
+                st.session_state.current_view = name
                 st.rerun()
     else:
-        st.markdown("### 💾 Saved Views")
         st.info("No saved views yet. Create one from the main tabs!")
-    
+
     st.markdown("---")
-    
-    # Favorites
-    if hasattr(st.session_state, 'favorites') and st.session_state.favorites:
-        st.markdown("### ⭐ Favorites")
+    st.markdown("### ⭐ Favorites")
+    if st.session_state.favorites:
         for fav in st.session_state.favorites[:5]:
             if st.button(f"⭐ {fav}", key=f"fav_{fav}"):
                 st.session_state.current_search = fav
                 st.rerun()
     else:
-        st.markdown("### ⭐ Favorites")
         st.info("No favorites yet. Start searching to build your favorites!")
-    
-    st.markdown("---")
-    
-    # App info
-    st.markdown("### ℹ️ About PolicyPath")
-    st.markdown("""
-    **Built by**: Georgetown University MSBA - Anna Glass, Jasmin Mendoza, Mohammmad Waqas, Mark Saba, Posy Olivetti
-    """)
 
-# -------------------- Main tabs --------------------
-tab1, tab2, tab3, tab4 = st.tabs(["📋 PolicyPath", "🎯 Paths", "📊 Pulse", "🕸️ People"])
+    st.markdown("---")
+    st.markdown("### ℹ️ About PolicyPath")
+    st.markdown("**Built by**: Georgetown University MSBA - Anna Glass, Jasmin Mendoza, Mohammmad Waqas, Mark Saba, Posy Olivetti")
+
+# -------------------- Main Tabs --------------------
+tab1, tab2, tab3, tab4 = st.tabs(["🏛️PolicyPath", "🎯 Paths", "📊 Pulse", "🕸️ People"])
 
 with tab1:
     st.markdown("""
-    ## Welcome to PolicyPath
-    
+    ## Welcome to 🏛️PolicyPath
     **Your indispensable guide to healthcare policy influence**
-    
-    PolicyPath leverages Penta's data-driven approach to map how narratives travel through publications, authors, and channels. 
-    Discover the key voices shaping U.S. healthcare policy and pinpoint the people and outlets driving influence.
-    
-    ### What makes PolicyPath different?
-    
-    **Data-First Intelligence**: Unlike competitors who only talk about data, Penta delivers actionable insights through comprehensive stakeholder analysis.
-    
-    **Comprehensive Coverage**: Track influence across publications, authors, channels, and policy terms to understand the complete narrative landscape.
-    
-    **Real-Time Analysis**: Monitor how policy narratives evolve and identify emerging voices before they become mainstream.
-    
+    PolicyPath maps how narratives travel through publications, authors, and channels—pinpointing key voices shaping U.S. healthcare policy.
     ### Key Capabilities
-    
-    🎯 **Paths**: Analyze influence attribution by publication, author, channel, and policy terms  
-    📊 **Pulse**: Monitor key performance indicators and narrative trends  
-    🕸️ **People**: Visualize the network of relationships driving policy influence  
-    
+    🎯 **Paths**: Analyze influence attribution by publication, author, channel, and terms  
+    📊 **Pulse**: Monitor KPIs and narrative trends  
+    🕸️ **People**: Explore the network driving influence
     *Built by Georgetown University MSBA - Anna Glass, Jasmin Mendoza, Mohammmad Waqas, Mark Saba, Posy Olivetti*
-    *
     """)
 
 with tab2:
     st.subheader("🎯 Paths - Attribution Analysis")
-    st.markdown("""
-    Discover the influence pathways in healthcare policy. Search for specific publications, authors, channels, or terms to understand their impact scores and attribution patterns.
-    """)
+    st.markdown("Discover the influence pathways in healthcare policy and understand impact patterns.")
 
-    # Enhanced lookup section with smart search
+    df_main, df_attr, COLUMNS = get_data()
+    available_cols = df_main.columns.tolist() if not df_main.empty else []
+
     col1, col2 = st.columns([2, 1])
-    
     with col1:
-        lookup_type = st.radio("Search Type", ["Item Attribution", "Term Attribution"], horizontal=True, help="Choose between searching for specific items (publications, authors) or terms")
-    
+        lookup_type = st.radio("Search Type", ["Item Attribution", "Term Attribution"], horizontal=True)
     with col2:
-        if st.button("💾 Save Current View", help="Save your current search parameters"):
+        if st.button("💾 Save Current View"):
             view_name = st.text_input("View Name", key="save_view")
             if view_name:
                 st.session_state.saved_views[view_name] = {
-                    'lookup_type': lookup_type,
-                    'timestamp': pd.Timestamp.now()
+                    "lookup_type": lookup_type,
+                    "timestamp": pd.Timestamp.now(),
                 }
-                show_success_message(f"View '{view_name}' saved successfully!")
+                show_success_message(f"View '{view_name}' saved.")
 
-    # Show recent searches
-    if hasattr(st.session_state, 'recent_searches') and st.session_state.recent_searches:
+    # Recent searches
+    if st.session_state.recent_searches:
         with st.expander("🔍 Recent Searches"):
-            for search in st.session_state.recent_searches[:5]:
-                if st.button(f"🔍 {search}", key=f"recent_{search}"):
-                    st.session_state.current_search = search
+            for s in st.session_state.recent_searches[:5]:
+                if st.button(f"🔍 {s}", key=f"recent_{s}"):
+                    st.session_state.current_search = s
+                    st.rerun()
 
     if lookup_type == "Item Attribution":
-        # Get available columns for item search
-        try:
-            con, _ = get_database_connection()
-            columns_result = con.execute("DESCRIBE v").fetchdf()
-            available_cols = columns_result['column_name'].tolist()
-            
-            # Filter for relevant columns
-            searchable_cols = [col for col in available_cols if any(keyword in col.lower() for keyword in ['publication', 'author', 'channel', 'publisher'])]
-            
-            if not searchable_cols:
-                st.warning("No searchable columns found in the dataset.")
+        if not available_cols:
+            st.warning("No searchable columns found.")
+        else:
+            search_cols = [c for c in available_cols if any(k in c.lower() for k in ["publication", "author", "channel", "publisher"])]
+            if not search_cols:
+                st.warning("No item columns found.")
             else:
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    sel_col = st.selectbox("Search by", searchable_cols, help="Choose what type of item to search for")
-                
-                with col2:
-                    search_term = st.text_input("Search term", placeholder=f"Enter {sel_col} to search...", help="Type to search for specific items", key=f"search_{sel_col}")
-                
-                # Real-time search suggestions
-                if search_term and len(search_term) >= 2:
+                c1, c2 = st.columns(2)
+                with c1:
+                    sel_col = st.selectbox("Search by", search_cols)
+                with c2:
+                    search_term = st.text_input("Search term", placeholder=f"Enter {sel_col}...")
+
+                # Suggestions
+                if search_term and len(search_term) >= 2 and sel_col in df_main:
                     try:
-                        # Get suggestions as user types
-                        suggestions_query = f"SELECT DISTINCT {sel_col} FROM v WHERE LOWER({sel_col}) LIKE LOWER($search) AND {sel_col} IS NOT NULL ORDER BY {sel_col} LIMIT 10"
-                        suggestions = con.execute(suggestions_query, {"search": f"%{search_term}%"}).fetchdf()
-                    
-                        if not suggestions.empty:
+                        s = df_main[sel_col].astype("string[pyarrow]", errors="ignore")
+                        sugg = s.fillna("").str.contains(search_term, case=False, na=False)
+                        suggestions = s[sugg].dropna().drop_duplicates().head(10).tolist()
+                        if suggestions:
                             st.markdown("**💡 Suggestions:**")
-                            suggestion_cols = st.columns(min(3, len(suggestions)))
-                            
-                            for i, suggestion in enumerate(suggestions[sel_col].tolist()[:9]):  # Show max 9 suggestions
-                                col_idx = i % 3
-                                with suggestion_cols[col_idx]:
-                                    if st.button(f"🔍 {suggestion[:30]}{'...' if len(suggestion) > 30 else ''}", 
-                                               key=f"suggestion_{i}_{sel_col}", 
-                                               help=f"Click to search for: {suggestion}"):
-                                        st.session_state[f"selected_{sel_col}"] = suggestion
+                            cols = st.columns(min(3, len(suggestions)))
+                            for i, val in enumerate(suggestions[:9]):
+                                label = (str(val)[:30] + "...") if len(str(val)) > 30 else str(val)
+                                with cols[i % 3]:
+                                    if st.button(f"🔍 {label}", key=f"sugg_{i}_{sel_col}", help=f"Search for: {val}"):
+                                        st.session_state[f"selected_{sel_col}"] = val
                                         st.rerun()
-                            
                             st.markdown("---")
                     except Exception as e:
-                        st.warning(f"Error getting suggestions: {str(e)}")
-                
-                    # Use selected suggestion or search term
-                    if f"selected_{sel_col}" in st.session_state:
-                        search_term = st.session_state[f"selected_{sel_col}"]
-                        st.success(f"Selected: {search_term}")
-                        if st.button("Clear Selection", key=f"clear_{sel_col}"):
-                            del st.session_state[f"selected_{sel_col}"]
-                            st.rerun()
-                    
-                    if search_term:
-                        # Add to recent searches
-                        add_to_recent_searches(f"{sel_col}: {search_term}")
-                    
-                        # Search for matching values
-                        try:
-                            search_query = f"SELECT DISTINCT {sel_col} FROM v WHERE LOWER({sel_col}) LIKE LOWER($search) AND {sel_col} IS NOT NULL ORDER BY {sel_col} LIMIT 20"
-                            matches = con.execute(search_query, {"search": f"%{search_term}%"}).fetchdf()
-                            
-                            if not matches.empty:
-                                st.success(f"Found {len(matches)} matches for '{search_term}' in {sel_col}")
-                                
-                                # Let user select from matches
-                                selected_item = st.selectbox("Select item", matches[sel_col].tolist(), key=f"select_{sel_col}")
-                                
-                                if selected_item:
-                                    # Show data for selected item
-                                    item_data = con.execute(f"SELECT * FROM v WHERE {sel_col} = $item LIMIT 100", {"item": selected_item}).fetchdf()
-                                
-                                    if not item_data.empty:
-                                        st.markdown(f"### 📊 Data for: {selected_item}")
-                                        
-                                        # Show key metrics
-                                        col1, col2, col3 = st.columns(3)
-                                        with col1:
-                                            create_metric_card("Records", len(item_data), icon="📄")
-                                        with col2:
-                                            if 'circulation_size' in item_data.columns:
-                                                avg_circ = item_data['circulation_size'].mean()
-                                                create_metric_card("Avg Circulation", f"{avg_circ:,.0f}", icon="📈")
-                                        with col3:
-                                            if 'body_token_count' in item_data.columns:
-                                                avg_tokens = item_data['body_token_count'].mean()
-                                                create_metric_card("Avg Tokens", f"{avg_tokens:,.0f}", icon="📝")
-                                        
-                                        # Show the data
-                                        st.dataframe(item_data, use_container_width=True, height=400)
-                                        
-                                        # Export options
-                                        col1, col2 = st.columns(2)
-                                        with col1:
-                                            export_data_button(item_data, f"{sel_col}_{selected_item}", "csv")
-                                        with col2: 
-                                            export_data_button(item_data, f"{sel_col}_{selected_item}", "xlsx")
-                                    else:
-                                        st.warning("No data found for the selected item.")
-                            else:
-                                st.warning(f"No matches found for '{search_term}' in {sel_col}")
-                            
-                        except Exception as e:
-                            st.error(f"Error searching: {str(e)}")
-                            st.info("Please try a different search term or column.")
-        except Exception as e:
-            st.error(f"Error accessing data: {str(e)}")
-            st.info("Please check your data connection.")
+                        st.warning(f"Error getting suggestions: {e}")
+
+                if f"selected_{sel_col}" in st.session_state:
+                    search_term = st.session_state[f"selected_{sel_col}"]
+                    st.success(f"Selected: {search_term}")
+                    if st.button("Clear Selection", key=f"clear_{sel_col}"):
+                        del st.session_state[f"selected_{sel_col}"]
+                        st.rerun()
+
+                if search_term and sel_col in df_main:
+                    add_to_recent_searches(f"{sel_col}: {search_term}")
+                    try:
+                        s = df_main[sel_col].astype("string[pyarrow]", errors="ignore")
+                        matches = s.fillna("").str.contains(search_term, case=False, na=False)
+                        options = s[matches].dropna().drop_duplicates().head(20).tolist()
+                        if options:
+                            st.success(f"Found {len(options)} matches for '{search_term}'")
+                            selected_item = st.selectbox("Select item", options, key=f"select_{sel_col}")
+                            if selected_item:
+                                item_rows = df_main[s.fillna("") == str(selected_item)].head(100)
+                                if not item_rows.empty:
+                                    st.markdown(f"### 📊 Data for: {selected_item}")
+                                    c1, c2, c3 = st.columns(3)
+                                    with c1:
+                                        st.markdown(f"<div class='metric-card'><h4>Records</h4><div style='font-size:2rem;color:#12715D;'>{len(item_rows):,}</div></div>", unsafe_allow_html=True)
+                                    with c2:
+                                        if "circulation_size" in item_rows:
+                                            st.markdown(f"<div class='metric-card'><h4>Avg Circulation</h4><div style='font-size:2rem;color:#12715D;'>{item_rows['circulation_size'].mean():,.0f}</div></div>", unsafe_allow_html=True)
+                                    with c3:
+                                        if "body_token_count" in item_rows:
+                                            st.markdown(f"<div class='metric-card'><h4>Avg Tokens</h4><div style='font-size:2rem;color:#12715D;'>{item_rows['body_token_count'].mean():,.0f}</div></div>", unsafe_allow_html=True)
+                                    st.dataframe(item_rows, use_container_width=True, height=400)
+                                    c1, c2 = st.columns(2)
+                                    with c1:
+                                        export_data_button(item_rows, f"{sel_col}_{str(selected_item)[:40]}", "csv")
+                                    with c2:
+                                        export_data_button(item_rows, f"{sel_col}_{str(selected_item)[:40]}", "json")
+                                else:
+                                    st.warning("No rows for the selected item.")
+                        else:
+                            st.warning(f"No matches for '{search_term}' in {sel_col}.")
+                    except Exception as e:
+                        st.error(f"Error searching: {e}")
     else:
         st.markdown("### 🔍 Term Search")
-        term = st.text_input("Type a term to search", placeholder="Enter a policy term or keyword...", help="Search for specific terms in headlines and content", key="term_search")
-        
-        # Real-time term suggestions
-        if term and len(term) >= 2:
+        term = st.text_input("Type a term to search", placeholder="Enter a policy term or keyword...")
+        if term and len(term) >= 2 and not df_main.empty:
             try:
-                # Get text columns for suggestions
-                con, _ = get_database_connection()
-                columns_result = con.execute("DESCRIBE v").fetchdf()
-                available_cols = columns_result['column_name'].tolist()
-                text_columns = [col for col in available_cols if any(keyword in col.lower() for keyword in ['headline', 'body', 'content', 'text'])]
-                
-                if text_columns:
-                    # Get unique terms that contain the search term
-                    suggestions_query = f"""
-                    SELECT DISTINCT 
-                        CASE 
-                            WHEN LOWER({text_columns[0]}) LIKE LOWER($search) THEN {text_columns[0]}
-                            WHEN LOWER({text_columns[1] if len(text_columns) > 1 else text_columns[0]}) LIKE LOWER($search) THEN {text_columns[1] if len(text_columns) > 1 else text_columns[0]}
-                        END as suggestion
-                    FROM v 
-                    WHERE {' OR '.join([f"LOWER({col}) LIKE LOWER($search)" for col in text_columns])}
-                    AND suggestion IS NOT NULL
-                ORDER BY suggestion
-                LIMIT 10
-                """
-                
-                    suggestions = con.execute(suggestions_query, {"search": f"%{term}%"}).fetchdf()
-                    
-                    if not suggestions.empty:
-                        st.markdown("**💡 Term Suggestions:**")
-                        suggestion_cols = st.columns(min(3, len(suggestions)))
-                        
-                        for i, suggestion in enumerate(suggestions['suggestion'].tolist()[:9]):
-                            if suggestion and len(str(suggestion).strip()) > 0:
-                                col_idx = i % 3
-                                with suggestion_cols[col_idx]:
-                                    suggestion_text = str(suggestion)[:40] + "..." if len(str(suggestion)) > 40 else str(suggestion)
-                                    if st.button(f"🔍 {suggestion_text}", 
-                                               key=f"term_suggestion_{i}", 
-                                               help=f"Click to search for: {suggestion}"):
-                                        st.session_state["selected_term"] = suggestion
-                                        st.rerun()
-                            
-                            st.markdown("---")
+                text_cols = [c for c in available_cols if any(k in c.lower() for k in ["headline", "body", "content", "text"])]
+                # Suggestions from first 2 text cols
+                sugg_list: List[str] = []
+                for c in text_cols[:2]:
+                    s = df_main[c].astype("string[pyarrow]", errors="ignore")
+                    m = s.fillna("").str.contains(term, case=False, na=False)
+                    sugg_list.extend(s[m].dropna().drop_duplicates().head(5).tolist())
+                uniq_sugg = list(dict.fromkeys([str(x) for x in sugg_list]))[:9]
+                if uniq_sugg:
+                    st.markdown("**💡 Term Suggestions:**")
+                    cols = st.columns(min(3, len(uniq_sugg)))
+                    for i, v in enumerate(uniq_sugg):
+                        label = v[:40] + "..." if len(v) > 40 else v
+                        with cols[i % 3]:
+                            if st.button(f"🔍 {label}", key=f"term_sugg_{i}", help=f"Search for: {v}"):
+                                st.session_state["selected_term"] = v
+                                st.rerun()
+                    st.markdown("---")
             except Exception as e:
-                st.warning(f"Error getting term suggestions: {str(e)}")
-        
-        # Use selected suggestion or search term
+                st.warning(f"Error getting term suggestions: {e}")
+
         if "selected_term" in st.session_state:
             term = st.session_state["selected_term"]
             st.success(f"Selected term: {term}")
             if st.button("Clear Term Selection", key="clear_term"):
                 del st.session_state["selected_term"]
                 st.rerun()
-        
-        if term:
-            # Add to recent searches
+
+        if term and not df_main.empty:
             add_to_recent_searches(f"Term: {term}")
-            
             try:
-                # Search for term in text content
-                text_columns = []
-                try:
-                    columns_result = con.execute("DESCRIBE v").fetchdf()
-                    available_cols = columns_result['column_name'].tolist()
-                    text_columns = [col for col in available_cols if any(keyword in col.lower() for keyword in ['headline', 'body', 'content', 'text'])]
-                except:
-                    text_columns = ['headline', 'body']
-                
-                if text_columns:
-                    # Build search query across text columns
-                    search_conditions = []
-                    for col in text_columns:
-                        search_conditions.append(f"LOWER({col}) LIKE LOWER($search)")
-                    
-                    search_query = f"SELECT * FROM v WHERE {' OR '.join(search_conditions)} LIMIT 100"
-                    hits = con.execute(search_query, {"search": f"%{term}%"}).fetchdf()
-                    
-                    if not hits.empty:
-                        st.success(f"Found {len(hits)} articles containing '{term}'")
-                        
-                        # Show term frequency analysis
-                        st.markdown("### 📊 Term Analysis")
-                        col1, col2, col3 = st.columns(3)
-                        
-                        with col1:
-                            create_metric_card("Total Matches", len(hits), icon="🔍")
-                        
-                        with col2:
-                            if 'circulation_size' in hits.columns:
-                                total_reach = hits['circulation_size'].sum()
-                                create_metric_card("Total Reach", f"{total_reach:,.0f}", icon="📈")
-                        
-                        with col3:
-                            # Find any date column dynamically
-                            date_cols = [col for col in hits.columns if 'date' in col.lower() or 'time' in col.lower()]
-                            if date_cols:
-                                date_col = date_cols[0]
-                                date_range = hits[date_col].nunique()
-                                create_metric_card("Date Range", f"{date_range} days", icon="📅")
-                        
-                        # Show sample of results
-                        st.markdown("### 📄 Sample Results")
-                        st.dataframe(hits, use_container_width=True, height=400)
-                        
-                        # Export options
-                        col1, col2 = st.columns(2)
-                        with col1:
-                            export_data_button(hits, f"term_search_{term}", "csv")
-                        with col2:
-                            export_data_button(hits, f"term_search_{term}", "json")
-                    else:
-                        st.warning(f"No articles found containing '{term}'")
-                        st.info("Try a different search term or check your spelling.")
+                text_cols = [c for c in available_cols if any(k in c.lower() for k in ["headline", "body", "content", "text"])]
+                mask = pd.Series(False, index=df_main.index)
+                for c in text_cols:
+                    s = df_main[c].astype("string[pyarrow]", errors="ignore")
+                    mask |= s.fillna("").str.contains(term, case=False, na=False)
+                hits = df_main[mask].head(100)
+                if not hits.empty:
+                    st.success(f"Found {len(hits)} articles containing '{term}'")
+                    c1, c2, c3 = st.columns(3)
+                    with c1:
+                        st.markdown(f"<div class='metric-card'><h4>Total Matches</h4><div style='font-size:2rem;color:#12715D;'>{len(hits):,}</div></div>", unsafe_allow_html=True)
+                    with c2:
+                        if "circulation_size" in hits:
+                            st.markdown(f"<div class='metric-card'><h4>Total Reach</h4><div style='font-size:2rem;color:#12715D;'>{hits['circulation_size'].sum():,.0f}</div></div>", unsafe_allow_html=True)
+                    with c3:
+                        date_cols = [c for c in hits.columns if ("date" in c.lower() or "time" in c.lower())]
+                        if date_cols:
+                            dc = date_cols[0]
+                            try:
+                                dates = pd.to_datetime(hits[dc], errors="coerce").dropna()
+                                st.markdown(f"<div class='metric-card'><h4>Date Span (days)</h4><div style='font-size:2rem;color:#12715D;'>{dates.dt.date.nunique()}</div></div>", unsafe_allow_html=True)
+                            except Exception:
+                                pass
+                    st.markdown("### 📄 Sample Results")
+                    st.dataframe(hits, use_container_width=True, height=400)
+                    c1, c2 = st.columns(2)
+                    with c1: export_data_button(hits, f"term_search_{term[:40]}", "csv")
+                    with c2: export_data_button(hits, f"term_search_{term[:40]}", "json")
                 else:
-                    st.warning("No searchable text columns found in the dataset.")
-                    
+                    st.warning(f"No articles found containing '{term}'.")
             except Exception as e:
-                st.error(f"Error searching for term: {str(e)}")
-                st.info("Please try a different search term.")
+                st.error(f"Error searching for term: {e}")
 
 with tab3:
     st.subheader("📊 Pulse - Real-time Analytics")
-    st.markdown("""
-    Monitor the pulse of healthcare policy influence with real-time analytics, interactive visualizations, and comprehensive KPI tracking.
-    """)
+    st.markdown("Monitor the pulse of healthcare policy influence with interactive KPIs and charts.")
 
-    # Enhanced dashboard with real-time feel
-    col1, col2, col3 = st.columns([2, 1, 1])
-    
-    with col1:
+    df_main, df_attr, COLUMNS = get_data()
+    if df_main.empty:
+        st.info("No data loaded.")
+    else:
+        cols = df_main.columns.tolist()
+
+        # Smart Filters
         st.markdown("### 🎛️ Smart Filters")
-    
-    with col2:
-        if st.button("🔄 Refresh Data", help="Refresh all data and visualizations"):
-            st.rerun()
-    
-    with col3:
-        auto_refresh = st.checkbox("🔄 Auto-refresh", help="Automatically refresh data every 30 seconds")
-        if auto_refresh:
-            st.markdown('<div class="pulse-animation">🔄 Auto-refresh enabled</div>', unsafe_allow_html=True)
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        # Try to find a date column dynamically
-        date_col = None
-        try:
-            con, _ = get_database_connection()
-            columns_df = con.execute("DESCRIBE v").fetchdf()
-            date_columns = columns_df[columns_df['column_name'].str.contains('date|time|ts', case=False, na=False)]['column_name'].tolist()
-            
-            if date_columns:
-                date_col = date_columns[0]  # Use first date column found
-                date_bounds_result = con.execute(f"SELECT MIN(CAST({date_col} AS TIMESTAMP)), MAX(CAST({date_col} AS TIMESTAMP)) FROM v").fetchone()
-                if date_bounds_result and date_bounds_result[0] and date_bounds_result[1]:
-                    date_range = st.date_input(
-                        "Date range",
-                        value=(pd.to_datetime(date_bounds_result[0]).date(), pd.to_datetime(date_bounds_result[1]).date()),
-                        min_value=pd.to_datetime(date_bounds_result[0]).date(),
-                        max_value=pd.to_datetime(date_bounds_result[1]).date()
-                    )
-                else:
-                    date_range = None
-            else:
-                # No date columns found, skip date filter
-                date_range = None
-        except Exception as e:
-            # Fallback if there's any error
+        c1, c2 = st.columns(2)
+
+        with c1:
+            date_col = next((c for c in cols if any(k in c.lower() for k in ["date", "time", "ts"])), None)
             date_range = None
-        
-        # Get available columns for filtering
-        try:
-            con, _ = get_database_connection()
-            columns_result = con.execute("DESCRIBE v").fetchdf()
-            available_cols = columns_result['column_name'].tolist()
-            
-            # Publications filter
-            pub_cols = [col for col in available_cols if 'publication' in col.lower()]
+            if date_col:
+                try:
+                    df_main[date_col] = pd.to_datetime(df_main[date_col], errors="coerce")
+                    min_d, max_d = df_main[date_col].min(), df_main[date_col].max()
+                    if pd.notna(min_d) and pd.notna(max_d):
+                        date_range = st.date_input("Date range", value=(min_d.date(), max_d.date()),
+                                                   min_value=min_d.date(), max_value=max_d.date())
+                except Exception:
+                    date_range = None
+
+            pub_cols = [c for c in cols if "publication" in c.lower()]
             if pub_cols:
                 pub_col = pub_cols[0]
-                pubs = con.execute(f"SELECT DISTINCT {pub_col} FROM v WHERE {pub_col} IS NOT NULL ORDER BY 1 LIMIT 50").fetchdf()[pub_col].tolist()
-                sel_pubs = st.multiselect("Publications", pubs, default=[])
+                pubs = pd.Series(df_main[pub_col]).dropna().unique().tolist()[:50]
+                sel_pubs = st.multiselect("Publications", pubs)
             else:
                 sel_pubs = []
-            
-            # Channels filter
-            channel_cols = [col for col in available_cols if 'channel' in col.lower()]
+
+            channel_cols = [c for c in cols if "channel" in c.lower()]
             if channel_cols:
                 channel_col = channel_cols[0]
-                channels = con.execute(f"SELECT DISTINCT {channel_col} FROM v WHERE {channel_col} IS NOT NULL ORDER BY 1 LIMIT 50").fetchdf()[channel_col].tolist()
-                sel_channels = st.multiselect("Channels", channels, default=[])
+                channels = pd.Series(df_main[channel_col]).dropna().unique().tolist()[:50]
+                sel_channels = st.multiselect("Channels", channels)
             else:
                 sel_channels = []
-        except Exception as e:
-            st.warning(f"Error loading filter options: {str(e)}")
-            sel_pubs = []
-            sel_channels = []
-    
-    with col2:
-        try:
-            # Authors filter
-            author_cols = [col for col in available_cols if 'author' in col.lower()]
+
+        with c2:
+            author_cols = [c for c in cols if "author" in c.lower()]
             if author_cols:
                 author_col = author_cols[0]
-                authors = con.execute(f"SELECT DISTINCT {author_col} FROM v WHERE {author_col} IS NOT NULL ORDER BY 1 LIMIT 50").fetchdf()[author_col].tolist()
-                sel_authors = st.multiselect("Authors", authors, default=[])
+                authors = pd.Series(df_main[author_col]).dropna().unique().tolist()[:50]
+                sel_authors = st.multiselect("Authors", authors)
             else:
                 sel_authors = []
-            
-            # Source type filter
-            source_cols = [col for col in available_cols if 'source' in col.lower()]
+
+            source_cols = [c for c in cols if "source" in c.lower()]
             if source_cols:
                 source_col = source_cols[0]
-                sources = con.execute(f"SELECT DISTINCT {source_col} FROM v WHERE {source_col} IS NOT NULL ORDER BY 1 LIMIT 20").fetchdf()[source_col].tolist()
-                sel_sources = st.multiselect("Source Types", sources, default=[])
+                sources = pd.Series(df_main[source_col]).dropna().unique().tolist()[:20]
+                sel_sources = st.multiselect("Source Types", sources)
             else:
                 sel_sources = []
-        except Exception as e:
-            st.warning(f"Error loading author/source filters: {str(e)}")
-            sel_authors = []
-            sel_sources = []
-    
-    # Build where clause
-    w, args = where_from_filters(date_range, sel_pubs, sel_channels, [], sel_authors, [], date_col)
-    
-    # KPI Metrics
-    try:
-        # Get available columns for metrics
-        con, _ = get_database_connection()
-        columns_result = con.execute("DESCRIBE v").fetchdf()
-        available_cols = columns_result['column_name'].tolist()
-        
-        # Total publications
-        pub_cols = [col for col in available_cols if 'publication' in col.lower()]
-        if pub_cols:
-            pub_col = pub_cols[0]
-            total_pubs = con.execute(f"SELECT COUNT(DISTINCT {pub_col}) FROM v WHERE {w}", args).fetchone()[0]
-        else:
-            total_pubs = 0
-        
-        # Unique sources
-        source_cols = [col for col in available_cols if 'source' in col.lower()]
-        if source_cols:
-            source_col = source_cols[0]
-            uniq_sources = con.execute(f"SELECT COUNT(DISTINCT {source_col}) FROM v WHERE {w}", args).fetchone()[0]
-        else:
-            uniq_sources = 0
-        
-        # Unique authors
-        author_cols = [col for col in available_cols if 'author' in col.lower()]
-        if author_cols:
-            author_col = author_cols[0]
-            uniq_authors = con.execute(f"SELECT COUNT(DISTINCT {author_col}) FROM v WHERE {w}", args).fetchone()[0]
-        else:
-            uniq_authors = 0
-            
-    except Exception as e:
-        st.warning(f"Error calculating metrics: {str(e)}")
-        total_pubs = 0
-        uniq_sources = 0
-        uniq_authors = 0
-    
-    # Check for influence columns in main dataset first, then attribution dataset
-    infl_col = None
-    avg_infl = None
-    
-    if "pub_credit_share" in COLUMNS:
-        infl_col = "pub_credit_share"
-        avg_infl = con.execute(f"SELECT AVG({infl_col}) FROM v WHERE {w}", args).fetchone()[0]
-    elif "max_term_credit" in COLUMNS:
-        infl_col = "max_term_credit"
-        avg_infl = con.execute(f"SELECT AVG({infl_col}) FROM v WHERE {w}", args).fetchone()[0]
-    elif "credit_share" in COLUMNS:
-        infl_col = "credit_share" 
-        avg_infl = con.execute(f"SELECT AVG({infl_col}) FROM v WHERE {w}", args).fetchone()[0]
-    else:
-        # Try to get influence data from attribution dataset
+
+        # Apply filters (pandas)
+        filtered_df = df_main.copy()
+        if date_range and date_col and len(date_range) == 2:
+            start_d, end_d = date_range
+            filtered_df = filtered_df[
+                (filtered_df[date_col] >= pd.Timestamp(start_d)) &
+                (filtered_df[date_col] <= pd.Timestamp(end_d))
+            ]
+        if sel_pubs and pub_cols:
+            filtered_df = filtered_df[filtered_df[pub_cols[0]].isin(sel_pubs)]
+        if sel_channels and channel_cols:
+            filtered_df = filtered_df[filtered_df[channel_cols[0]].isin(sel_channels)]
+        if sel_authors and author_cols:
+            filtered_df = filtered_df[filtered_df[author_cols[0]].isin(sel_authors)]
+        if sel_sources and source_cols:
+            filtered_df = filtered_df[filtered_df[source_cols[0]].isin(sel_sources)]
+
+        # KPIs
         try:
-            df_main, df_attr, _ = get_data()
-            if not df_attr.empty and "credit_share" in df_attr.columns:
-                avg_infl = df_attr["credit_share"].mean()
-                st.info("📊 Using attribution dataset for influence metrics")
-        except:
-            avg_infl = None
+            total_pubs = filtered_df[pub_cols[0]].nunique() if pub_cols else 0
+            uniq_sources = filtered_df[source_cols[0]].nunique() if source_cols else 0
+            uniq_authors = filtered_df[author_cols[0]].nunique() if author_cols else 0
+        except Exception:
+            total_pubs = uniq_sources = uniq_authors = 0
 
-    m1, m2, m3, m4 = st.columns(4)
-    m1.metric("Total publications", f"{total_pubs:,}")
-    m2.metric("Avg influence score", f"{avg_infl:.3f}" if avg_infl is not None else "n/a")
-    m3.metric("Unique sources", f"{uniq_sources:,}")
-    m4.metric("Unique authors", f"{uniq_authors:,}")
-    
-    st.divider()
+        infl_col, avg_infl = None, None
+        for c in ["pub_credit_share", "max_term_credit", "credit_share"]:
+            if c in filtered_df.columns:
+                infl_col = c
+                avg_infl = filtered_df[c].mean()
+                break
+        if avg_infl is None and not df_attr.empty and "credit_share" in df_attr.columns:
+            avg_infl = df_attr["credit_share"].mean()
+            st.info("📊 Using attribution dataset for influence metrics")
 
-    # Charts
-    cat_cols = [c for c in ["publication_name","source_name","channel_name","author_name","topic","sentiment_band"] if c in COLUMNS]
-    
-    if not cat_cols:
-        st.info("No categorical columns to group by.")
-    else:
-        dim = st.selectbox("Group charts by", cat_cols, index=0)
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Total publications", f"{total_pubs:,}")
+        m2.metric("Avg influence score", f"{avg_infl:.3f}" if avg_infl is not None else "n/a")
+        m3.metric("Unique sources", f"{uniq_sources:,}")
+        m4.metric("Unique authors", f"{uniq_authors:,}")
 
-        circ_col = next((c for c in ["circulation","circulation_size","reach","impressions","audience"] if c in COLUMNS), None)
-        circ_sql = f"COALESCE(SUM({circ_col}),0)" if circ_col else "COUNT(*)"
-        
-        # Build the SQL query based on available columns
-        if infl_col:
-            agg_query = f"""
-                SELECT {dim} AS dim,
-                       AVG({infl_col}) AS avg_influence,
-                       COUNT(*) AS n,
-                       {circ_sql} AS total_metric
-                FROM v WHERE {w}
-                GROUP BY 1 HAVING dim IS NOT NULL
-            """
+        st.divider()
+
+        # Charts
+        cat_cols = [c for c in ["publication_name","source_name","channel_name","author_name","topic","sentiment_band"] if c in filtered_df.columns]
+        if not cat_cols:
+            st.info("No categorical columns to group by.")
         else:
-            # If no influence column, just use count
-            agg_query = f"""
-                SELECT {dim} AS dim,
-                       COUNT(*) AS n,
-                       {circ_sql} AS total_metric
-                FROM v WHERE {w}
-                GROUP BY 1 HAVING dim IS NOT NULL
-            """
-        
-        agg = con.execute(agg_query, args).fetchdf()
+            dim = st.selectbox("Group charts by", cat_cols, index=0)
+            circ_col = next((c for c in ["circulation","circulation_size","reach","impressions","audience"] if c in filtered_df.columns), None)
 
-        top_n = st.slider("Top N", 5, 50, 20, 1)
+            if not filtered_df.empty and dim in filtered_df.columns:
+                # Importance-based sampling
+                sample_size = min(50000, len(filtered_df))
+                if len(filtered_df) > sample_size:
+                    score = pd.Series(0.0, index=filtered_df.index)
+                    if "pub_credit_share" in filtered_df: score += filtered_df["pub_credit_share"].fillna(0) * 1000
+                    if "max_term_credit" in filtered_df: score += filtered_df["max_term_credit"].fillna(0) * 1000
+                    if "circulation_size" in filtered_df:
+                        circ = filtered_df["circulation_size"]
+                        norm = (circ - circ.min()) / (circ.max() - circ.min() + 1e-9)
+                        score += norm.fillna(0) * 100
+                    filtered_df = filtered_df.loc[score.nlargest(sample_size).index]
+                    st.info(f"📊 Showing top {sample_size:,} items by importance")
 
-        cA, cB = st.columns(2)
-        if not agg.empty:
-            # Check if avg_influence column exists
-            if "avg_influence" in agg.columns:
-                b1 = alt.Chart(agg.sort_values("avg_influence", ascending=False).head(top_n)).mark_bar(color="#12715D").encode(
-                    y=alt.Y("dim:N", sort="-x", title=None),
-                    x=alt.X("avg_influence:Q", title="Avg influence"),
-                    tooltip=["dim", alt.Tooltip("avg_influence:Q", format=".3f"), "n"],
-                )
-                b2 = alt.Chart(agg.sort_values("n", ascending=False).head(top_n)).mark_bar(color="#4AB48E").encode(
-                    y=alt.Y("dim:N", sort="-x", title=None),
-                    x=alt.X("n:Q", title="Count"),
-                    tooltip=["dim", "n", alt.Tooltip("avg_influence:Q", format=".3f")],
-                )
+                agg_dict: Dict[str, str] = {filtered_df.columns[0]: "count"}
+                if infl_col and infl_col in filtered_df: agg_dict[infl_col] = "mean"
+                if circ_col and circ_col in filtered_df: agg_dict[circ_col] = "sum"
+
+                agg = filtered_df.groupby(dim).agg(agg_dict).reset_index().rename(columns={filtered_df.columns[0]: "n", dim: "dim"})
+                if infl_col and infl_col in agg: agg = agg.rename(columns={infl_col: "avg_influence"})
+                if circ_col and circ_col in agg: agg = agg.rename(columns={circ_col: "total_metric"})
+                agg = agg[agg["dim"].notna()]
             else:
-                # If no avg_influence, just show count charts
-                b1 = alt.Chart(agg.sort_values("n", ascending=False).head(top_n)).mark_bar(color="#12715D").encode(
-                    y=alt.Y("dim:N", sort="-x", title=None),
-                    x=alt.X("n:Q", title="Count"),
-                    tooltip=["dim", "n"]
-                )
-                b2 = alt.Chart(agg.sort_values("total_metric", ascending=False).head(top_n)).mark_bar(color="#4AB48E").encode(
-                    y=alt.Y("dim:N", sort="-x", title=None),
-                    x=alt.X("total_metric:Q", title="Total Metric"),
-                    tooltip=["dim", "total_metric"]
-                )
-            
-            cA.altair_chart(b1.properties(height=360).configure_view(strokeWidth=0), use_container_width=True)
-            cB.altair_chart(b2.properties(height=360).configure_view(strokeWidth=0), use_container_width=True)
-        else:
-            st.info("No data for current filters.")
+                agg = pd.DataFrame(columns=["dim", "avg_influence", "n", "total_metric"])
 
-        # Pie Chart
-        if infl_col and not agg.empty and "avg_influence" in agg.columns:
-            pie_df = agg.sort_values("avg_influence", ascending=False).head(20)
-            fig_pie = px.pie(
-                pie_df, names="dim", values="avg_influence",
-                color_discrete_sequence=["#12715D", "#4AB48E", "#CFECE4", "#E7F6F1"]
-            )
-            fig_pie.update_traces(textinfo="percent+label", pull=[0.02]*len(pie_df))
-            fig_pie.update_layout(height=420, margin=dict(l=10,r=10,t=10,b=10))
-            st.plotly_chart(fig_pie, use_container_width=True)
-    
-    st.divider()
-
-    # Sankey Diagram
-    if not cat_cols:
-        pass
-    else:
-        left, right = st.columns(2)
-        src = left.selectbox("Sankey source", cat_cols, index=0, key="sank_src")
-        tgt = right.selectbox("Sankey target", cat_cols, index=min(1, len(cat_cols) - 1), key="sank_tgt")
-
-        c1, c2, c3, c4 = st.columns(4)
-        top_sources = c1.slider("Top Sources", 3, 50, 15, 1)
-        top_targets = c2.slider("Top Targets", 2, 20, 6, 1)
-        max_links = c3.slider("Max Links", 10, 500, 120, 10)
-        bucket_other = c4.checkbox("Bucket 'Other'", value=True)
-
-        if src != tgt:
-            # Rank to keep only the most common nodes
-            src_rank = con.execute(
-                f"SELECT {src} AS s, COUNT(*) AS n FROM v WHERE {w} AND {src} IS NOT NULL "
-                f"GROUP BY 1 ORDER BY n DESC LIMIT {int(top_sources)}", args
-            ).fetchdf()
-            tgt_rank = con.execute(
-                f"SELECT {tgt} AS t, COUNT(*) AS n FROM v WHERE {w} AND {tgt} IS NOT NULL "
-                f"GROUP BY 1 ORDER BY n DESC LIMIT {int(top_targets)}", args
-            ).fetchdf()
-            keep_s = set(src_rank["s"].dropna().astype(str))
-            keep_t = set(tgt_rank["t"].dropna().astype(str))
-
-            sdata = con.execute(
-                f"""
-                SELECT
-                CASE WHEN {src} IN $ks THEN {src} ELSE 'Other' END AS s,
-                CASE WHEN {tgt} IN $kt THEN {tgt} ELSE 'Other' END AS t,
-                COUNT(*) AS v
-                FROM v
-                WHERE {w} AND {src} IS NOT NULL AND {tgt} IS NOT NULL
-                GROUP BY 1,2
-                ORDER BY v DESC
-                LIMIT {int(max_links)}
-                """,
-                {**args, "ks": list(keep_s), "kt": list(keep_t)}
-            ).fetchdf()
-
-            if not bucket_other:
-                sdata = sdata[(sdata["s"].isin(keep_s)) & (sdata["t"].isin(keep_t))]
-
-            if not sdata.empty:
-                # Build nodes/links with truncated display labels
-                nodes_all = pd.Series(pd.concat([sdata["s"], sdata["t"]])).astype(str).unique().tolist()
-                labels_short = [shorten(n) for n in nodes_all]
-                index = {n: i for i, n in enumerate(nodes_all)}
-
-                hc = st.checkbox("High-contrast labels", value=True, help="Use light nodes with dark borders + larger text")
-
-                node_fill = "#CFECE4" if hc else "#12715D"
-                node_border = "#12715D" if hc else "white"
-                link_rgba = "rgba(18,113,93,0.22)" if hc else "rgba(18,113,93,0.35)"
-                font_color = "#133C35"
-                font_size = 16 if hc else 15
-
-                fig = go.Figure(go.Sankey(
-                    arrangement="snap",
-                    node=dict(
-                        label=labels_short,
-                        pad=26,
-                        thickness=22,
-                        color=[node_fill] * len(nodes_all),
-                        line=dict(color="rgba(0,0,0,0)", width=0)
-                    ),
-                    link=dict(
-                        source=[index[s] for s in sdata["s"]],
-                        target=[index[t] for t in sdata["t"]],
-                        value=sdata["v"],
-                        color=link_rgba,
-                        hovertemplate=(
-                            "Count: %{value:,}"
-                            "<br>source: %{source.label}"
-                            "<br>target: %{target.label}<extra></extra>"
-                        )
+            top_n = st.slider("Top N", 5, 50, 20, 1)
+            cA, cB = st.columns(2)
+            if not agg.empty:
+                if "avg_influence" in agg.columns:
+                    b1 = alt.Chart(agg.sort_values("avg_influence", ascending=False).head(top_n)).mark_bar(color="#12715D").encode(
+                        y=alt.Y("dim:N", sort="-x", title=None),
+                        x=alt.X("avg_influence:Q", title="Avg influence"),
+                        tooltip=["dim", alt.Tooltip("avg_influence:Q", format=".3f"), "n"],
                     )
-                ))
-
-                fig.update_layout(
-                    font=dict(family="Inter, Helvetica, Arial, sans-serif", size=font_size, color=font_color),
-                    hoverlabel=dict(font_size=13, font_family="Inter, Helvetica, Arial, sans-serif"),
-                    margin=dict(l=8, r=8, t=6, b=6),
-                    height=640
-                )
-
-                st.plotly_chart(fig, use_container_width=True)
+                    b2 = alt.Chart(agg.sort_values("n", ascending=False).head(top_n)).mark_bar(color="#4AB48E").encode(
+                        y=alt.Y("dim:N", sort="-x", title=None),
+                        x=alt.X("n:Q", title="Count"),
+                        tooltip=["dim", "n", alt.Tooltip("avg_influence:Q", format=".3f")],
+                    )
+                else:
+                    b1 = alt.Chart(agg.sort_values("n", ascending=False).head(top_n)).mark_bar(color="#12715D").encode(
+                        y=alt.Y("dim:N", sort="-x", title=None),
+                        x=alt.X("n:Q", title="Count"),
+                        tooltip=["dim", "n"],
+                    )
+                    b2 = alt.Chart(agg.sort_values("total_metric", ascending=False).head(top_n)).mark_bar(color="#4AB48E").encode(
+                        y=alt.Y("dim:N", sort="-x", title=None),
+                        x=alt.X("total_metric:Q", title="Total Metric"),
+                        tooltip=["dim", "total_metric"],
+                    )
+                cA.altair_chart(b1.properties(height=360).configure_view(strokeWidth=0), use_container_width=True)
+                cB.altair_chart(b2.properties(height=360).configure_view(strokeWidth=0), use_container_width=True)
             else:
-                st.info("Not enough data for Sankey with these fields.")
+                st.info("No data for current filters.")
+
+            # Pie
+            if infl_col and not agg.empty and "avg_influence" in agg.columns:
+                pie_df = agg.sort_values("avg_influence", ascending=False).head(20)
+                fig_pie = px.pie(pie_df, names="dim", values="avg_influence",
+                                 color_discrete_sequence=["#12715D", "#4AB48E", "#CFECE4", "#E7F6F1"])
+                fig_pie.update_traces(textinfo="percent+label", pull=[0.02]*len(pie_df))
+                fig_pie.update_layout(height=420, margin=dict(l=10,r=10,t=10,b=10))
+                st.plotly_chart(fig_pie, use_container_width=True)
+
+        st.divider()
+
+        # Sankey
+        if not cat_cols:
+            pass
         else:
-            st.info("Choose different fields for source and target.")
-    
-    st.divider()
+            left, right = st.columns(2)
+            src = left.selectbox("Sankey source", cat_cols, index=0, key="sank_src")
+            tgt = right.selectbox("Sankey target", cat_cols, index=min(1, len(cat_cols)-1), key="sank_tgt")
 
-    # Time Series - find any time/date column dynamically
-    time_col = None
-    time_candidates = ["conversion_ts", "load_date", "source_time", "date", "timestamp"]
-    for candidate in time_candidates:
-        if candidate in COLUMNS:
-            time_col = candidate
-            break
-    
-    # If no exact match, find any column with 'date' or 'time' in the name
-    if not time_col:
-        date_cols = [col for col in COLUMNS if 'date' in col.lower() or 'time' in col.lower()]
-        if date_cols:
-            time_col = date_cols[0]
-    conv_col = "conversions" if "conversions" in COLUMNS else None
-    
-    if time_col:
-        conv = con.execute(
-            f"""
-            SELECT DATE_TRUNC('day', CAST({time_col} AS TIMESTAMP)) AS d,
-                {('SUM(' + conv_col + ')') if conv_col else 'COUNT(*)'} AS y
-            FROM v WHERE {w}
-            GROUP BY 1 ORDER BY 1
-            """,
-            args
-        ).fetchdf()
-        
-        if not conv.empty:
-            conv_chart = (
-                alt.Chart(conv)
-                .mark_bar(color="#12715D")
-                .encode(x=alt.X("d:T", title="Date"), y=alt.Y("y:Q", title="Conversions"))
-                .properties(height=300)
-                .interactive()
-            )
-            st.altair_chart(conv_chart.configure_view(strokeWidth=0), use_container_width=True)
-    
-    st.divider()
+            c1, c2, c3, c4 = st.columns(4)
+            top_sources = c1.slider("Top Sources", 3, 50, 15, 1)
+            top_targets = c2.slider("Top Targets", 2, 20, 6, 1)
+            max_links = c3.slider("Max Links", 10, 500, 120, 10)
+            bucket_other = c4.checkbox("Bucket 'Other'", value=True)
 
-    # Enhanced Sample Data with Export Options
-    st.markdown("### 📊 Filtered Data Sample")
-    
-    col1, col2, col3 = st.columns([2, 1, 1])
-    
-    with col1:
-        sample_size = st.slider("Sample Size", 100, 5000, 1000, help="Number of rows to display")
-    
-    with col2:
-        if st.button("📥 Export CSV", help="Download filtered data as CSV"):
-            df_main, _, _ = get_data()
-            if df_main.empty:
-                sample = pd.DataFrame()
+            if src != tgt and not filtered_df.empty:
+                src_counts = filtered_df[src].value_counts().head(int(top_sources))
+                tgt_counts = filtered_df[tgt].value_counts().head(int(top_targets))
+                keep_s = set(src_counts.index.dropna().astype(str))
+                keep_t = set(tgt_counts.index.dropna().astype(str))
+
+                nt = filtered_df[[src, tgt]].dropna().copy()
+                nt["s"] = nt[src].apply(lambda x: x if str(x) in keep_s else "Other")
+                nt["t"] = nt[tgt].apply(lambda x: x if str(x) in keep_t else "Other")
+                sdata = nt.groupby(["s","t"]).size().reset_index(name="v").sort_values("v", ascending=False).head(int(max_links))
+                if not bucket_other:
+                    sdata = sdata[(sdata["s"].isin(keep_s)) & (sdata["t"].isin(keep_t))]
+
+                if not sdata.empty:
+                    nodes = pd.Series(pd.concat([sdata["s"], sdata["t"]])).astype(str).unique().tolist()
+                    labels_short = [shorten(x) for x in nodes]
+                    idx = {n:i for i,n in enumerate(nodes)}
+                    hc = st.checkbox("High-contrast labels", value=True)
+
+                    fig = go.Figure(go.Sankey(
+                        arrangement="snap",
+                        node=dict(
+                            label=labels_short,
+                            pad=26, thickness=22,
+                            color=["#CFECE4" if hc else "#12715D"] * len(nodes),
+                            line=dict(color="rgba(0,0,0,0)", width=0),
+                        ),
+                        link=dict(
+                            source=[idx[s] for s in sdata["s"]],
+                            target=[idx[t] for t in sdata["t"]],
+                            value=sdata["v"],
+                            color="rgba(18,113,93,0.22)" if hc else "rgba(18,113,93,0.35)",
+                            hovertemplate="Count: %{value:,}<br>source: %{source.label}<br>target: %{target.label}<extra></extra>",
+                        ),
+                    ))
+                    fig.update_layout(
+                        font=dict(family="Inter, Helvetica, Arial, sans-serif", size=16 if hc else 15, color="#133C35"),
+                        hoverlabel=dict(font_size=13, font_family="Inter, Helvetica, Arial, sans-serif"),
+                        margin=dict(l=8, r=8, t=6, b=6), height=640
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.info("Not enough data for Sankey with these fields.")
             else:
-                sample = df_main.head(sample_size)
-            export_data_button(sample, "filtered_data", "csv")
-    
-    with col3:
-        if st.button("📊 Export JSON", help="Download filtered data as JSON"):
-            df_main, _, _ = get_data()
-            if df_main.empty:
-                sample = pd.DataFrame()
-            else:
-                sample = df_main.head(sample_size)
-            export_data_button(sample, "filtered_data", "json")
-    
-    # Display data with enhanced styling
-    df_main, _, _ = get_data()
-    if df_main.empty:
-        sample = pd.DataFrame()
-    else:
-        # Apply pandas filtering instead of SQL
-        sample = df_main.head(sample_size)
-    
-    if not sample.empty:
-        st.markdown(f"**Showing {len(sample)} rows**")
-        st.dataframe(sample, use_container_width=True, height=400)
-        
-        # Data insights
-        with st.expander("🔍 Data Insights"):
-            col1, col2, col3 = st.columns(3)
-            
-            with col1:
-                create_metric_card("Total Rows", f"{len(sample):,}", icon="📊")
-            
-            with col2:
-                numeric_cols = sample.select_dtypes(include=['number']).columns
-                create_metric_card("Numeric Columns", len(numeric_cols), icon="🔢")
-            
-            with col3:
-                text_cols = sample.select_dtypes(include=['object']).columns
-                create_metric_card("Text Columns", len(text_cols), icon="📝")
-    else:
-        st.warning("No data found for the selected filters.")
+                st.info("Choose different fields for source and target (and ensure data is filtered).")
+
+        st.divider()
+
+        # Time Series
+        time_col = next((c for c in ["conversion_ts", "load_date", "source_time", "date", "timestamp"] if c in filtered_df.columns), None)
+        if not time_col:
+            date_cols = [c for c in filtered_df.columns if ("date" in c.lower() or "time" in c.lower())]
+            time_col = date_cols[0] if date_cols else None
+
+        conv_col = "conversions" if "conversions" in filtered_df.columns else None
+        if time_col:
+            try:
+                ts = pd.to_datetime(filtered_df[time_col], errors="coerce")
+                tmp = filtered_df.copy()
+                tmp["_d"] = ts.dt.date
+                if conv_col and conv_col in tmp:
+                    conv = tmp.groupby("_d")[conv_col].sum().reset_index().rename(columns={"_d":"d", conv_col:"y"})
+                else:
+                    conv = tmp.groupby("_d").size().reset_index().rename(columns={"_d":"d", 0:"y"})
+                conv = conv.sort_values("d")
+                if not conv.empty:
+                    chart = alt.Chart(conv).mark_bar(color="#12715D").encode(
+                        x=alt.X("d:T", title="Date"),
+                        y=alt.Y("y:Q", title="Count" if not conv_col else "Conversions")
+                    ).properties(height=300).interactive()
+                    st.altair_chart(chart.configure_view(strokeWidth=0), use_container_width=True)
+            except Exception:
+                pass
+
+        st.divider()
+
+        # Sample + Export
+        st.markdown("### 📊 Filtered Data Sample")
+        c1, c2, c3 = st.columns([2,1,1])
+        with c1:
+            sample_size = st.slider("Sample Size", 100, 5000, 1000)
+        with c2:
+            if st.button("📥 Export CSV"):
+                export_data_button(filtered_df.head(sample_size), "filtered_data", "csv")
+        with c3:
+            if st.button("📊 Export JSON"):
+                export_data_button(filtered_df.head(sample_size), "filtered_data", "json")
+
+        sample = filtered_df.head(sample_size)
+        if not sample.empty:
+            st.markdown(f"**Showing {len(sample)} rows**")
+            st.dataframe(sample, use_container_width=True, height=400)
+            with st.expander("🔍 Data Insights"):
+                c1, c2, c3 = st.columns(3)
+                with c1:
+                    st.markdown(f"<div class='metric-card'><h4>Total Rows</h4><div style='font-size:2rem;color:#12715D;'>{len(sample):,}</div></div>", unsafe_allow_html=True)
+                with c2:
+                    st.markdown(f"<div class='metric-card'><h4>Numeric Columns</h4><div style='font-size:2rem;color:#12715D;'>{sample.select_dtypes(include=['number']).shape[1]}</div></div>", unsafe_allow_html=True)
+                with c3:
+                    st.markdown(f"<div class='metric-card'><h4>Text Columns</h4><div style='font-size:2rem;color:#12715D;'>{sample.select_dtypes(include=['object','string']).shape[1]}</div></div>", unsafe_allow_html=True)
+        else:
+            st.warning("No data found for the selected filters.")
 
 with tab4:
     st.subheader("🕸️ People - Network Intelligence")
-    st.markdown("""
-    Explore the intricate web of relationships that drive healthcare policy influence. Visualize connections between publications, authors, channels, and terms to understand the network dynamics.
-    """)
-
-    # TODO: Add network analysis features here when you have network data
-    # Place network_edges.csv in data/ directory with columns: source, target, weight
-
-    # Enhanced network controls
-    col1, col2, col3 = st.columns([2, 1, 1])
-    
-    with col1:
-        st.markdown("### 🌐 Network Controls")
-    
-    with col2:
-        network_layout = st.selectbox("Layout", ["Force-directed", "Hierarchical", "Circular"], help="Choose network visualization layout")
-    
-    with col3:
-        show_labels = st.checkbox("Show Labels", value=True, help="Display node labels")
-    
-    # Network analysis options
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        min_connections = st.slider("Minimum Connections", 1, 50, 5, help="Filter nodes by minimum number of connections")
-    
-    with col2:
-        max_nodes = st.slider("Max Nodes to Display", 10, 200, 50, help="Limit number of nodes for performance")
-    
-    # Find network edges file
+    st.markdown("Explore relationships between publications, authors, channels, and terms.")
+    # Network CSV discovery
     edges_path = None
     for d in [ROOT / "data", ROOT / "data" / "processed", ROOT / "processed", APP_DIR]:
         p = d / "network_edges.csv"
         if p.exists():
             edges_path = p
             break
-    
     if edges_path and edges_path.exists():
-        edges = pd.read_csv(edges_path)
-        required = {"source", "target", "weight"}
-        
+        try:
+            edges = pd.read_csv(edges_path, dtype_backend="pyarrow")
+        except Exception:
+            edges = pd.read_csv(edges_path)
+
+        required = {"source","target","weight"}
         if required.issubset(set(edges.columns)):
             st.write("Edges sample:")
             st.dataframe(edges.head(200), use_container_width=True)
@@ -1902,8 +883,6 @@ with tab4:
             deg["strength"] = deg["in_weight"] + deg["out_weight"]
             st.dataframe(deg.sort_values("strength", ascending=False).head(30))
 
-            # TODO: Add centrality metrics and community detection here
-
             min_w = float(edges["weight"].quantile(0.75)) if not edges.empty else 0.0
             min_w = st.slider(
                 "Min edge weight to show",
@@ -1914,13 +893,8 @@ with tab4:
             sub = edges[edges["weight"] >= min_w].copy()
             st.write(f"Filtered edges: {len(sub):,} (of {len(edges):,})")
             st.dataframe(sub.head(200), use_container_width=True)
-
-            st.caption("Tip: For interactive graphs, consider pyvis or Plotly (left out for minimal deps).")
-
-            # TODO: Add interactive network visualization here
+            st.caption("Tip: For interactive graphs, consider pyvis or Plotly for networks.")
         else:
             st.warning("network_edges.csv found but must contain columns: source, target, weight")
     else:
         st.info("No network_edges.csv found. Place one under data/ or data/processed with columns: source,target,weight.")
-
-    # TODO: Add temporal network analysis here when you have time-series network data
