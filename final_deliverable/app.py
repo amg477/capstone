@@ -4,7 +4,15 @@ from __future__ import annotations
 
 # -------------------- MUST be first Streamlit call --------------------
 import streamlit as st
-st.set_page_config(page_title="🏛️PolicyPath", layout="wide")
+import warnings
+warnings.filterwarnings("ignore")
+
+# Configure Streamlit for production
+st.set_page_config(
+    page_title="🏛️PolicyPath", 
+    layout="wide",
+    initial_sidebar_state="collapsed"
+)
 
 # -------------------- Placeholder for CSS - moved later --------------------
 st.markdown("""
