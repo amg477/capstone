@@ -339,8 +339,8 @@ with tab1:
         st.markdown("### 📊 Policy Impact Dashboard")
 
         # Calculate key metrics
-        total_pubs = df_main['publication'].nunique() if 'publication' in df_main.columns else 0
-        total_authors = df_main['author'].nunique() if 'author' in df_main.columns else 0
+        total_pubs = df_main['publication_name'].nunique() if 'publication_name' in df_main.columns else 0
+        total_authors = df_main['author_name'].nunique() if 'author_name' in df_main.columns else 0
         total_articles = len(df_main)
         avg_circulation = df_main['circulation_size'].mean() if 'circulation_size' in df_main.columns else 0
 
