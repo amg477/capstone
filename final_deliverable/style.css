@@ -176,29 +176,7 @@
   }
   
   /* ---------- Inputs ---------- */
-  .stSelectbox, .stMultiSelect, .stTextInput, .stNumberInput, .stDateInput, .stTextArea {
-    border-radius: 8px !important;
-  }
-  
-  /* Filter input containers - single border styling */
-  .stSelectbox > div, .stMultiSelect > div, .stTextInput > div, .stNumberInput > div, .stDateInput > div {
-    border: 1px solid #0A473B !important;
-    border-radius: 8px !important;
-    margin: 5px !important;
-  }
-  
-  /* Remove inner input borders */
-  .stSelectbox input, .stMultiSelect input, .stTextInput input, .stNumberInput input, .stDateInput input {
-    border: none !important;
-    box-shadow: none !important;
-    background: transparent !important;
-  }
-  
-  input:focus, textarea:focus, select:focus {
-    outline: none !important;
-    border-color: #0A473B !important;
-    box-shadow: 0 0 0 2px rgba(10, 71, 59, 0.25) !important;
-  }
+  /* Let Streamlit handle input styling naturally */
   
   /* Dropdown arrows and icons */
   .stSelectbox [data-testid="stSelectboxDropdownIcon"],
