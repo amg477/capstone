@@ -235,7 +235,9 @@ def get_data() -> Tuple[pd.DataFrame, pd.DataFrame, Set[str]]:
     if df_main is None:
         try:
             with st.spinner("Loading dataset..."):
-                df_main = get_dataset() or pd.DataFrame()
+                df_main = get_dataset()
+                if df_main is None:
+                    df_main = pd.DataFrame()
                 COLUMNS = set(df_main.columns) if not df_main.empty else set()
 
             attr_csv = _find_first_existing(ATTR_NAME, "attribution_all_scored_sample.csv")
