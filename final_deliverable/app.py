@@ -22,6 +22,7 @@ import matplotlib.pyplot as plt
 from wordcloud import WordCloud
 from textblob import TextBlob
 from pathlib import Path
+from streamlit_extras.metric_cards import style_metric_cards
 
 # -------------------- CSS Injection --------------------
 @st.cache_resource
@@ -45,63 +46,6 @@ def inject_css(path: str = "style.css"):
     except Exception as e:
         st.warning(f"Could not load CSS: {e}. Using Streamlit defaults.")
         return False
-
-# -------------------- Sentiment Wordclouds --------------------
-def create_sentiment_wordclouds_from_attribution(df_attr: pd.DataFrame, text_col: str = "terms"):
-    """
-    Create word clouds for positive, neutral, and negative sentiment analysis using TextBlob.
-    Uses attribution terms data instead of headlines for more relevant sentiment analysis.
-    """
-    if df_attr is None or df_attr.empty or text_col not in df_attr.columns:
-        return None, None, None, 0, 0, 0
-
-    # sample first 50 for performance
-    text_data = [str(x) for x in df_attr[text_col].dropna().tolist()[:50]]
-
-    positive_texts, negative_texts, neutral_texts = [], [], []
-    for text in text_data:
-        try:
-            polarity = TextBlob(text).sentiment.polarity
-            if polarity > 0.1:
-                positive_texts.append(text)
-            elif polarity < -0.1:
-                negative_texts.append(text)
-            else:
-                neutral_texts.append(text)
-        except Exception:
-            continue
-
-    def extract_words(texts: List[str]) -> List[str]:
-        words: List[str] = []
-        stop_words = {
-            'the', 'and', 'for', 'are', 'with', 'this', 'that', 'have', 'from', 'they', 'will', 'been', 'said',
-            'each', 'which', 'their', 'time', 'about', 'after', 'how', 'its', 'may', 'more', 'new', 'not', 'than',
-            'two', 'use', 'what', 'when', 'where', 'who', 'but', 'also', 'can', 'get', 'much', 'such', 'now', 'were',
-            'would', 'because'
-        }
-        for text in texts:
-            text_words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
-            words.extend([w for w in text_words if w not in stop_words])
-        return words
-
-    pos_words = extract_words(positive_texts)
-    neg_words = extract_words(negative_texts)
-    neu_words = extract_words(neutral_texts)
-
-    def create_wordcloud(words: List[str]):
-        if not words:
-            return None
-        word_text = " ".join(words).strip()
-        if not word_text:
-            return None
-        # keep white background for light theme
-        return WordCloud(width=400, height=300, background_color="white").generate(word_text)
-
-    wc_positive = create_wordcloud(pos_words)
-    wc_negative = create_wordcloud(neg_words)
-    wc_neutral = create_wordcloud(neu_words)
-
-    return wc_positive, wc_neutral, wc_negative, len(positive_texts), len(negative_texts), len(neutral_texts)
 
 # -------------------- App paths (define early; used by Debug/Logo) --------------------
 APP_DIR = Path(__file__).resolve().parent
@@ -163,7 +107,7 @@ def get_dataset() -> pd.DataFrame:
 # -------------------- Helpers --------------------
 def apply_penta_style():
     """Optional Altair defaults (call once if desired)."""
-    alt.theme.enable('default')
+    # Set Altair theme and disable max rows
     alt.data_transformers.disable_max_rows()
     return {
         'primary': "#12715D",
@@ -313,18 +257,24 @@ def render_header():
 # -------------------- Main App --------------------
 def main():
     """Main application function with error handling."""
-    try:
-        # Load CSS after Streamlit is fully initialized
-        inject_css()
-        
-        render_header()
-        tab1, tab2, tab3 = st.tabs(["PolicyPath", "Paths", "People"])
-        
-        return tab1, tab2, tab3
-    except Exception as e:
-        st.error(f"Application error: {e}")
-        st.info("Please refresh the page or contact support if the issue persists.")
-        return None, None, None
+    # Load CSS after Streamlit is fully initialized
+    inject_css()
+    
+    render_header()
+    
+    # App description
+    st.markdown("""
+    **PolicyPath** maps how narratives travel through publications, authors, and channels—pinpointing key voices shaping U.S. healthcare policy.
+    
+    **Paths**: Analyze influence attribution by publication, author, channel, and terms. | **People**: Explore the network driving influence.
+    
+    *Built by Georgetown University MSBA - Anna Glass, Jasmin Mendoza, Mohammad Waqas, Mark Saba, Posy Olivetti*
+    """)
+
+    # Create tabs outside the expander
+    tab1, tab2, tab3 = st.tabs(["PolicyPath", "Paths", "People"])
+
+    return tab1, tab2, tab3
 
 # Run main app
 tab1, tab2, tab3 = main()
@@ -335,21 +285,13 @@ if tab1 is None:
 with tab1:
     _ = apply_penta_style()  # optional; sets Altair defaults
 
-    st.markdown("""
-    ## PolicyPath
-    PolicyPath maps how narratives travel through publications, authors, and channels—pinpointing key voices shaping U.S. healthcare policy.
-
-    **Paths**: Analyze influence attribution by publication, author, channel, and terms  
-    **People**: Explore the network driving influence. 
-    *Built by Georgetown University MSBA - Anna Glass, Jasmin Mendoza, Mohammmad Waqas, Mark Saba, Posy Olivetti*
-    """)
-
     # Load data for metrics
     df_main, df_attr, COLUMNS = get_data()
 
     # PolicyPath Metrics Dashboard
     if not df_main.empty:
-        st.markdown("### 📊 Policy Impact Dashboard")
+        st.markdown("### PolicyPath Pulse")
+        st.markdown("Monitor the pulse of healthcare policy influence with interactive KPIs and charts.")
 
         # Calculate key metrics
         total_pubs = df_main['publication_name'].nunique() if 'publication_name' in df_main.columns else 0
@@ -366,73 +308,45 @@ with tab1:
             top_influence = 0
 
         # Row 1: Content Summary Metrics
-        metric1, metric2, metric3 = st.columns(3)
+        metric1, metric2, metric3, metric4, metric5, metric6  = st.columns(6)
         with metric1:
-            st.markdown(
-                f"""
-                <div class="metric-card">
-                  <h4>Total Publications</h4>
-                  <div style="font-size:2.5rem;">{total_pubs:,}</div>
-                  <p>Unique sources</p>
-                </div>
-                """, unsafe_allow_html=True
+            st.metric(
+                label="Total Publications",
+                value=f"{total_pubs:,}"
             )
         with metric2:
-            st.markdown(
-                f"""
-                <div class="metric-card">
-                  <h4>Total Authors</h4>
-                  <div style="font-size:2.5rem;">{total_authors:,}</div>
-                  <p>Policy voices</p>
-                </div>
-                """, unsafe_allow_html=True
+            st.metric(
+                label="Total Authors", 
+                value=f"{total_authors:,}"
             )
         with metric3:
-            st.markdown(
-                f"""
-                <div class="metric-card">
-                  <h4>Total Articles</h4>
-                  <div style="font-size:2.5rem;">{total_articles:,}</div>
-                  <p>Policy narratives</p>
-                </div>
-                """, unsafe_allow_html=True
+            st.metric(
+                label="Total Articles",
+                value=f"{total_articles:,}"
             )
 
-        # Row 2: Influence & Reach Metrics
-        metric4, metric5, metric6 = st.columns(3)
         with metric4:
-            st.markdown(
-                f"""
-                <div class="metric-card">
-                  <h4>Avg Circulation</h4>
-                  <div style="font-size:2.5rem;">{avg_circulation:,.0f}</div>
-                  <p>Reach per article</p>
-                </div>
-                """, unsafe_allow_html=True
+            st.metric(
+                label="Avg Circulation",
+                value=f"{avg_circulation:,.0f}"
             )
         with metric5:
-            st.markdown(
-                f"""
-                <div class="metric-card">
-                  <h4>Avg Influence</h4>
-                  <div style="font-size:2.5rem;">{avg_influence:#0.1%}</div>
-                  <p>Attribution share</p>
-                </div>
-                """, unsafe_allow_html=True
+            st.metric(
+                label="Avg Influence",
+                value=f"{avg_influence:#0.1%}"
             )
         with metric6:
-            st.markdown(
-                f"""
-                <div class="metric-card">
-                  <h4>Peak Influence</h4>
-                  <div style="font-size:2.5rem;">{top_influence:#0.1%}</div>
-                  <p>Top attribution</p>
-                </div>
-                """, unsafe_allow_html=True
+            st.metric(
+                label="Peak Influence",
+                value=f"{top_influence:#0.1%}"
             )
-
-    st.subheader("Pulse - Dashboard Overview")
-    st.markdown("Monitor the pulse of healthcare policy influence with interactive KPIs and charts.")
+        
+        # Apply metric card styling
+        style_metric_cards(
+            background_color="#fafafa", 
+            border_color="#fafafa", 
+            border_left_color="#12715D"
+        )
 
     df_main, df_attr, COLUMNS = get_data()
     if df_main.empty:
@@ -440,9 +354,11 @@ with tab1:
     else:
         cols = df_main.columns.tolist()
 
-        # Smart Filters
-        st.markdown("### DashboardFilters")
-        c1, c2 = st.columns(2)
+        # Dynamic Filters - 2 rows, 3 columns
+        st.markdown("### Dynamic Filters")
+        
+        # Row 1: Date, Publications, Channels
+        c1, c2, c3 = st.columns(3)
 
         with c1:
             date_col = next((c for c in cols if any(k in c.lower() for k in ["date", "time", "ts"])), None)
@@ -457,6 +373,7 @@ with tab1:
                 except Exception:
                     date_range = None
 
+        with c2:
             pub_cols = [c for c in cols if "publication" in c.lower()]
             if pub_cols:
                 pub_col = pub_cols[0]
@@ -465,6 +382,7 @@ with tab1:
             else:
                 sel_pubs = []
 
+        with c3:
             channel_cols = [c for c in cols if "channel" in c.lower()]
             if channel_cols:
                 channel_col = channel_cols[0]
@@ -473,7 +391,10 @@ with tab1:
             else:
                 sel_channels = []
 
-        with c2:
+        # Row 2: Authors, Source Types, Sentiment Band
+        c4, c5, c6 = st.columns(3)
+        
+        with c4:
             author_cols = [c for c in cols if "author" in c.lower()]
             if author_cols:
                 author_col = author_cols[0]
@@ -482,6 +403,7 @@ with tab1:
             else:
                 sel_authors = []
 
+        with c5:
             source_cols = [c for c in cols if "source" in c.lower()]
             if source_cols:
                 source_col = source_cols[0]
@@ -489,6 +411,15 @@ with tab1:
                 sel_sources = st.multiselect("Source Types", sources)
             else:
                 sel_sources = []
+
+        with c6:
+            sentiment_cols = [c for c in cols if "sentiment_band" in c.lower()]
+            if sentiment_cols:
+                sentiment_col = sentiment_cols[0]
+                sentiments = pd.Series(df_main[sentiment_col]).dropna().unique().tolist()
+                sel_sentiments = st.multiselect("Sentiment Band", sentiments)
+            else:
+                sel_sentiments = []
 
         # Apply filters (pandas)
         filtered_df = df_main.copy()
@@ -506,6 +437,8 @@ with tab1:
             filtered_df = filtered_df[filtered_df[author_cols[0]].isin(sel_authors)]
         if sel_sources and source_cols:
             filtered_df = filtered_df[filtered_df[source_cols[0]].isin(sel_sources)]
+        if sel_sentiments and sentiment_cols:
+            filtered_df = filtered_df[filtered_df[sentiment_cols[0]].isin(sel_sentiments)]
 
         # KPIs
         try:
@@ -524,14 +457,6 @@ with tab1:
         if avg_infl is None and not df_attr.empty and "credit_share" in df_attr.columns:
             avg_infl = df_attr["credit_share"].mean()
             st.info("Using attribution dataset for influence metrics")
-
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("Total publications", f"{total_pubs:,}")
-        m2.metric("Avg influence score", f"{avg_infl:.3f}" if avg_infl is not None else "n/a")
-        m3.metric("Unique sources", f"{uniq_sources:,}")
-        m4.metric("Unique authors", f"{uniq_authors:,}")
-
-        st.divider()
 
         # Charts
         cat_cols = [c for c in ["publication_name","source_name","channel_name","author_name","topic","sentiment_band"] if c in filtered_df.columns]
@@ -553,7 +478,6 @@ with tab1:
                         norm = (circ - circ.min()) / (circ.max() - circ.min() + 1e-9)
                         score += norm.fillna(0) * 100
                     filtered_df = filtered_df.loc[score.nlargest(sample_size).index]
-                    st.info(f"Top {sample_size:,} items by importance")
 
                 agg_dict: Dict[str, str] = {filtered_df.columns[0]: "count"}
                 if infl_col and infl_col in filtered_df: agg_dict[infl_col] = "mean"
@@ -572,50 +496,142 @@ with tab1:
             else:
                 agg = pd.DataFrame(columns=["dim", "avg_influence", "n", "total_metric"])
 
+            # Top N Slider
             top_n = st.slider("Top N", 5, 50, 20, 1)
-            cA, cB = st.columns(2)
-            if not agg.empty:
-                if "avg_influence" in agg.columns:
-                    b1 = alt.Chart(agg.sort_values("avg_influence", ascending=False).head(top_n)).mark_bar().encode(
+            # Simple filtered metrics with centered styling and green outline
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.markdown(f"""
+                <div style="text-align: center; border: 2px solid #0A473B; padding: 15px; border-radius: 8px; margin: 5px;">
+                    <div style="font-size: 24px; font-weight: bold; color: #0A473B;">{total_pubs:,}</div>
+                    <div style="font-size: 14px; color: #666;">Publications</div>
+                </div>
+                """, unsafe_allow_html=True)
+            with col2:
+                avg_infl_display = f"{avg_infl:.3f}" if avg_infl is not None else "n/a"
+                st.markdown(f"""
+                <div style="text-align: center; border: 2px solid #0A473B; padding: 15px; border-radius: 8px; margin: 5px;">
+                    <div style="font-size: 24px; font-weight: bold; color: #0A473B;">{avg_infl_display}</div>
+                    <div style="font-size: 14px; color: #666;">Avg Influence</div>
+                </div>
+                """, unsafe_allow_html=True)
+            with col3:
+                st.markdown(f"""
+                <div style="text-align: center; border: 2px solid #0A473B; padding: 15px; border-radius: 8px; margin: 5px;">
+                    <div style="font-size: 24px; font-weight: bold; color: #0A473B;">{uniq_sources:,}</div>
+                    <div style="font-size: 14px; color: #666;">Sources</div>
+                </div>
+                """, unsafe_allow_html=True)
+            with col4:
+                st.markdown(f"""
+                <div style="text-align: center; border: 2px solid #0A473B; padding: 15px; border-radius: 8px; margin: 5px;">
+                    <div style="font-size: 24px; font-weight: bold; color: #0A473B;">{uniq_authors:,}</div>
+                    <div style="font-size: 14px; color: #666;">Authors</div>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            
+            # 2x2 Grid of Policy Analytics
+            st.markdown("### 📊 Policy Influence Analytics")
+            
+            if not filtered_df.empty:
+                # Row 1
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    # 1. Average Influence by Category (original bar chart)
+                    if not agg.empty and "avg_influence" in agg.columns:
+                        avg_chart = alt.Chart(agg.sort_values("avg_influence", ascending=False).head(10)).mark_bar().encode(
                         y=alt.Y("dim:N", sort="-x", title=None),
                         x=alt.X("avg_influence:Q", title="Avg influence"),
-                        tooltip=["dim", alt.Tooltip("avg_influence:Q", format=".3f"), "n"],
-                    )
-                    b2 = alt.Chart(agg.sort_values("n", ascending=False).head(top_n)).mark_bar().encode(
-                        y=alt.Y("dim:N", sort="-x", title=None),
-                        x=alt.X("n:Q", title="Count"),
-                        tooltip=["dim", "n", alt.Tooltip("avg_influence:Q", format=".3f")],
-                    )
-                else:
-                    b1 = alt.Chart(agg.sort_values("n", ascending=False).head(top_n)).mark_bar().encode(
-                        y=alt.Y("dim:N", sort="-x", title=None),
-                        x=alt.X("n:Q", title="Count"),
-                        tooltip=["dim", "n"],
-                    )
-                    b2 = alt.Chart(agg.sort_values("total_metric", ascending=False).head(top_n)).mark_bar().encode(
-                        y=alt.Y("dim:N", sort="-x", title=None),
-                        x=alt.X("total_metric:Q", title="Total Metric"),
-                        tooltip=["dim", "total_metric"],
-                    )
-                cA.altair_chart(b1.properties(height=360).configure_view(strokeWidth=0), use_container_width=True)
-                cB.altair_chart(b2.properties(height=360).configure_view(strokeWidth=0), use_container_width=True)
+                        )
+                        avg_chart = avg_chart.properties(height=300, title="Average Influence by Category")
+                        st.altair_chart(avg_chart.configure_view(strokeWidth=0).configure_title(
+                            fontSize=16,
+                            offset=10
+                        ), use_container_width=True)
+                    else:
+                        st.info("No influence data available")
+                
+                with col2:
+                    # 2. Pie Chart (original pie chart)
+                    if not agg.empty and "avg_influence" in agg.columns:
+                        pie_df = agg.sort_values("avg_influence", ascending=False).head(8)
+                        fig_pie = go.Figure(data=[go.Pie(
+                            labels=pie_df["dim"],
+                            values=pie_df["avg_influence"],
+                            textinfo="percent+label"
+                        )])
+                        fig_pie.update_layout(
+                            title="Influence Distribution",
+                            height=300,
+                            showlegend=True,
+                            margin=dict(t=30, b=10, l=10, r=10),
+                            title_font_size=16,
+                            modebar_remove=['zoom', 'pan', 'select', 'lasso', 'zoomin', 'zoomout', 'autoscale', 'reset', 'toImage']
+                        )
+                        st.plotly_chart(fig_pie, use_container_width=True, config={'displayModeBar': False, 'displaylogo': False, 'modeBarButtonsToRemove': ['pan2d', 'lasso2d', 'select2d', 'autoScale2d', 'resetScale2d', 'zoom2d', 'zoomIn2d', 'zoomOut2d', 'toImage']})
             else:
-                st.info("No data for current filters.")
+                st.info("No influence data available")
+                
+                # Row 2
+                if not filtered_df.empty:
+                    col3, col4 = st.columns(2)
+                    
+                    with col3:
+                        # 3. Sentiment Analysis
+                        if 'sentiment_band' in filtered_df.columns:
+                            sentiment_counts = filtered_df['sentiment_band'].value_counts()
+                            fig_sentiment = go.Figure(data=[
+                                go.Bar(
+                                    x=sentiment_counts.index, 
+                                    y=sentiment_counts.values,
+                                    marker_color=['#ff4444', '#ffaa00', '#44aa44'][:len(sentiment_counts)]
+                                )
+                            ])
+                            fig_sentiment.update_layout(
+                                title="Sentiment Distribution",
+                                xaxis_title="Sentiment",
+                                yaxis_title="Article Count",
+                                height=300,
+                                showlegend=False,
+                                margin=dict(t=30, b=10, l=10, r=10),
+                                title_font_size=16,
+                                modebar_remove=['zoom', 'pan', 'select', 'lasso', 'zoomin', 'zoomout', 'autoscale', 'reset', 'toImage']
+                            )
+                            st.plotly_chart(fig_sentiment, use_container_width=True, config={'displayModeBar': False, 'displaylogo': False, 'modeBarButtonsToRemove': ['pan2d', 'lasso2d', 'select2d', 'autoScale2d', 'resetScale2d', 'zoom2d', 'zoomIn2d', 'zoomOut2d', 'toImage']})
+                        else:
+                            st.info("No sentiment data available")
+                
+                    with col4:
+                        # 4. Publication Reach Analysis
+                        if 'publication_name' in filtered_df.columns and 'circulation_size' in filtered_df.columns:
+                            pub_reach = filtered_df.groupby('publication_name')['circulation_size'].mean().nlargest(8).reset_index()
+                            fig_reach = go.Figure(data=[
+                                go.Bar(
+                                    x=pub_reach['publication_name'],
+                                    y=pub_reach['circulation_size'],
+                                    marker_color='#4CAF50'
+                                )
+                            ])
+                            fig_reach.update_layout(
+                                title="Top Publications by Reach",
+                                xaxis_title="Publication",
+                                yaxis_title="Average Circulation",
+                                height=300,
+                                showlegend=False,
+                                margin=dict(t=30, b=10, l=10, r=10),
+                                title_font_size=16,
+                                modebar_remove=['zoom', 'pan', 'select', 'lasso', 'zoomin', 'zoomout', 'autoscale', 'reset', 'toImage']
+                            )
+                            st.plotly_chart(fig_reach, use_container_width=True, config={'displayModeBar': False, 'displaylogo': False, 'modeBarButtonsToRemove': ['pan2d', 'lasso2d', 'select2d', 'autoScale2d', 'resetScale2d', 'zoom2d', 'zoomIn2d', 'zoomOut2d', 'toImage']})
+                        else:
+                            st.info("No publication/reach data available")
+                else:
+                    st.info("No data for current filters.")
 
-            # Pie (when avg_influence exists)
-            if infl_col and not agg.empty and "avg_influence" in agg.columns:
-                pie_df = agg.sort_values("avg_influence", ascending=False).head(20)
-                fig_pie = px.pie(pie_df, names="dim", values="avg_influence")
-                fig_pie.update_traces(textinfo="percent+label", pull=[0.02]*len(pie_df))
-                fig_pie.update_layout(height=420, margin=dict(l=10, r=10, t=10, b=10))
-                st.plotly_chart(fig_pie, use_container_width=True)
-
-        st.divider()
-
-        # Sankey
+            # Sankey Chart - Third Row
         if cat_cols:
-            st.markdown("### 🔄 Flow Analysis")
-            st.markdown("Visualize relationships between different data dimensions. *Automatically filters out noise and dominant 'Other' categories for cleaner visualization.*")
             
             left, right = st.columns(2)
             src = left.selectbox("Sankey source", cat_cols, index=0, key="sank_src")
@@ -700,7 +716,7 @@ with tab1:
                                 color="black"
                             )
                         )
-                        st.plotly_chart(fig, use_container_width=True)
+                        st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False, 'displaylogo': False, 'modeBarButtonsToRemove': ['pan2d', 'lasso2d', 'select2d', 'autoScale2d', 'resetScale2d', 'zoom2d', 'zoomIn2d', 'zoomOut2d', 'toImage']})
                     else:
                         st.info("After filtering, not enough significant flows to display.")
                 else:
@@ -708,44 +724,12 @@ with tab1:
             else:
                 st.info("Choose different fields for source and target (and ensure data is filtered).")
 
-        st.divider()
-
-        # Time Series
-        time_col = next((c for c in ["conversion_ts", "load_date", "source_time", "date", "timestamp"] if c in filtered_df.columns), None)
-        if not time_col:
-            date_cols = [c for c in filtered_df.columns if ("date" in c.lower() or "time" in c.lower())]
-            time_col = date_cols[0] if date_cols else None
-
-        conv_col = "conversions" if "conversions" in filtered_df.columns else None
-        if time_col:
-            try:
-                ts = pd.to_datetime(filtered_df[time_col], errors="coerce")
-                tmp = filtered_df.copy()
-                tmp["_d"] = ts.dt.date
-                if conv_col and conv_col in tmp:
-                    conv = tmp.groupby("_d")[conv_col].sum().reset_index().rename(columns={"_d": "d", conv_col: "y"})
-                else:
-                    conv = tmp.groupby("_d").size().reset_index().rename(columns={"_d": "d", 0: "y"})
-                conv = conv.sort_values("d")
-                if not conv.empty:
-                    chart = alt.Chart(conv).mark_bar().encode(
-                        x=alt.X("d:T", title="Date"),
-                        y=alt.Y("y:Q", title="Count" if not conv_col else "Conversions")
-                    ).properties(height=300).interactive()
-                    st.altair_chart(chart.configure_view(strokeWidth=0), use_container_width=True)
-            except Exception:
-                pass
-
-        st.divider()
-
-        # Sample + Export
-        st.markdown("### Data Export")
-        c1, c2 = st.columns([2, 1])
-        with c1:
-            sample_size = st.slider("Sample Size", 100, 5000, 1000)
-        with c2:
-            if st.button("Export CSV"):
-                export_data_button(filtered_df.head(sample_size), "filtered_data", "csv")
+        # Export Data Bar
+        st.markdown("---")
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            if st.button("Export Data to CSV", use_container_width=True, type="primary"):
+                export_data_button(filtered_df, "filtered_data", "csv")
 
 with tab2:
     st.subheader("Attribution Analysis")
@@ -753,117 +737,117 @@ with tab2:
 
     df_main, df_attr, COLUMNS = get_data()
     available_cols = df_main.columns.tolist() if not df_main.empty else []
-
-    st.markdown("### 📊 Attribution Terms Sentiment Analysis")
-    st.markdown("Analyze sentiment patterns in policy attribution terms using TextBlob")
-
-    if not df_attr.empty:
-        # Filter for terms where kind = "term"
-        if 'kind' in df_attr.columns:
-            terms_df = df_attr[df_attr['kind'] == 'term'].copy()
-            if not terms_df.empty:
-                # Look for value column (the actual term text)
-                value_col = 'value' if 'value' in terms_df.columns else None
-                if value_col:
-                    try:
-                        result = create_sentiment_wordclouds_from_attribution(terms_df, value_col)
-                        if result[0] is None:
-                            st.info("📦 Required libraries installing... Showing simplified analysis.")
-                            sentiment_col1, sentiment_col2, sentiment_col3 = st.columns(3)
-                            with sentiment_col1:
-                                st.markdown("#### 🟢 Positive Attribution Terms")
-                                st.markdown("innovation • progress • benefit • solution • improvement")
-                            with sentiment_col2:
-                                st.markdown("#### 🟡 Neutral Attribution Terms")
-                                st.markdown("analysis • report • study • data • research")
-                            with sentiment_col3:
-                                st.markdown("#### 🔴 Negative Attribution Terms")
-                                st.markdown("concern • issue • challenge • risk • problem")
-                        else:
-                            wc_positive, wc_neutral, wc_negative, pos_count, neu_count, neg_count = result
-                            cloud1, cloud2, cloud3 = st.columns(3)
-
-                            with cloud1:
-                                st.markdown(f"#### 🟢 Positive Attribution Terms ({pos_count} terms)")
-                                if wc_positive:
-                                    try:
-                                        plt.figure(figsize=(8, 6))
-                                        plt.imshow(wc_positive, interpolation='bilinear')
-                                        plt.axis("off")
-                                        plt.title("Positive Attribution Terms", fontsize=10)
-                                        st.pyplot(plt.gcf())
-                                        plt.close()
-                                    except Exception as e:
-                                        st.warning(f"Could not display positive wordcloud: {e}")
-                                else:
-                                    st.info("No positive attribution terms found")
-
-                            with cloud2:
-                                st.markdown(f"#### 🟡 Neutral Attribution Terms ({neu_count} terms)")
-                                if wc_neutral:
-                                    try:
-                                        plt.figure(figsize=(8, 6))
-                                        plt.imshow(wc_neutral, interpolation='bilinear')
-                                        plt.axis("off")
-                                        plt.title("Neutral Attribution Terms", fontsize=10)
-                                        st.pyplot(plt.gcf())
-                                        plt.close()
-                                    except Exception as e:
-                                        st.warning(f"Could not display neutral wordcloud: {e}")
-                                else:
-                                    st.info("No neutral attribution terms found")
-
-                            with cloud3:
-                                st.markdown(f"#### 🔴 Negative Attribution Terms ({neg_count} terms)")
-                                if wc_negative:
-                                    try:
-                                        plt.figure(figsize=(8, 6))
-                                        plt.imshow(wc_negative, interpolation='bilinear')
-                                        plt.axis("off")
-                                        plt.title("Negative Attribution Terms", fontsize=10)
-                                        st.pyplot(plt.gcf())
-                                        plt.close()
-                                    except Exception as e:
-                                        st.warning(f"Could not display negative wordcloud: {e}")
-                                else:
-                                    st.info("No negative attribution terms found")
-
-                            total_terms = pos_count + neu_count + neg_count
-                            if total_terms > 0:
-                                st.markdown("---")
-                                summary_col1, summary_col2, summary_col3, summary_col4 = st.columns(4)
-                                with summary_col1:
-                                    st.metric("Total Terms", f"{total_terms:,}")
-                                with summary_col2:
-                                    st.metric("Positive %", f"{(pos_count/total_terms)*100:.1f}%")
-                                with summary_col3:
-                                    st.metric("Neutral %", f"{(neu_count/total_terms)*100:.1f}%")
-                                with summary_col4:
-                                    st.metric("Negative %", f"{(neg_count/total_terms)*100:.1f}%")
-                    except Exception as e:
-                        st.error(f"Error in attribution sentiment analysis: {e}")
-                        st.info("Using fallback attribution sentiment analysis")
-                        sentiment_col1, sentiment_col2, sentiment_col3 = st.columns(3)
-                        with sentiment_col1:
-                            st.markdown("#### 🟢 Positive Attribution Terms")
-                            st.markdown("innovation • progress • benefit • solution • improvement")
-                        with sentiment_col2:
-                            st.markdown("#### 🟡 Neutral Attribution Terms")
-                            st.markdown("analysis • report • study • data • research")
-                        with sentiment_col3:
-                            st.markdown("#### 🔴 Negative Attribution Terms")
-                            st.markdown("concern • issue • challenge • risk • problem")
-                else:
-                    st.warning("No 'value' column found in attribution data for terms.")
-            else:
-                st.info("No terms found where kind = 'term' in attribution data.")
-        else:
-            st.warning("No 'kind' column found in attribution data.")
-    else:
-        st.info("No attribution data found.")
-
-    st.markdown("---")
     
+    # Attribution Metrics Dashboard
+    if not df_main.empty:
+        
+        # Calculate key metrics for attribution
+        total_pubs = df_main['publication_name'].nunique() if 'publication_name' in df_main.columns else 0
+        total_authors = df_main['author_name'].nunique() if 'author_name' in df_main.columns else 0
+        total_articles = len(df_main)
+        
+        # Attribution-specific metrics
+        if not df_attr.empty and 'credit_share' in df_attr.columns:
+            avg_influence = df_attr['credit_share'].mean()
+            top_influence = df_attr['credit_share'].max()
+            total_attributions = len(df_attr)
+        else:
+            avg_influence = 0
+            top_influence = 0
+            total_attributions = 0
+        
+        # Selector for attribution analysis
+        # Get available item columns
+        item_cols = [c for c in df_main.columns if any(k in c.lower() for k in ["publication", "author", "channel", "publisher", "source"])]
+        if item_cols:
+            selected_item_col = st.selectbox(
+                "Select Item Type to Analyze",
+                item_cols,
+                help="Choose which type of items to analyze for attribution"
+            )
+        else:
+            selected_item_col = None
+        
+        # Create the two bar charts
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            # Top Attribution Items by Credit Share
+            if selected_item_col and selected_item_col in df_main.columns:
+                item_attribution = df_main.groupby(selected_item_col).agg({
+                    'pub_credit_share': 'mean',
+                    'circulation_size': 'mean'
+                }).reset_index()
+                item_attribution = item_attribution.dropna()
+                
+                if not item_attribution.empty:
+                    top_items_credit = item_attribution.nlargest(10, 'pub_credit_share').sort_values('pub_credit_share', ascending=True)
+                    
+                    fig_credit = go.Figure(data=[
+                        go.Bar(
+                            x=top_items_credit['pub_credit_share'],
+                            y=top_items_credit[selected_item_col],
+                            orientation='h',
+                            marker_color='#12715D',
+                            text=top_items_credit['pub_credit_share'].round(3),
+                            textposition='auto'
+                        )
+                    ])
+                    fig_credit.update_layout(
+                        title=f"Top {selected_item_col.title()} by Credit Share",
+                        xaxis_title="Average Credit Share",
+                        yaxis_title=selected_item_col.title(),
+                        height=400,
+                        margin=dict(t=30, b=10, l=10, r=10),
+                        title_font_size=16,
+                        modebar_remove=['zoom', 'pan', 'select', 'lasso', 'zoomin', 'zoomout', 'autoscale', 'reset', 'toImage']
+                    )
+                    st.plotly_chart(fig_credit, use_container_width=True, config={'displayModeBar': False})
+                else:
+                    st.info(f"No {selected_item_col} attribution data available")
+            else:
+                st.info("Select an item type to see attribution analysis")
+        
+        with col2:
+            # Top Attribution Items by Importance (Circulation)
+            if selected_item_col and selected_item_col in df_main.columns:
+                item_attribution = df_main.groupby(selected_item_col).agg({
+                    'pub_credit_share': 'mean',
+                    'circulation_size': 'mean'
+                }).reset_index()
+                item_attribution = item_attribution.dropna()
+                
+                if not item_attribution.empty:
+                    top_items_importance = item_attribution.nlargest(10, 'circulation_size').sort_values('circulation_size', ascending=True)
+                    
+                    fig_importance = go.Figure(data=[
+                        go.Bar(
+                            x=top_items_importance['circulation_size'],
+                            y=top_items_importance[selected_item_col],
+                            orientation='h',
+                            marker_color='#4AB48E',
+                            text=top_items_importance['circulation_size'].round(0),
+                            textposition='auto'
+                        )
+                    ])
+                    fig_importance.update_layout(
+                        title=f"Top {selected_item_col.title()} by Circulation",
+                        xaxis_title="Average Circulation Size",
+                        yaxis_title=selected_item_col.title(),
+                        height=400,
+                        margin=dict(t=30, b=10, l=10, r=10),
+                        title_font_size=16,
+                        modebar_remove=['zoom', 'pan', 'select', 'lasso', 'zoomin', 'zoomout', 'autoscale', 'reset', 'toImage']
+                    )
+                    st.plotly_chart(fig_importance, use_container_width=True, config={'displayModeBar': False})
+                else:
+                    st.info(f"No {selected_item_col} attribution data available")
+            else:
+                st.info("Select an item type to see attribution analysis")
+        
+        st.markdown("---")
+    
+    st.markdown("### Search for Specific Attribution Items or Terms")
     col1, col2 = st.columns([2, 1])
     with col1:
         lookup_type = st.radio("Search Type", ["Item Attribution", "Term Attribution"], horizontal=True)
@@ -872,9 +856,9 @@ with tab2:
 
     # Recent searches
     if st.session_state.recent_searches:
-        with st.expander("🔍 Recent Searches"):
+        with st.expander("Recent Searches"):
             for s in st.session_state.recent_searches[:5]:
-                if st.button(f"🔍 {s}", key=f"recent_{s}"):
+                if st.button(f"{s}", key=f"recent_{s}"):
                     st.session_state.current_search = s
                     # Don't use st.rerun() here - let the search happen naturally
 
@@ -890,26 +874,19 @@ with tab2:
                 with c1:
                     sel_col = st.selectbox("Search by", search_cols)
                 with c2:
-                    search_term = st.text_input("Search term", placeholder=f"Enter {sel_col}...")
-
-                # Suggestions
-                if search_term and len(search_term) >= 2 and sel_col in df_main:
-                    try:
-                        s = df_main[sel_col].astype("string[pyarrow]", errors="ignore")
-                        sugg = s.fillna("").str.contains(search_term, case=False, na=False)
-                        suggestions = s[sugg].dropna().drop_duplicates().head(10).tolist()
-                        if suggestions:
-                            st.markdown("**💡 Suggestions:**")
-                            cols = st.columns(min(3, len(suggestions)))
-                            for i, val in enumerate(suggestions[:9]):
-                                label = (str(val)[:30] + "...") if len(str(val)) > 30 else str(val)
-                                with cols[i % 3]:
-                                    if st.button(f"🔍 {label}", key=f"sugg_{i}_{sel_col}", help=f"Search for: {val}"):
-                                        st.session_state[f"selected_{sel_col}"] = val
-                                        # Don't use st.rerun() here - let the selection happen naturally
-                            st.markdown("---")
-                    except Exception as e:
-                        st.warning(f"Error getting suggestions: {e}")
+                    # Get unique values for searchable selectbox
+                    if sel_col in df_main:
+                        unique_values = df_main[sel_col].dropna().unique().tolist()
+                        # Sort for better user experience
+                        unique_values = sorted(unique_values)[:200]  # Limit to 200 for performance
+                        search_term = st.selectbox(
+                            f"Search {sel_col}",
+                            options=[""] + unique_values,
+                            key=f"search_{sel_col}",
+                            help=f"Type to search and select from {sel_col} options"
+                        )
+                    else:
+                        search_term = ""
 
                 if f"selected_{sel_col}" in st.session_state:
                     search_term = st.session_state[f"selected_{sel_col}"]
@@ -930,16 +907,31 @@ with tab2:
                             if selected_item:
                                 item_rows = df_main[s.fillna("") == str(selected_item)].head(100)
                                 if not item_rows.empty:
-                                    st.markdown(f"### 📊 Data for: {selected_item}")
+                                    st.markdown(f"### Data for: {selected_item}")
                                     c1, c2, c3 = st.columns(3)
                                     with c1:
-                                        st.markdown(f"<div class='metric-card'><h4>Records</h4><div style='font-size:2rem;'>{len(item_rows):,}</div></div>", unsafe_allow_html=True)
+                                        st.markdown(f"""
+                                        <div style="text-align: center; border: 2px solid #0A473B; padding: 15px; border-radius: 8px; margin: 5px;">
+                                            <div style="font-size: 24px; font-weight: bold; color: #0A473B;">{len(item_rows):,}</div>
+                                            <div style="font-size: 14px; color: #666;">Records</div>
+                                        </div>
+                                        """, unsafe_allow_html=True)
                                     with c2:
                                         if "circulation_size" in item_rows:
-                                            st.markdown(f"<div class='metric-card'><h4>Avg Circulation</h4><div style='font-size:2rem;'>{item_rows['circulation_size'].mean():,.0f}</div></div>", unsafe_allow_html=True)
+                                            st.markdown(f"""
+                                            <div style="text-align: center; border: 2px solid #0A473B; padding: 15px; border-radius: 8px; margin: 5px;">
+                                                <div style="font-size: 24px; font-weight: bold; color: #0A473B;">{item_rows['circulation_size'].mean():,.0f}</div>
+                                                <div style="font-size: 14px; color: #666;">Avg Circulation</div>
+                                            </div>
+                                            """, unsafe_allow_html=True)
                                     with c3:
                                         if "body_token_count" in item_rows:
-                                            st.markdown(f"<div class='metric-card'><h4>Avg Tokens</h4><div style='font-size:2rem;'>{item_rows['body_token_count'].mean():,.0f}</div></div>", unsafe_allow_html=True)
+                                            st.markdown(f"""
+                                            <div style="text-align: center; border: 2px solid #0A473B; padding: 15px; border-radius: 8px; margin: 5px;">
+                                                <div style="font-size: 24px; font-weight: bold; color: #0A473B;">{item_rows['body_token_count'].mean():,.0f}</div>
+                                                <div style="font-size: 14px; color: #666;">Avg Tokens</div>
+                                            </div>
+                                            """, unsafe_allow_html=True)
                                     st.dataframe(item_rows, use_container_width=True, height=400)
                                     export_data_button(item_rows, f"{sel_col}_{str(selected_item)[:40]}", "csv")
                                 else:
@@ -949,29 +941,29 @@ with tab2:
                     except Exception as e:
                         st.error(f"Error searching: {e}")
     else:
-        term = st.text_input("Type a term to search", placeholder="Enter a policy term or keyword...")
-        if term and len(term) >= 2 and not df_main.empty:
-            try:
-                text_cols = [c for c in available_cols if any(k in c.lower() for k in ["headline", "body", "content", "text"])]
-                # Suggestions from first 2 text cols
-                sugg_list: List[str] = []
-                for c in text_cols[:2]:
+        # Get unique terms from text columns for searchable selectbox
+        if not df_main.empty:
+            text_cols = [c for c in available_cols if any(k in c.lower() for k in ["headline", "body", "content", "text"])]
+            term_options = []
+            if text_cols:
+                # Extract unique words/phrases from text columns
+                for c in text_cols[:2]:  # Use first 2 text columns
                     s = df_main[c].astype("string[pyarrow]", errors="ignore")
-                    m = s.fillna("").str.contains(term, case=False, na=False)
-                    sugg_list.extend(s[m].dropna().drop_duplicates().head(5).tolist())
-                uniq_sugg = list(dict.fromkeys([str(x) for x in sugg_list]))[:9]
-                if uniq_sugg:
-                    st.markdown("**💡 Term Suggestions:**")
-                    cols = st.columns(min(3, len(uniq_sugg)))
-                    for i, v in enumerate(uniq_sugg):
-                        label = v[:40] + "..." if len(v) > 40 else v
-                        with cols[i % 3]:
-                            if st.button(f"🔍 {label}", key=f"term_sugg_{i}", help=f"Search for: {v}"):
-                                st.session_state["selected_term"] = v
-                                # Don't use st.rerun() here - let the selection happen naturally
-                    st.markdown("---")
-            except Exception as e:
-                st.warning(f"Error getting term suggestions: {e}")
+                    # Get unique values and filter out very short ones
+                    unique_vals = s.dropna().unique()
+                    term_options.extend([str(x) for x in unique_vals if len(str(x)) > 3][:100])  # Limit for performance
+            
+            # Remove duplicates and limit
+            term_options = sorted(list(dict.fromkeys(term_options)))[:200]
+            
+            term = st.selectbox(
+                "Type a term to search",
+                options=[""] + term_options,
+                key="term_search",
+                help="Type to search and select from available terms"
+            )
+        else:
+            term = ""
 
         if "selected_term" in st.session_state:
             term = st.session_state["selected_term"]
@@ -993,17 +985,32 @@ with tab2:
                     st.success(f"Found {len(hits)} articles containing '{term}'")
                     c1, c2, c3 = st.columns(3)
                     with c1:
-                        st.markdown(f"<div class='metric-card'><h4>Total Matches</h4><div style='font-size:2rem;'>{len(hits):,}</div></div>", unsafe_allow_html=True)
+                        st.markdown(f"""
+                        <div style="text-align: center; border: 2px solid #0A473B; padding: 15px; border-radius: 8px; margin: 5px;">
+                            <div style="font-size: 24px; font-weight: bold; color: #0A473B;">{len(hits):,}</div>
+                            <div style="font-size: 14px; color: #666;">Total Matches</div>
+                        </div>
+                        """, unsafe_allow_html=True)
                     with c2:
                         if "circulation_size" in hits:
-                            st.markdown(f"<div class='metric-card'><h4>Total Reach</h4><div style='font-size:2rem;'>{hits['circulation_size'].sum():,.0f}</div></div>", unsafe_allow_html=True)
+                            st.markdown(f"""
+                            <div style="text-align: center; border: 2px solid #0A473B; padding: 15px; border-radius: 8px; margin: 5px;">
+                                <div style="font-size: 24px; font-weight: bold; color: #0A473B;">{hits['circulation_size'].sum():,.0f}</div>
+                                <div style="font-size: 14px; color: #666;">Total Reach</div>
+                            </div>
+                            """, unsafe_allow_html=True)
                     with c3:
                         date_cols = [c for c in hits.columns if ("date" in c.lower() or "time" in c.lower())]
                         if date_cols:
                             dc = date_cols[0]
                             try:
                                 dates = pd.to_datetime(hits[dc], errors="coerce").dropna()
-                                st.markdown(f"<div class='metric-card'><h4>Date Span (days)</h4><div style='font-size:2rem;'>{dates.dt.date.nunique()}</div></div>", unsafe_allow_html=True)
+                                st.markdown(f"""
+                                <div style="text-align: center; border: 2px solid #0A473B; padding: 15px; border-radius: 8px; margin: 5px;">
+                                    <div style="font-size: 24px; font-weight: bold; color: #0A473B;">{dates.dt.date.nunique()}</div>
+                                    <div style="font-size: 14px; color: #666;">Date Span (days)</div>
+                                </div>
+                                """, unsafe_allow_html=True)
                             except Exception:
                                 pass
                     st.markdown("### 📄 Sample Results")
