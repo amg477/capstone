@@ -187,6 +187,13 @@
     margin: 5px !important;
   }
   
+  /* Remove inner input borders */
+  .stSelectbox input, .stMultiSelect input, .stTextInput input, .stNumberInput input, .stDateInput input {
+    border: none !important;
+    box-shadow: none !important;
+    background: transparent !important;
+  }
+  
   input:focus, textarea:focus, select:focus {
     outline: none !important;
     border-color: #0A473B !important;
