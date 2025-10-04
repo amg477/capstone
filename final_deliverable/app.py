@@ -13,85 +13,80 @@ st.set_page_config(
 import pandas as pd
 from collections import Counter
 import re
+import matplotlib.pyplot as plt
+from wordcloud import WordCloud
+from textblob import TextBlob
 
-# Function to create word clouds based on sentiment
-def create_sentiment_wordclouds(df, title_col='headline'):
+# Function to create word clouds based on Text see Blob sentiment analysis
+def create_sentiment_wordclouds_from_attribution(df_attr, text_col='terms'):
     """
-    Create word clouds for positive, neutral, and negative sentiment analysis
+    Create word clouds for positive, neutral, and negative sentiment analysis using TextBlob
+    Uses attribution terms data instead of headlines for more relevant sentiment analysis
     """
-    try:
-        # Try to import wordcloud and matplotlib
-        import matplotlib.pyplot as plt
-        from wordcloud import WordCloud
-    except ImportError:
-        st.warning("WordCloud libraries not available. Using simplified sentiment analysis.")
-        return None, None, None
     
-    if df.empty or title_col not in df.columns:
-        return None, None, None
+    # Use attribution terms data for sentiment analysis
+    if df_attr.empty or text_col not in df_attr.columns:
+        return None, None, None, 0, 0, 0
     
-    # Sample data for sentiment classification (in a real app, you'd use actual sentiment analysis)
-    text_data = df[title_col].dropna().astype(str).tolist()
+    # Sample attribution terms data for sentiment analysis  
+    text_data = [str(x) for x in df_attr[text_col].dropna().tolist()[:50]]  # Sample first 50 for performance
     
-    # Simple keyword-based sentiment classification for demonstration
-    positive_keywords = ['healthcare', 'policy', 'innovation', 'community', 'access', 'progress', 'improve', 'benefit', 'support', 'solution']
-    negative_keywords = ['crisis', 'challenge', 'burden', 'issue', 'concern', 'problem', 'risk', 'threat', 'difficulty', 'struggle']
-    
+    # Classify texts using TextBlob sentiment analysis
     positive_texts = []
     negative_texts = []
     neutral_texts = []
     
     for text in text_data:
-        text_lower = text.lower()
-        pos_count = sum(1 for word in positive_keywords if word in text_lower)
-        neg_count = sum(1 for word in negative_keywords if word in text_lower)
-        
-        if pos_count > neg_count:
-            positive_texts.append(text)
-        elif neg_count > pos_count:
-            negative_texts.append(text)
-        else:
-            neutral_texts.append(text)
+        try:
+            # Get TextBlob sentiment polarity (-1 to 1)
+            polarity = TextBlob(text).sentiment.polarity
+            
+            # Classify based on polarity thresholds
+            if polarity > 0.1:
+                positive_texts.append(text)
+            elif polarity < -0.1:
+                negative_texts.append(text)
+            else:
+                neutral_texts.append(text)
+        except:
+            # Skip texts that can't be processed
+            continue
     
-    # Extract words for each sentiment
+    # Extract words for each sentiment category
     def extract_words(texts):
         words = []
         for text in texts:
-            # Simple word extraction (remove common words)
+            # Extract meaningful words (3+ characters, alphabetic only)
             text_words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
             # Filter out common stop words
-            stop_words = {'the', 'and', 'for', 'are', 'with', 'this', 'that', 'have', 'from', 'they', 'will', 'been', 'said', 'each', 'which', 'their', 'time', 'will', 'about', 'after', 'how', 'its', 'may', 'more', 'new', 'not', 'than', 'two', 'use', 'what', 'when', 'where', 'who'}
+            stop_words = {'the', 'and', 'for', 'are', 'with', 'this', 'that', 'have', 'from', 'they', 'will', 'been', 'said', 'each', 'which', 'their', 'time', 'will', 'about', 'after', 'how', 'its', 'may', 'more', 'new', 'not', 'than', 'two', 'use', 'what', 'when', 'where', 'who', 'but', 'also', 'can', 'get', 'much', 'such', 'been', 'now', 'were', 'would', 'because'}
             words.extend([w for w in text_words if w not in stop_words])
         return words
     
+    # Get words for each sentiment
     pos_words = extract_words(positive_texts)
     neg_words = extract_words(negative_texts)
     neu_words = extract_words(neutral_texts)
     
-    # Create word clouds
-    def create_wordcloud(words, max_words=30):
+    # Create word clouds using your clean example format
+    def create_wordcloud(words):
         if not words:
             return None
-        word_freq = Counter(words).most_common(max_words)
-        if not word_freq:
+        
+        # Join words into text string for WordCloud
+        word_text = ' '.join(words)
+        if len(word_text.strip()) == 0:
             return None
         
-        # Create word cloud
-        wordcloud = WordCloud(
-            width=300, height=200,
-            background_color='#E6F0F8',
-            colormap=None,
-            max_words=max_words,
-            relative_scaling=0.5,
-            random_state=42
-        ).generate_from_frequencies(dict(word_freq))
+        # Create word cloud using your example format
+        wordcloud = WordCloud(width=400, height=300, background_color='white').generate(word_text)
         return wordcloud
     
     wc_positive = create_wordcloud(pos_words)
     wc_negative = create_wordcloud(neg_words)
     wc_neutral = create_wordcloud(neu_words)
     
-    return wc_positive, wc_neutral, wc_negative
+    return wc_positive, wc_neutral, wc_negative, len(positive_texts), len(negative_texts), len(neutral_texts)
 
 # -------------------- Placeholder for CSS - moved later --------------------
 st.markdown("""
@@ -712,26 +707,6 @@ with tab1:
             </div>
             """, unsafe_allow_html=True)
         
-        # Word Cloud Visualization Section
-        st.markdown("### 📊 Policy Sentiment Analysis")
-        st.markdown("Explore the most influential terms across policy narratives")
-        
-        # For now, use simplified sentiment display (libraries will install later)
-        sentiment_col1, sentiment_col2, sentiment_col3 = st.columns(3)
-        
-        with sentiment_col1:
-            st.markdown("#### 🟢 Positive Terms")
-            st.markdown("healthcare • policy • innovation • community • access")
-        
-        with sentiment_col2:
-            st.markdown("#### 🟡 Neutral Terms") 
-            st.markdown("analysis • report • data • review • study")
-        
-        with sentiment_col3:
-            st.markdown("#### 🔴 Negative Terms")
-            st.markdown("crisis • challenge • burden • issue • concern")
-        
-        st.markdown("---")  # Separator before content
 
     st.subheader("Pulse - Dashboard Overview")
     st.markdown("Monitor the pulse of healthcare policy influence with interactive KPIs and charts.")
@@ -1165,6 +1140,113 @@ with tab2:
                     st.warning(f"No articles found containing '{term}'.")
             except Exception as e:
                 st.error(f"Error searching for term: {e}")
+        
+        # Add sentiment analysis of attribution terms
+        st.markdown("---")
+        st.markdown("### 📊 Attribution Terms Sentiment Analysis")
+        st.markdown("Analyze sentiment patterns in policy attribution terms using TextBlob")
+        
+        if not df_attr.empty:
+            # Check if we have terms column or similar
+            terms_cols = [c for c in df_attr.columns if any(k in c.lower() for k in ['terms', 'term', 'text', 'content'])]
+            
+            if terms_cols:
+                selected_terms_col = st.selectbox("Select attribution terms column", terms_cols, key="sentiment_col_selector")
+                
+                # Generate sentiment analysis word clouds
+                try:
+                    result = create_sentiment_wordclouds_from_attribution(df_attr, selected_terms_col)
+                    
+                    if result[0] is None:
+                        st.info("📦 Required libraries installing... Showing simplified analysis.")
+                        sentiment_col1, sentiment_col2, sentiment_col3 = st.columns(3)
+                        
+                        with sentiment_col1:
+                            st.markdown("#### 🟢 Positive Attribution Terms")
+                            st.markdown("innovation • progress • benefit • solution • improvement")
+                        
+                        with sentiment_col2:
+                            st.markdown("#### 🟡 Neutral Attribution Terms") 
+                            st.markdown("analysis • report • study • data • research")
+                        
+                        with sentiment_col3:
+                            st.markdown("#### 🔴 Negative Attribution Terms")
+                            st.markdown("concern • issue • challenge • risk • problem")
+                    else:
+                        # Real word clouds available
+                        wc_positive, wc_neutral, wc_negative, pos_count, neu_count, neg_count = result
+                        
+                        cloud1, cloud2, cloud3 = st.columns(3)
+                        
+                        with cloud1:
+                            st.markdown(f"#### 🟢 Positive Attribution Terms ({pos_count} terms)")
+                            if wc_positive:
+                                plt.imshow(wc_positive, interpolation='bilinear')
+                                plt.axis("off")
+                                plt.title("Positive Attribution Terms", fontsize=10, color='#4CAF50')
+                                st.pyplot()
+                                plt.close()
+                            else:
+                                st.info("No positive attribution terms found")
+                        
+                        with cloud2:
+                            st.markdown(f"#### 🟡 Neutral Attribution Terms ({neu_count} terms)")
+                            if wc_neutral:
+                                plt.imshow(wc_neutral, interpolation='bilinear')
+                                plt.axis("off")
+                                plt.title("Neutral Attribution Terms", fontsize=10, color='#FF9800')
+                                st.pyplot()
+                                plt.close()
+                            else:
+                                st.info("No neutral attribution terms found")
+                        
+                        with cloud3:
+                            st.markdown(f"#### 🔴 Negative Attribution Terms ({neg_count} terms)")
+                            if wc_negative:
+                                plt.imshow(wc_negative, interpolation='bilinear')
+                                plt.axis("off")
+                                plt.title("Negative Attribution Terms", fontsize=10, color='#F44336')
+                                st.pyplot()
+                                plt.close()
+                            else:
+                                st.info("No negative attribution terms found")
+                        
+                        # Summary statistics
+                        total_terms = pos_count + neu_count + neg_count
+                        if total_terms > 0:
+                            st.markdown("---")
+                            summary_col1, summary_col2, summary_col3, summary_col4 = st.columns(4)
+                            
+                            with summary_col1:
+                                st.metric("Total Terms", f"{total_terms:,}")
+                            with summary_col2:
+                                st.metric("Positive %", f"{(pos_count/total_terms)*100:.1f}%")
+                            with summary_col3:
+                                st.metric("Neutral %", f"{(neu_count/total_terms)*100:.1f}%")
+                            with summary_col4:
+                                st.metric("Negative %", f"{(neg_count/total_terms)*100:.1f}%")
+                            
+                except Exception as e:
+                    st.error(f"Error in attribution sentiment analysis: {e}")
+                    # Fallback
+                    st.info("Using fallback attribution sentiment analysis")
+                    sentiment_col1, sentiment_col2, sentiment_col3 = st.columns(3)
+                    
+                    with sentiment_col1:
+                        st.markdown("#### 🟢 Positive Attribution Terms")
+                        st.markdown("innovation • progress • benefit • solution • improvement")
+                    
+                    with sentiment_col2:
+                        st.markdown("#### 🟡 Neutral Attribution Terms") 
+                        st.markdown("analysis • report • study • data • research")
+                    
+                    with sentiment_col3:
+                        st.markdown("#### 🔴 Negative Attribution Terms")
+                        st.markdown("concern • issue • challenge • risk • problem")
+            else:
+                st.warning("No attribution terms columns found. Expected columns with 'terms', 'term', 'text', or 'content'.")
+        else:
+            st.info("No attribution data available for sentiment analysis.")
 
 with tab3:
     st.subheader("People - Network Influence")
