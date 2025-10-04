@@ -643,7 +643,7 @@ with tab2:
                                 st.session_state["selected_term"] = v
                                 st.rerun()
                     st.markdown("---")
-    except Exception as e:
+            except Exception as e:
                 st.warning(f"Error getting term suggestions: {e}")
 
         if "selected_term" in st.session_state:
