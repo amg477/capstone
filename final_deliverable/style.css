@@ -179,22 +179,18 @@
   .stSelectbox, .stMultiSelect, .stTextInput, .stNumberInput, .stDateInput, .stTextArea {
     border-radius: 8px !important;
   }
-  input, textarea, select {
+  
+  /* Filter input containers - single border styling */
+  .stSelectbox > div, .stMultiSelect > div, .stTextInput > div, .stNumberInput > div, .stDateInput > div {
+    border: 1px solid #0A473B !important;
     border-radius: 8px !important;
-    border: 2px solid #0A473B !important;
-    padding: 8px 12px !important;
+    margin: 5px !important;
   }
+  
   input:focus, textarea:focus, select:focus {
     outline: none !important;
     border-color: #0A473B !important;
-    box-shadow: 0 0 0 3px rgba(10, 71, 59, 0.25) !important;
-  }
-  
-  /* Filter input containers */
-  .stSelectbox > div, .stMultiSelect > div, .stTextInput > div, .stNumberInput > div, .stDateInput > div {
-    border: 2px solid #0A473B !important;
-    border-radius: 8px !important;
-    margin: 5px !important;
+    box-shadow: 0 0 0 2px rgba(10, 71, 59, 0.25) !important;
   }
   
   /* Dropdown arrows and icons */
@@ -209,7 +205,7 @@
     background: var(--penta-white);
     box-shadow: var(--shadow-sm);
     padding: 15px;
-    border: 2px solid #0A473B;
+    border: 1px solid #0A473B;
     text-align: center;
   }
   [data-testid="stMetric"] [data-testid="stMetricValue"] {
@@ -226,7 +222,7 @@
   /* "Card" utility for your custom containers */
   .pp-card {
     background: var(--penta-white);
-    border: 2px solid #0A473B;
+    border: 1px solid #0A473B;
     border-radius: 8px;
     box-shadow: var(--shadow-sm);
     padding: 15px;
@@ -246,7 +242,7 @@
     border-radius: 8px;
     overflow: hidden;
     box-shadow: var(--shadow-sm);
-    border: 2px solid #0A473B;
+    border: 1px solid #0A473B;
   }
   [data-testid="stDataFrame"] .row_heading, 
   [data-testid="stDataFrame"] .blank { background: var(--penta-cream); }
@@ -258,7 +254,7 @@
   .element-container:has([data-testid="stVegaLiteChart"]),
   .element-container:has([data-testid="stPlotlyChart"]) {
     background: var(--penta-white);
-    border: 2px solid #0A473B;
+    border: 1px solid #0A473B;
     border-radius: 8px;
     box-shadow: var(--shadow-sm);
     padding: .5rem;
@@ -268,7 +264,7 @@
   /* ---------- Messages / Alerts ---------- */
   .stAlert {
     border-radius: 8px;
-    border: 2px solid #0A473B;
+    border: 1px solid #0A473B;
     box-shadow: var(--shadow-sm);
     margin: 5px;
   }
@@ -278,7 +274,7 @@
   
   /* ---------- Expanders ---------- */
   [data-testid="stExpander"] {
-    border: 2px solid #0A473B !important;
+    border: 1px solid #0A473B !important;
     border-radius: 8px !important;
     margin: 5px !important;
   }
