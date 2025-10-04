@@ -1,21 +1,6 @@
 [server]
 headless = true
-enableCORS = false
-enableXsrfProtection = false
-maxMessageSize = 500
-maxUploadSize = 200
-
-[browser]
-gatherUsageStats = false
+port = 8501
 
 [logger]
 level = "error"
-
-[global]
-developmentMode = false
-
-[client]
-showErrorDetails = false
-
-[theme]
-base = "light"

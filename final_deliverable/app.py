@@ -4,16 +4,11 @@ from __future__ import annotations
 
 # -------------------- MUST be first Streamlit call --------------------
 import streamlit as st
-import warnings
-warnings.filterwarnings("ignore")
 
-# Configure Streamlit for production
+# Minimal configuration for Streamlit Cloud
 st.set_page_config(
-    page_title="🏛️PolicyPath", 
-    layout="wide",
-    initial_sidebar_state="collapsed",
-    page_icon="🏛️"
-)
+    page_title="PolicyPath", 
+    layout="wide")
 
 # -------------------- Placeholder for CSS - moved later --------------------
 st.markdown("""
@@ -483,13 +478,10 @@ def render_header():
             unsafe_allow_html=True
         )
 
-try:
-    render_header()
-    apply_penta_style()
-except Exception as e:
-    st.error(f"Header error: {e}")
-    st.markdown("# 🏛️ PolicyPath")
-    st.markdown("Your indispensable guide to healthcare policy influence")
+# Simple header to avoid startup issues
+st.markdown("# 🏛️ PolicyPath")
+st.markdown("Your indispensable guide to healthcare policy influence")
+st.markdown("---")
 
 # -------------------- Apply Custom Styling --------------------
 st.markdown("""
