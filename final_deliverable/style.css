@@ -1,0 +1,266 @@
+/* ===============================
+   PolicyPath • Penta-themed Styles
+   ===============================
+
+   HOW TO BRAND:
+   1) Replace the color tokens below with Penta's exact palette.
+   2) Optional: drop a webfont @import at the top (or rely on system fonts).
+
+   TIP: Keep good contrast (WCAG AA+):
+   - Body text contrast >= 4.5:1
+   - Large headings >= 3:1
+*/
+
+/* ---------- Brand Tokens ---------- */
+:root {
+    /* CORE */
+    --penta-navy: #0f1e2e;         /* Primary background / headlines */
+    --penta-ink:  #142536;         /* Body text (slightly lighter than navy) */
+    --penta-slate:#475569;         /* Muted text / borders */
+    --penta-cream:#f7f7f5;         /* Page background / cards */
+    --penta-white:#ffffff;
+  
+    /* ACCENTS (adjust to exact Penta colors when available) */
+    --penta-teal: #00a3a3;         /* Primary accent */
+    --penta-gold: #d4a115;         /* Secondary accent */
+    --penta-red:  #d94841;         /* Error / destructive */
+    --penta-green:#2a9d8f;         /* Success */
+  
+    /* UI */
+    --radius-sm: 10px;
+    --radius-md: 16px;
+    --radius-lg: 22px;
+    --shadow-sm: 0 1px 2px rgba(16,24,40,.06), 0 1px 3px rgba(16,24,40,.1);
+    --shadow-md: 0 6px 24px rgba(16,24,40,.06), 0 2px 8px rgba(16,24,40,.08);
+    --focus-ring: 0 0 0 3px rgba(0,163,163,.25);
+  }
+  
+  /* ---------- Base ---------- */
+  html, body, .stApp {
+    background: var(--penta-cream) !important;
+    color: var(--penta-ink);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue",
+                 "Apple Color Emoji","Segoe UI Emoji", Arial, sans-serif !important;
+    letter-spacing: .01em;
+  }
+  
+  /* Remove default Streamlit top padding */
+  [data-testid="stAppViewContainer"] > .main {
+    padding-top: 1rem;
+  }
+  
+  /* ---------- Header ---------- */
+  [data-testid="stHeader"] {
+    background: linear-gradient(180deg, var(--penta-white), rgba(255,255,255,0)) !important;
+    border-bottom: 1px solid rgba(20,37,54,.06);
+    backdrop-filter: saturate(1.2) blur(6px);
+  }
+  
+  [data-testid="stToolbar"] { display: none !important; } /* hides the ☰ hamburger */
+  
+  /* Headings */
+  h1, h2, h3 {
+    color: var(--penta-navy) !important;
+    line-height: 1.15;
+    letter-spacing: .005em;
+  }
+  h1 { font-weight: 800; }
+  h2 { font-weight: 700; }
+  h3 { font-weight: 650; }
+  
+  /* Decorative left bar on major sections */
+  .pp-section h2 {
+    position: relative;
+    padding-left: .9rem;
+  }
+  .pp-section h2::before {
+    content: "";
+    position: absolute;
+    left: 0; top: .2rem;
+    width: 4px; height: 1.25em;
+    border-radius: 2px;
+    background: linear-gradient(180deg, var(--penta-teal), var(--penta-gold));
+  }
+  
+  /* ---------- Sidebar ---------- */
+  [data-testid="stSidebar"] {
+    background: var(--penta-white) !important;
+    border-right: 1px solid rgba(20,37,54,.08);
+  }
+  [data-testid="stSidebar"] .block-container {
+    padding: 1.25rem .75rem 2rem;
+  }
+  [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3, [data-testid="stSidebar"] label {
+    color: var(--penta-navy) !important;
+  }
+  
+  /* ---------- Tabs ---------- */
+  [data-testid="stTabs"] > div[role="tablist"] {
+    border-bottom: 1px solid rgba(20,37,54,.10);
+  }
+  [data-testid="stTabs"] button[role="tab"] {
+    border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+    padding: .65rem 1rem;
+    font-weight: 600;
+    color: var(--penta-slate);
+    transition: color .15s ease, background .15s ease;
+  }
+  [data-testid="stTabs"] button[role="tab"][aria-selected="true"] {
+    color: var(--penta-navy);
+    background: var(--penta-white);
+    box-shadow: inset 0 -3px 0 0 var(--penta-teal);
+  }
+  [data-testid="stTabs"] button[role="tab"]:hover {
+    color: var(--penta-navy);
+  }
+  
+  /* ---------- Buttons ---------- */
+  .stButton > button, .stDownloadButton > button {
+    background: var(--penta-teal) !important;
+    color: white !important;
+    border: none !important;
+    border-radius: var(--radius-md) !important;
+    padding: .6rem 1rem !important;
+    font-weight: 700 !important;
+    box-shadow: var(--shadow-sm) !important;
+    transition: transform .06s ease, box-shadow .2s ease, filter .2s ease;
+  }
+  .stButton > button:hover, .stDownloadButton > button:hover {
+    filter: brightness(1.02);
+    box-shadow: var(--shadow-md) !important;
+  }
+  .stButton > button:active, .stDownloadButton > button:active {
+    transform: translateY(1px);
+  }
+  .stButton > button:focus-visible, .stDownloadButton > button:focus-visible {
+    outline: none !important;
+    box-shadow: var(--focus-ring) !important;
+  }
+  
+  /* Subtle “secondary” button variant */
+  button.katex-html + button, .pp-btn-secondary {
+    background: var(--penta-white) !important;
+    color: var(--penta-navy) !important;
+    border: 1px solid rgba(20,37,54,.12) !important;
+  }
+  
+  /* ---------- Inputs ---------- */
+  .stSelectbox, .stMultiSelect, .stTextInput, .stNumberInput, .stDateInput, .stTextArea {
+    border-radius: var(--radius-md) !important;
+  }
+  input, textarea, select {
+    border-radius: var(--radius-md) !important;
+    border: 1px solid rgba(20,37,54,.20) !important;
+  }
+  input:focus, textarea:focus, select:focus {
+    outline: none !important;
+    border-color: var(--penta-teal) !important;
+    box-shadow: var(--focus-ring) !important;
+  }
+  
+  /* ---------- Metrics & Cards ---------- */
+  [data-testid="stMetric"] {
+    border-radius: var(--radius-lg);
+    background: var(--penta-white);
+    box-shadow: var(--shadow-sm);
+    padding: 1rem 1.1rem;
+    border: 1px solid rgba(20,37,54,.08);
+  }
+  [data-testid="stMetric"] [data-testid="stMetricValue"] {
+    color: var(--penta-navy);
+    font-weight: 800;
+  }
+  [data-testid="stMetricDelta"] svg { transform: scale(1.05); }
+  
+  /* “Card” utility for your custom containers */
+  .pp-card {
+    background: var(--penta-white);
+    border: 1px solid rgba(20,37,54,.08);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-sm);
+    padding: 1rem 1.25rem;
+  }
+  
+  /* Accent callouts */
+  .pp-callout {
+    border-left: 6px solid var(--penta-teal);
+    background: linear-gradient(90deg, rgba(0,163,163,.06), transparent);
+    padding: .85rem 1rem;
+    border-radius: 8px;
+  }
+  
+  /* ---------- DataFrames & Tables ---------- */
+  [data-testid="stDataFrame"] {
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    box-shadow: var(--shadow-sm);
+    border: 1px solid rgba(20,37,54,.08);
+  }
+  [data-testid="stDataFrame"] .row_heading, 
+  [data-testid="stDataFrame"] .blank { background: var(--penta-cream); }
+  [data-testid="stDataFrame"] .stDataFrame tbody tr:hover {
+    background: rgba(0,163,163,.06);
+  }
+  
+  /* ---------- Charts (Altair/Plotly inside containers) ---------- */
+  .element-container:has([data-testid="stVegaLiteChart"]),
+  .element-container:has([data-testid="stPlotlyChart"]) {
+    background: var(--penta-white);
+    border: 1px solid rgba(20,37,54,.08);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-sm);
+    padding: .5rem;
+  }
+  
+  /* ---------- Messages / Alerts ---------- */
+  .stAlert {
+    border-radius: var(--radius-md);
+    border: 1px solid rgba(20,37,54,.12);
+    box-shadow: var(--shadow-sm);
+  }
+  .stAlert [data-testid="stMarkdownContainer"] p {
+    margin: .25rem 0;
+  }
+  
+  /* ---------- Markdown polish ---------- */
+  [data-testid="stMarkdownContainer"] p {
+    line-height: 1.55;
+    color: var(--penta-ink);
+  }
+  [data-testid="stMarkdownContainer"] a {
+    color: var(--penta-teal);
+    text-decoration: none;
+    border-bottom: 1px solid rgba(0,163,163,.35);
+  }
+  [data-testid="stMarkdownContainer"] a:hover {
+    color: var(--penta-navy);
+    border-bottom-color: var(--penta-navy);
+  }
+  
+  /* ---------- Footer ---------- */
+  footer, #MainMenu { visibility: hidden; } /* Hide Streamlit’s default footer/menu */
+  
+  /* ---------- Dark Mode (opt-in via body[data-theme="dark"]) ---------- */
+  body[data-theme="dark"] {
+    --penta-cream:#0d1420;
+    --penta-white:#0f1825;
+    --penta-ink:#e8edf3;
+    --penta-slate:#a0aec0;
+    --penta-navy:#dfe7ef;
+  
+    background: var(--penta-cream) !important;
+    color: var(--penta-ink) !important;
+  }
+  body[data-theme="dark"] [data-testid="stSidebar"],
+  body[data-theme="dark"] .pp-card,
+  body[data-theme="dark"] [data-testid="stDataFrame"],
+  body[data-theme="dark"] .element-container:has([data-testid="stVegaLiteChart"]),
+  body[data-theme="dark"] .element-container:has([data-testid="stPlotlyChart"]),
+  body[data-theme="dark"] [data-testid="stMetric"] {
+    background: var(--penta-white) !important;
+    border-color: rgba(223,231,239,.10) !important;
+  }
+  body[data-theme="dark"] [data-testid="stMarkdownContainer"] a {
+    color: var(--penta-teal);
+    border-bottom-color: rgba(0,163,163,.35);
+  }
