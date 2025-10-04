@@ -10,6 +10,84 @@ st.set_page_config(
     page_title="PolicyPath", 
     layout="wide")
 
+# Import required libraries for word clouds
+import matplotlib.pyplot as plt
+from wordcloud import WordCloud
+import numpy as np
+from collections import Counter
+import re
+
+# Function to create word clouds based on sentiment
+def create_sentiment_wordclouds(df, title_col='headline'):
+    """
+    Create word clouds for positive, neutral, and negative sentiment analysis
+    """
+    if df.empty or title_col not in df.columns:
+        return None, None, None
+    
+    # Sample data for sentiment classification (in a real app, you'd use actual sentiment analysis)
+    text_data = df[title_col].dropna().astype(str).tolist()
+    
+    # Simple keyword-based sentiment classification for demonstration
+    positive_keywords = ['healthcare', 'policy', 'innovation', 'community', 'access', 'progress', 'improve', 'benefit', 'support', 'solution']
+    negative_keywords = ['crisis', 'challenge', 'burden', 'issue', 'concern', 'problem', 'risk', 'threat', 'difficulty', 'struggle']
+    
+    positive_texts = []
+    negative_texts = []
+    neutral_texts = []
+    
+    for text in text_data:
+        text_lower = text.lower()
+        pos_count = sum(1 for word in positive_keywords if word in text_lower)
+        neg_count = sum(1 for word in negative_keywords if word in text_lower)
+        
+        if pos_count > neg_count:
+            positive_texts.append(text)
+        elif neg_count > pos_count:
+            negative_texts.append(text)
+        else:
+            neutral_texts.append(text)
+    
+    # Extract words for each sentiment
+    def extract_words(texts):
+        words = []
+        for text in texts:
+            # Simple word extraction (remove common words)
+            text_words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
+            # Filter out common stop words
+            stop_words = {'the', 'and', 'for', 'are', 'with', 'this', 'that', 'have', 'from', 'they', 'will', 'been', 'said', 'each', 'which', 'their', 'time', 'will', 'about', 'after', 'how', 'its', 'may', 'more', 'new', 'not', 'than', 'two', 'use', 'what', 'when', 'where', 'who'}
+            words.extend([w for w in text_words if w not in stop_words])
+        return words
+    
+    pos_words = extract_words(positive_texts)
+    neg_words = extract_words(negative_texts)
+    neu_words = extract_words(neutral_texts)
+    
+    # Create word clouds
+    def create_wordcloud(words, max_words=30):
+        if not words:
+            return None
+        word_freq = Counter(words).most_common(max_words)
+        if not word_freq:
+            return None
+        
+        # Create word cloud
+        wordcloud = WordCloud(
+            width=300, height=200,
+            background_color='#E6F0F8',
+            colormap=None,
+            max_words=max_words,
+            relative_scaling=0.5,
+            random_state=42
+        ).generate_from_frequencies(dict(word_freq))
+        return wordcloud
+    
+    wc_positive = create_wordcloud(pos_words)
+    wc_negative = create_wordcloud(neg_words)
+    wc_neutral = create_wordcloud(neu_words)
+    
+    return wc_positive, wc_neutral, wc_negative
+
 # -------------------- Placeholder for CSS - moved later --------------------
 st.markdown("""
 <style>
@@ -630,56 +708,72 @@ with tab1:
             """, unsafe_allow_html=True)
         
         # Word Cloud Visualization Section
-        st.markdown("### Policy Sentiment Analysis")
+        st.markdown("### 📊 Policy Sentiment Analysis")
         st.markdown("Explore the most influential terms across policy narratives")
         
-        # Create the 1x3 word cloud layout
-        word_cloud1, word_cloud2, word_cloud3 = st.columns(3)
-        
-        with word_cloud1:
-            st.markdown("""
-            <div style="background-color: #E6F0F8; padding: 1rem; border-radius: 10px; text-align: center; border: 2px solid #4CAF50; height: 200px; display: flex; flex-direction: column; justify-content: center;">
-                <h4 style="color: #4CAF50; margin-bottom: 1rem;">Positive</h4>
-                <div style="font-size: 0.8rem; color: #666; margin-bottom: 0.5rem;">
-                    healthcare ✓<br>
-                    policy ✓<br>
-                    innovation ✓<br>
-                    community ✓<br>
-                    access ✓
-                </div>
-                <p style="font-size: 0.7rem; color: #4CAF50;">Advocacy & Progress</p>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        with word_cloud2:
-            st.markdown("""
-            <div style="background-color: #E6F0F8; padding: 1rem; border-radius: 10px; text-align: center; border: 2px solid #FF9800; height: 200px; display: flex; flex-direction: column; justify-content: center;">
-                <h4 style="color: #FF9800; margin-bottom: 1rem;">Neutral</h4>
-                <div style="font-size: 0.8rem; color: #666; margin-bottom: 0.5rem;">
-                    analysis ●<br>
-                    report ●<br>
-                    data ●<br>
-                    review ●<br>
-                    study ●
-                </div>
-                <p style="font-size: 0.7rem; color: #FF9800;">Observational</p>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        with word_cloud3:
-            st.markdown("""
-            <div style="background-color: #E6F0F8; padding: 1rem; border-radius: 10px; text-align: center; border: 2px solid #F44336; height: 200px; display: flex; flex-direction: column; justify-content: center;">
-                <h4 style="color: #F44336; margin-bottom: 1rem;">Negative</h4>
-                <div style="font-size: 0.8rem; color: #666; margin-bottom: 0.5rem;">
-                    crisis ✗<br>
-                    challenge ✗<br>
-                    burden ✗<br>
-                    issue ✗<br>
-                    concern ✗
-                </div>
-                <p style="font-size: 0.7rem; color: #F44336;">Criticism & Concerns</p>
-            </div>
-            """, unsafe_allow_html=True)
+        # Generate word clouds from data
+        try:
+            wc_positive, wc_neutral, wc_negative = create_sentiment_wordclouds(df_main)
+            
+            # Create the 1x3 word cloud layout
+            cloud1, cloud2, cloud3 = st.columns(3)
+            
+            with cloud1:
+                st.markdown("#### 🟢 Positive Sentiment")
+                if wc_positive:
+                    fig, ax = plt.subplots(figsize=(3, 2))
+                    ax.imshow(wc_positive, interpolation='bilinear')
+                    ax.axis('off')
+                    ax.set_title('Positive Terms', fontsize=12, color='#4CAF50', pad=10)
+                    plt.tight_layout()
+                    st.pyplot(fig)
+                    plt.close()
+                else:
+                    st.info("No positive sentiment data sufficient for word cloud")
+            
+            with cloud2:
+                st.markdown("#### 🟡 Neutral Sentiment")
+                if wc_neutral:
+                    fig, ax = plt.subplots(figsize=(3, 2))
+                    ax.imshow(wc_neutral, interpolation='bilinear')
+                    ax.axis('off')
+                    ax.set_title('Neutral Terms', fontsize=12, color='#FF9800', pad=10)
+                    plt.tight_layout()
+                    st.pyplot(fig)
+                    plt.close()
+                else:
+                    st.info("No neutral sentiment data sufficient for word cloud")
+            
+            with cloud3:
+                st.markdown("#### 🔴 Negative Sentiment")
+                if wc_negative:
+                    fig, ax = plt.subplots(figsize=(3, 2))
+                    ax.imshow(wc_negative, interpolation='bilinear')
+                    ax.axis('off')
+                    ax.set_title('Negative Terms', fontsize=12, color='#F44336', pad=10)
+                    plt.tight_layout()
+                    st.pyplot(fig)
+                    plt.close()
+                else:
+                    st.info("No negative sentiment data sufficient for word cloud")
+                    
+        except Exception as e:
+            st.error(f"Error creating word clouds: {e}")
+            # Fallback to simple text display
+            st.info("Word cloud generation failed. Using simplified sentiment analysis.")
+            sentiment_col1, sentiment_col2, sentiment_col3 = st.columns(3)
+            
+            with sentiment_col1:
+                st.markdown("#### 🟢 Positive Terms")
+                st.markdown("healthcare • policy • innovation • community • access")
+            
+            with sentiment_col2:
+                st.markdown("#### 🟡 Neutral Terms") 
+                st.markdown("analysis • report • data • review • study")
+            
+            with sentiment_col3:
+                st.markdown("#### 🔴 Negative Terms")
+                st.markdown("crisis • challenge • burden • issue • concern")
         
         st.markdown("---")  # Separator before content
 
