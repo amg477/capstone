@@ -373,20 +373,12 @@ def export_data_button(df: pd.DataFrame, filename: str, fmt: str = "csv"):
             file_name=f"{filename}.csv",
             mime="text/csv",
         )
-    elif fmt == "json":
-        st.download_button(
-            label=f"📥 Download {filename}.json",
-            data=df.to_json(orient="records", indent=2),
-            file_name=f"{filename}.json",
-            mime="application/json",
-        )
 
 # -------------------- Session State --------------------
 def init_session_state():
     if 'dark_mode' not in st.session_state: st.session_state.dark_mode = False
     if 'recent_searches' not in st.session_state: st.session_state.recent_searches = []
     if 'favorites' not in st.session_state: st.session_state.favorites = []
-    if 'saved_views' not in st.session_state: st.session_state.saved_views = {}
 
 init_session_state()
 
@@ -523,8 +515,8 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # -------------------- Main Tabs --------------------
-tab1, tab2, tab3, tab4 = st.tabs(["🏛️PolicyPath", "🎯 Paths", "📊 Pulse", "🕸️ People"])
-
+tab1, tab2, tab3, tab4 = st.tabs(["PolicyPath", "Paths", "Pulse", "People"])
+    
 with tab1:
     st.markdown("""
     ## PolicyPath
@@ -548,14 +540,7 @@ with tab2:
     with col1:
         lookup_type = st.radio("Search Type", ["Item Attribution", "Term Attribution"], horizontal=True)
     with col2:
-        if st.button("💾 Save Current View"):
-            view_name = st.text_input("View Name", key="save_view")
-            if view_name:
-                st.session_state.saved_views[view_name] = {
-                    "lookup_type": lookup_type,
-                    "timestamp": pd.Timestamp.now(),
-                }
-                show_success_message(f"View '{view_name}' saved.")
+        st.empty()  # Space for future elements
 
     # Recent searches
     if st.session_state.recent_searches:
@@ -628,11 +613,7 @@ with tab2:
                                         if "body_token_count" in item_rows:
                                             st.markdown(f"<div class='metric-card'><h4>Avg Tokens</h4><div style='font-size:2rem;color:#12715D;'>{item_rows['body_token_count'].mean():,.0f}</div></div>", unsafe_allow_html=True)
                                     st.dataframe(item_rows, use_container_width=True, height=400)
-                                    c1, c2 = st.columns(2)
-                                    with c1:
-                                        export_data_button(item_rows, f"{sel_col}_{str(selected_item)[:40]}", "csv")
-                                    with c2:
-                                        export_data_button(item_rows, f"{sel_col}_{str(selected_item)[:40]}", "json")
+                                    export_data_button(item_rows, f"{sel_col}_{str(selected_item)[:40]}", "csv")
                                 else:
                                     st.warning("No rows for the selected item.")
                         else:
@@ -662,7 +643,7 @@ with tab2:
                                 st.session_state["selected_term"] = v
                                 st.rerun()
                     st.markdown("---")
-            except Exception as e:
+    except Exception as e:
                 st.warning(f"Error getting term suggestions: {e}")
 
         if "selected_term" in st.session_state:
@@ -700,9 +681,7 @@ with tab2:
                                 pass
                     st.markdown("### 📄 Sample Results")
                     st.dataframe(hits, use_container_width=True, height=400)
-                    c1, c2 = st.columns(2)
-                    with c1: export_data_button(hits, f"term_search_{term[:40]}", "csv")
-                    with c2: export_data_button(hits, f"term_search_{term[:40]}", "json")
+                    export_data_button(hits, f"term_search_{term[:40]}", "csv")
                 else:
                     st.warning(f"No articles found containing '{term}'.")
             except Exception as e:
