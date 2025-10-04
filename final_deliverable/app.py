@@ -253,12 +253,24 @@ def load_combined_dataset() -> pd.DataFrame:
         return pd.DataFrame()
 
     combined: List[pd.DataFrame] = []
-    for i in range(1, 39):  # Files 001–038
+    for i in range(1, 6):  # Load only 5 files to reduce memory
         fp = split_dir / f"final_model_dataset_part_{i:03d}.csv"
         if fp.exists():
             try:
                 df = pd.read_csv(fp, dtype_backend="pyarrow")
-                combined.append(df)
+                
+                # Filter to keep only high-impact observations (top 70% by circulation)
+                if 'circulation_size' in df.columns:
+                    df['circulation_size'] = pd.to_numeric(df['circulation_size'], errors='coerce')
+                    circulation_threshold = df['circulation_size'].quantile(0.3)
+                    df_filtered = df[df['circulation_size'] >= circulation_threshold]
+                    combined.append(df_filtered)
+                    st.info(f"✅ {fp.name}: {len(df_filtered):,} high-impact rows")
+                else:
+                    # If no circulation data, keep 70% randomly
+                    df_sample = df.sample(n=int(len(df) * 0.7))
+                    combined.append(df_sample)
+                    st.info(f"📁 {fp.name}: {len(df_sample):,} sampled rows")
             except Exception:
                 # Skip bad file but keep loading others
                 pass
@@ -267,7 +279,13 @@ def load_combined_dataset() -> pd.DataFrame:
         return pd.DataFrame()
 
     final_df = pd.concat(combined, ignore_index=True)
+    final_df = final_df.drop_duplicates()
+    files_count = len(combined)
     combined.clear()
+    
+    st.success(f"🎯 Loaded {len(final_df):,} high-impact observations from {files_count} files")
+    st.info("💡 Filtering strategy: Kept top 70% by circulation size per file")
+    
     return final_df
 
 @st.cache_data
