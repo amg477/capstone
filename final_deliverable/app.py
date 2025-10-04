@@ -537,7 +537,7 @@ with tab1:
     *Built by Georgetown University MSBA - Anna Glass, Jasmin Mendoza, Mohammmad Waqas, Mark Saba, Posy Olivetti*
     """)
     
-    with tab2:
+with tab2:
     st.subheader("🎯 Paths - Attribution Analysis")
     st.markdown("Discover the influence pathways in healthcare policy and understand impact patterns.")
 
@@ -662,7 +662,7 @@ with tab1:
                                 st.session_state["selected_term"] = v
                                 st.rerun()
                     st.markdown("---")
-    except Exception as e:
+            except Exception as e:
                 st.warning(f"Error getting term suggestions: {e}")
 
         if "selected_term" in st.session_state:
@@ -705,7 +705,7 @@ with tab1:
                     with c2: export_data_button(hits, f"term_search_{term[:40]}", "json")
                 else:
                     st.warning(f"No articles found containing '{term}'.")
-    except Exception as e:
+            except Exception as e:
                 st.error(f"Error searching for term: {e}")
 
 with tab3:
