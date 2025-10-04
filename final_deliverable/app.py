@@ -324,8 +324,6 @@ st.markdown("""
     .stDataFrame td { padding:10px 12px; border-bottom:1px solid var(--penta-light); }
     .success-message { background: linear-gradient(135deg,#4CAF50,#45a049); color:white; padding:1rem; border-radius:8px; margin:1rem 0; }
     .error-message { background: linear-gradient(135deg,#f44336,#d32f2f); color:white; padding:1rem; border-radius:8px; margin:1rem 0; }
-    .dark-mode-toggle { position: fixed; top: 20px; right: 20px; z-index: 1000; background: var(--penta-primary); color: var(--penta-white); border: none; border-radius: 50%; width: 50px; height: 50px; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.2); transition: all 0.3s ease; }
-    .dark-mode-toggle:hover { background: var(--penta-accent); transform: scale(1.1); }
 </style>
 """, unsafe_allow_html=True)
 
@@ -471,19 +469,9 @@ def render_header():
                     <h1>PolicyPath</h1>
                     <div class="header-subtitle">Your indispensable guide to healthcare policy influence</div>
                 </div>
-                <div style="margin-left:auto; display:flex; align-items:center; gap:1rem;">
-                    <button class="dark-mode-toggle" onclick="toggleDarkMode()" title="Toggle Dark Mode">🌙</button>
+                <div style="margin-left:auto;">
                 </div>
             </div>
-            <script>
-            function toggleDarkMode() {{
-                document.body.classList.toggle('dark-mode');
-                localStorage.setItem('darkMode', document.body.classList.contains('dark-mode'));
-            }}
-            if (localStorage.getItem('darkMode') === 'true') {{
-                document.body.classList.add('dark-mode');
-            }}
-            </script>
             """,
             unsafe_allow_html=True
         )
@@ -496,18 +484,8 @@ def render_header():
                     <div class="header-subtitle" style="color:#12715D;">Your indispensable guide to healthcare policy influence</div>
                 </div>
                 <div style="margin-left:auto;">
-                    <button class="dark-mode-toggle" onclick="toggleDarkMode()" title="Toggle Dark Mode">🌙</button>
                 </div>
             </div>
-            <script>
-            function toggleDarkMode() {{
-                document.body.classList.toggle('dark-mode');
-                localStorage.setItem('darkMode', document.body.classList.contains('dark-mode'));
-            }}
-            if (localStorage.getItem('darkMode') === 'true') {{
-                document.body.classList.add('dark-mode');
-            }}
-            </script>
             """,
             unsafe_allow_html=True
         )
