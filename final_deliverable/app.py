@@ -686,20 +686,7 @@ with tab1:
                         ))
                         fig.update_layout(
                             title=f"Flow Analysis: {src} → {tgt}",
-                            title_font=dict(size=18, color="black", family="Arial, sans-serif"),
-                            font=dict(
-                                family="Arial, sans-serif", 
-                                size=16,
-                                color="black"
-                            ),
-                            hoverlabel=dict(
-                                font_size=13, 
-                                font_family="Arial, sans-serif",
-                                font_color="black",
-                                bgcolor="rgba(255,255,255,0.95)",
-                                bordercolor="rgba(0,0,0,0.2)",
-                                borderwidth=1
-                            ),
+                            font=dict(family="Arial, sans-serif", size=16, color="black"),
                             margin=dict(l=40, r=40, t=80, b=40), 
                             height=600,
                             plot_bgcolor="white",
