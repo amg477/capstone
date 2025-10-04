@@ -601,14 +601,17 @@ with tab1:
 
         # Sankey
         if cat_cols:
+            st.markdown("### 🔄 Flow Analysis")
+            st.markdown("Visualize relationships between different data dimensions. *Automatically filters out noise and dominant 'Other' categories for cleaner visualization.*")
+            
             left, right = st.columns(2)
             src = left.selectbox("Sankey source", cat_cols, index=0, key="sank_src")
             tgt = right.selectbox("Sankey target", cat_cols, index=min(1, len(cat_cols)-1), key="sank_tgt")
 
             c1, c2, c3, c4 = st.columns(4)
-            top_sources = c1.slider("Top Sources", 3, 50, 15, 1)
-            top_targets = c2.slider("Top Targets", 2, 20, 6, 1)
-            max_links = c3.slider("Max Links", 10, 500, 120, 10)
+            top_sources = c1.slider("Top Sources", 3, 20, 8, 1)
+            top_targets = c2.slider("Top Targets", 2, 15, 5, 1)
+            max_links = c3.slider("Max Links", 5, 50, 20, 5)
             bucket_other = c4.checkbox("Bucket 'Other'", value=True)
 
             if src != tgt and not filtered_df.empty:
@@ -628,30 +631,62 @@ with tab1:
                     sdata = sdata[(sdata["s"].isin(keep_s)) & (sdata["t"].isin(keep_t))]
 
                 if not sdata.empty:
-                    nodes = pd.Series(pd.concat([sdata["s"], sdata["t"]])).astype(str).unique().tolist()
-                    labels_short = [shorten(x) for x in nodes]
-                    idx = {n: i for i, n in enumerate(nodes)}
+                    # Filter out very small flows to reduce clutter
+                    min_flow_threshold = sdata["v"].quantile(0.1)  # Remove bottom 10% of flows
+                    sdata_clean = sdata[sdata["v"] >= min_flow_threshold].copy()
+                    
+                    # Remove "Other" if it's too dominant (more than 50% of total flow)
+                    total_flow = sdata_clean["v"].sum()
+                    other_flow = sdata_clean[sdata_clean["s"] == "Other"]["v"].sum()
+                    if other_flow / total_flow > 0.5:
+                        sdata_clean = sdata_clean[sdata_clean["s"] != "Other"]
+                    
+                    if not sdata_clean.empty:
+                        nodes = pd.Series(pd.concat([sdata_clean["s"], sdata_clean["t"]])).astype(str).unique().tolist()
+                        labels_short = [shorten(x, max_len=20) for x in nodes]  # Shorter labels
+                        idx = {n: i for i, n in enumerate(nodes)}
 
-                    fig = go.Figure(go.Sankey(
-                        arrangement="snap",
-                        node=dict(
-                            label=labels_short,
-                            pad=26, thickness=22,
-                            line=dict(),
-                        ),
-                        link=dict(
-                            source=[idx[s] for s in sdata["s"]],
-                            target=[idx[t] for t in sdata["t"]],
-                            value=sdata["v"],
-                            hovertemplate="Count: %{value:,}<br>source: %{source.label}<br>target: %{target.label}<extra></extra>",
-                        ),
-                    ))
-                    fig.update_layout(
-                        font=dict(family="Inter, Helvetica, Arial, sans-serif", size=16),
-                        hoverlabel=dict(font_size=13, font_family="Inter, Helvetica, Arial, sans-serif"),
-                        margin=dict(l=8, r=8, t=6, b=6), height=640
-                    )
-                    st.plotly_chart(fig, use_container_width=True)
+                        # Define a better color palette
+                        colors = [
+                            "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd",
+                            "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf",
+                            "#aec7e8", "#ffbb78", "#98df8a", "#ff9896", "#c5b0d5"
+                        ]
+                        node_colors = [colors[i % len(colors)] for i in range(len(nodes))]
+
+                        fig = go.Figure(go.Sankey(
+                            arrangement="snap",
+                            node=dict(
+                                label=labels_short,
+                                pad=30, 
+                                thickness=25,
+                                line=dict(width=1, color="rgba(0,0,0,0.2)"),
+                                color=node_colors,
+                            ),
+                            link=dict(
+                                source=[idx[s] for s in sdata_clean["s"]],
+                                target=[idx[t] for t in sdata_clean["t"]],
+                                value=sdata_clean["v"],
+                                color="rgba(0,0,0,0.3)",  # Subtle link colors
+                                hovertemplate="<b>%{source.label}</b> → <b>%{target.label}</b><br>Count: %{value:,}<extra></extra>",
+                            ),
+                        ))
+                        fig.update_layout(
+                            font=dict(family="Inter, Helvetica, Arial, sans-serif", size=14),
+                            hoverlabel=dict(
+                                font_size=12, 
+                                font_family="Inter, Helvetica, Arial, sans-serif",
+                                bgcolor="rgba(255,255,255,0.9)",
+                                bordercolor="rgba(0,0,0,0.1)"
+                            ),
+                            margin=dict(l=20, r=20, t=40, b=20), 
+                            height=500,
+                            plot_bgcolor="rgba(0,0,0,0)",
+                            paper_bgcolor="rgba(0,0,0,0)"
+                        )
+                        st.plotly_chart(fig, use_container_width=True)
+                    else:
+                        st.info("After filtering, not enough significant flows to display.")
                 else:
                     st.info("Not enough data for Sankey with these fields.")
             else:
