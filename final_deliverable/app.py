@@ -536,179 +536,18 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # -------------------- Main Tabs --------------------
-tab1, tab2, tab3, tab4 = st.tabs(["PolicyPath", "Paths", "Pulse", "People"])
-    
-    with tab1:
+tab1, tab2, tab3= st.tabs(["PolicyPath", "Paths", "People"])
+
+with tab1:
     st.markdown("""
     ## PolicyPath
-    **Your indispensable guide to healthcare policy influence**
     PolicyPath maps how narratives travel through publications, authors, and channels—pinpointing key voices shaping U.S. healthcare policy.
     ### Key Capabilities
     **Paths**: Analyze influence attribution by publication, author, channel, and terms  
-    **Pulse**: Dashboard overview to monitor KPIs and narrative trends.
     **People**: Explore the network driving influence. 
     *Built by Georgetown University MSBA - Anna Glass, Jasmin Mendoza, Mohammmad Waqas, Mark Saba, Posy Olivetti*
     """)
-    
-    with tab2:
-    st.subheader("Attribution Analysis")
-    st.markdown("Discover the influence pathways in healthcare policy and understand impact patterns.")
 
-    df_main, df_attr, COLUMNS = get_data()
-    available_cols = df_main.columns.tolist() if not df_main.empty else []
-
-    col1, col2 = st.columns([2, 1])
-    with col1:
-        lookup_type = st.radio("Search Type", ["Item Attribution", "Term Attribution"], horizontal=True)
-    with col2:
-        st.empty()  # Space for future elements
-
-    # Recent searches
-    if st.session_state.recent_searches:
-        with st.expander("🔍 Recent Searches"):
-            for s in st.session_state.recent_searches[:5]:
-                if st.button(f"🔍 {s}", key=f"recent_{s}"):
-                    st.session_state.current_search = s
-                    st.rerun()
-
-    if lookup_type == "Item Attribution":
-        if not available_cols:
-            st.warning("No searchable columns found.")
-        else:
-            search_cols = [c for c in available_cols if any(k in c.lower() for k in ["publication", "author", "channel", "publisher"])]
-            if not search_cols:
-                st.warning("No item columns found.")
-            else:
-                c1, c2 = st.columns(2)
-                with c1:
-                    sel_col = st.selectbox("Search by", search_cols)
-                with c2:
-                    search_term = st.text_input("Search term", placeholder=f"Enter {sel_col}...")
-
-                # Suggestions
-                if search_term and len(search_term) >= 2 and sel_col in df_main:
-                    try:
-                        s = df_main[sel_col].astype("string[pyarrow]", errors="ignore")
-                        sugg = s.fillna("").str.contains(search_term, case=False, na=False)
-                        suggestions = s[sugg].dropna().drop_duplicates().head(10).tolist()
-                        if suggestions:
-                            st.markdown("**💡 Suggestions:**")
-                            cols = st.columns(min(3, len(suggestions)))
-                            for i, val in enumerate(suggestions[:9]):
-                                label = (str(val)[:30] + "...") if len(str(val)) > 30 else str(val)
-                                with cols[i % 3]:
-                                    if st.button(f"🔍 {label}", key=f"sugg_{i}_{sel_col}", help=f"Search for: {val}"):
-                                        st.session_state[f"selected_{sel_col}"] = val
-                                        st.rerun()
-                            st.markdown("---")
-                    except Exception as e:
-                        st.warning(f"Error getting suggestions: {e}")
-
-                if f"selected_{sel_col}" in st.session_state:
-                    search_term = st.session_state[f"selected_{sel_col}"]
-                    st.success(f"Selected: {search_term}")
-                    if st.button("Clear Selection", key=f"clear_{sel_col}"):
-                        del st.session_state[f"selected_{sel_col}"]
-                        st.rerun()
-
-                if search_term and sel_col in df_main:
-                    add_to_recent_searches(f"{sel_col}: {search_term}")
-                    try:
-                        s = df_main[sel_col].astype("string[pyarrow]", errors="ignore")
-                        matches = s.fillna("").str.contains(search_term, case=False, na=False)
-                        options = s[matches].dropna().drop_duplicates().head(20).tolist()
-                        if options:
-                            st.success(f"Found {len(options)} matches for '{search_term}'")
-                            selected_item = st.selectbox("Select item", options, key=f"select_{sel_col}")
-                            if selected_item:
-                                item_rows = df_main[s.fillna("") == str(selected_item)].head(100)
-                                if not item_rows.empty:
-                                    st.markdown(f"### 📊 Data for: {selected_item}")
-                                    c1, c2, c3 = st.columns(3)
-                                    with c1:
-                                        st.markdown(f"<div class='metric-card'><h4>Records</h4><div style='font-size:2rem;color:#12715D;'>{len(item_rows):,}</div></div>", unsafe_allow_html=True)
-                                    with c2:
-                                        if "circulation_size" in item_rows:
-                                            st.markdown(f"<div class='metric-card'><h4>Avg Circulation</h4><div style='font-size:2rem;color:#12715D;'>{item_rows['circulation_size'].mean():,.0f}</div></div>", unsafe_allow_html=True)
-                                    with c3:
-                                        if "body_token_count" in item_rows:
-                                            st.markdown(f"<div class='metric-card'><h4>Avg Tokens</h4><div style='font-size:2rem;color:#12715D;'>{item_rows['body_token_count'].mean():,.0f}</div></div>", unsafe_allow_html=True)
-                                    st.dataframe(item_rows, use_container_width=True, height=400)
-                                    export_data_button(item_rows, f"{sel_col}_{str(selected_item)[:40]}", "csv")
-                                else:
-                                    st.warning("No rows for the selected item.")
-                        else:
-                            st.warning(f"No matches for '{search_term}' in {sel_col}.")
-                    except Exception as e:
-                        st.error(f"Error searching: {e}")
-    else:
-        st.markdown("###Term Search")
-        term = st.text_input("Type a term to search", placeholder="Enter a policy term or keyword...")
-        if term and len(term) >= 2 and not df_main.empty:
-            try:
-                text_cols = [c for c in available_cols if any(k in c.lower() for k in ["headline", "body", "content", "text"])]
-                # Suggestions from first 2 text cols
-                sugg_list: List[str] = []
-                for c in text_cols[:2]:
-                    s = df_main[c].astype("string[pyarrow]", errors="ignore")
-                    m = s.fillna("").str.contains(term, case=False, na=False)
-                    sugg_list.extend(s[m].dropna().drop_duplicates().head(5).tolist())
-                uniq_sugg = list(dict.fromkeys([str(x) for x in sugg_list]))[:9]
-                if uniq_sugg:
-                    st.markdown("**💡 Term Suggestions:**")
-                    cols = st.columns(min(3, len(uniq_sugg)))
-                    for i, v in enumerate(uniq_sugg):
-                        label = v[:40] + "..." if len(v) > 40 else v
-                        with cols[i % 3]:
-                            if st.button(f"🔍 {label}", key=f"term_sugg_{i}", help=f"Search for: {v}"):
-                                st.session_state["selected_term"] = v
-                                st.rerun()
-                    st.markdown("---")
-    except Exception as e:
-                st.warning(f"Error getting term suggestions: {e}")
-
-        if "selected_term" in st.session_state:
-            term = st.session_state["selected_term"]
-            st.success(f"Selected term: {term}")
-            if st.button("Clear Term Selection", key="clear_term"):
-                del st.session_state["selected_term"]
-            st.rerun()
-
-        if term and not df_main.empty:
-            add_to_recent_searches(f"Term: {term}")
-            try:
-                text_cols = [c for c in available_cols if any(k in c.lower() for k in ["headline", "body", "content", "text"])]
-                mask = pd.Series(False, index=df_main.index)
-                for c in text_cols:
-                    s = df_main[c].astype("string[pyarrow]", errors="ignore")
-                    mask |= s.fillna("").str.contains(term, case=False, na=False)
-                hits = df_main[mask].head(100)
-                if not hits.empty:
-                    st.success(f"Found {len(hits)} articles containing '{term}'")
-                    c1, c2, c3 = st.columns(3)
-                    with c1:
-                        st.markdown(f"<div class='metric-card'><h4>Total Matches</h4><div style='font-size:2rem;color:#12715D;'>{len(hits):,}</div></div>", unsafe_allow_html=True)
-                    with c2:
-                        if "circulation_size" in hits:
-                            st.markdown(f"<div class='metric-card'><h4>Total Reach</h4><div style='font-size:2rem;color:#12715D;'>{hits['circulation_size'].sum():,.0f}</div></div>", unsafe_allow_html=True)
-                    with c3:
-                        date_cols = [c for c in hits.columns if ("date" in c.lower() or "time" in c.lower())]
-                        if date_cols:
-                            dc = date_cols[0]
-                            try:
-                                dates = pd.to_datetime(hits[dc], errors="coerce").dropna()
-                                st.markdown(f"<div class='metric-card'><h4>Date Span (days)</h4><div style='font-size:2rem;color:#12715D;'>{dates.dt.date.nunique()}</div></div>", unsafe_allow_html=True)
-                            except Exception:
-                                pass
-                    st.markdown("### 📄 Sample Results")
-                    st.dataframe(hits, use_container_width=True, height=400)
-                    export_data_button(hits, f"term_search_{term[:40]}", "csv")
-                else:
-                    st.warning(f"No articles found containing '{term}'.")
-    except Exception as e:
-                st.error(f"Error searching for term: {e}")
-
-with tab3:
     st.subheader("Pulse - Dashboard Overview")
     st.markdown("Monitor the pulse of healthcare policy influence with interactive KPIs and charts.")
 
@@ -801,7 +640,7 @@ with tab3:
                 break
         if avg_infl is None and not df_attr.empty and "credit_share" in df_attr.columns:
             avg_infl = df_attr["credit_share"].mean()
-            st.info("📊 Using attribution dataset for influence metrics")
+            st.info("Using attribution dataset for influence metrics")
 
         m1, m2, m3, m4 = st.columns(4)
         m1.metric("Total publications", f"{total_pubs:,}")
@@ -984,7 +823,165 @@ with tab3:
             if st.button("Export CSV"):
                 export_data_button(filtered_df.head(sample_size), "filtered_data", "csv")
 
-with tab4:
+with tab2:
+    st.subheader("Attribution Analysis")
+    st.markdown("Discover the influence pathways in healthcare policy and understand impact patterns.")
+
+    df_main, df_attr, COLUMNS = get_data()
+    available_cols = df_main.columns.tolist() if not df_main.empty else []
+
+    col1, col2 = st.columns([2, 1])
+    with col1:
+        lookup_type = st.radio("Search Type", ["Item Attribution", "Term Attribution"], horizontal=True)
+    with col2:
+        st.empty()  # Space for future elements
+
+    # Recent searches
+    if st.session_state.recent_searches:
+        with st.expander("🔍 Recent Searches"):
+            for s in st.session_state.recent_searches[:5]:
+                if st.button(f"🔍 {s}", key=f"recent_{s}"):
+                    st.session_state.current_search = s
+                    st.rerun()
+
+    if lookup_type == "Item Attribution":
+        if not available_cols:
+            st.warning("No searchable columns found.")
+        else:
+            search_cols = [c for c in available_cols if any(k in c.lower() for k in ["publication", "author", "channel", "publisher"])]
+            if not search_cols:
+                st.warning("No item columns found.")
+            else:
+                c1, c2 = st.columns(2)
+                with c1:
+                    sel_col = st.selectbox("Search by", search_cols)
+                with c2:
+                    search_term = st.text_input("Search term", placeholder=f"Enter {sel_col}...")
+
+                # Suggestions
+                if search_term and len(search_term) >= 2 and sel_col in df_main:
+                    try:
+                        s = df_main[sel_col].astype("string[pyarrow]", errors="ignore")
+                        sugg = s.fillna("").str.contains(search_term, case=False, na=False)
+                        suggestions = s[sugg].dropna().drop_duplicates().head(10).tolist()
+                        if suggestions:
+                            st.markdown("**💡 Suggestions:**")
+                            cols = st.columns(min(3, len(suggestions)))
+                            for i, val in enumerate(suggestions[:9]):
+                                label = (str(val)[:30] + "...") if len(str(val)) > 30 else str(val)
+                                with cols[i % 3]:
+                                    if st.button(f"🔍 {label}", key=f"sugg_{i}_{sel_col}", help=f"Search for: {val}"):
+                                        st.session_state[f"selected_{sel_col}"] = val
+                                        st.rerun()
+                            st.markdown("---")
+                    except Exception as e:
+                        st.warning(f"Error getting suggestions: {e}")
+
+                if f"selected_{sel_col}" in st.session_state:
+                    search_term = st.session_state[f"selected_{sel_col}"]
+                    st.success(f"Selected: {search_term}")
+                    if st.button("Clear Selection", key=f"clear_{sel_col}"):
+                        del st.session_state[f"selected_{sel_col}"]
+                        st.rerun()
+
+                if search_term and sel_col in df_main:
+                    add_to_recent_searches(f"{sel_col}: {search_term}")
+                    try:
+                        s = df_main[sel_col].astype("string[pyarrow]", errors="ignore")
+                        matches = s.fillna("").str.contains(search_term, case=False, na=False)
+                        options = s[matches].dropna().drop_duplicates().head(20).tolist()
+                        if options:
+                            st.success(f"Found {len(options)} matches for '{search_term}'")
+                            selected_item = st.selectbox("Select item", options, key=f"select_{sel_col}")
+                            if selected_item:
+                                item_rows = df_main[s.fillna("") == str(selected_item)].head(100)
+                                if not item_rows.empty:
+                                    st.markdown(f"### 📊 Data for: {selected_item}")
+                                    c1, c2, c3 = st.columns(3)
+                                    with c1:
+                                        st.markdown(f"<div class='metric-card'><h4>Records</h4><div style='font-size:2rem;color:#12715D;'>{len(item_rows):,}</div></div>", unsafe_allow_html=True)
+                                    with c2:
+                                        if "circulation_size" in item_rows:
+                                            st.markdown(f"<div class='metric-card'><h4>Avg Circulation</h4><div style='font-size:2rem;color:#12715D;'>{item_rows['circulation_size'].mean():,.0f}</div></div>", unsafe_allow_html=True)
+                                    with c3:
+                                        if "body_token_count" in item_rows:
+                                            st.markdown(f"<div class='metric-card'><h4>Avg Tokens</h4><div style='font-size:2rem;color:#12715D;'>{item_rows['body_token_count'].mean():,.0f}</div></div>", unsafe_allow_html=True)
+                                    st.dataframe(item_rows, use_container_width=True, height=400)
+                                    export_data_button(item_rows, f"{sel_col}_{str(selected_item)[:40]}", "csv")
+                                else:
+                                    st.warning("No rows for the selected item.")
+                        else:
+                            st.warning(f"No matches for '{search_term}' in {sel_col}.")
+                    except Exception as e:
+                        st.error(f"Error searching: {e}")
+    else:
+        st.markdown("###Term Search")
+        term = st.text_input("Type a term to search", placeholder="Enter a policy term or keyword...")
+        if term and len(term) >= 2 and not df_main.empty:
+            try:
+                text_cols = [c for c in available_cols if any(k in c.lower() for k in ["headline", "body", "content", "text"])]
+                # Suggestions from first 2 text cols
+                sugg_list: List[str] = []
+                for c in text_cols[:2]:
+                    s = df_main[c].astype("string[pyarrow]", errors="ignore")
+                    m = s.fillna("").str.contains(term, case=False, na=False)
+                    sugg_list.extend(s[m].dropna().drop_duplicates().head(5).tolist())
+                uniq_sugg = list(dict.fromkeys([str(x) for x in sugg_list]))[:9]
+                if uniq_sugg:
+                    st.markdown("**💡 Term Suggestions:**")
+                    cols = st.columns(min(3, len(uniq_sugg)))
+                    for i, v in enumerate(uniq_sugg):
+                        label = v[:40] + "..." if len(v) > 40 else v
+                        with cols[i % 3]:
+                            if st.button(f"🔍 {label}", key=f"term_sugg_{i}", help=f"Search for: {v}"):
+                                st.session_state["selected_term"] = v
+                                st.rerun()
+                    st.markdown("---")
+            except Exception as e:
+                st.warning(f"Error getting term suggestions: {e}")
+
+        if "selected_term" in st.session_state:
+            term = st.session_state["selected_term"]
+            st.success(f"Selected term: {term}")
+            if st.button("Clear Term Selection", key="clear_term"):
+                del st.session_state["selected_term"]
+            st.rerun()
+
+        if term and not df_main.empty:
+            add_to_recent_searches(f"Term: {term}")
+            try:
+                text_cols = [c for c in available_cols if any(k in c.lower() for k in ["headline", "body", "content", "text"])]
+                mask = pd.Series(False, index=df_main.index)
+                for c in text_cols:
+                    s = df_main[c].astype("string[pyarrow]", errors="ignore")
+                    mask |= s.fillna("").str.contains(term, case=False, na=False)
+                hits = df_main[mask].head(100)
+                if not hits.empty:
+                    st.success(f"Found {len(hits)} articles containing '{term}'")
+                    c1, c2, c3 = st.columns(3)
+                    with c1:
+                        st.markdown(f"<div class='metric-card'><h4>Total Matches</h4><div style='font-size:2rem;color:#12715D;'>{len(hits):,}</div></div>", unsafe_allow_html=True)
+                    with c2:
+                        if "circulation_size" in hits:
+                            st.markdown(f"<div class='metric-card'><h4>Total Reach</h4><div style='font-size:2rem;color:#12715D;'>{hits['circulation_size'].sum():,.0f}</div></div>", unsafe_allow_html=True)
+                    with c3:
+                        date_cols = [c for c in hits.columns if ("date" in c.lower() or "time" in c.lower())]
+                        if date_cols:
+                            dc = date_cols[0]
+                            try:
+                                dates = pd.to_datetime(hits[dc], errors="coerce").dropna()
+                                st.markdown(f"<div class='metric-card'><h4>Date Span (days)</h4><div style='font-size:2rem;color:#12715D;'>{dates.dt.date.nunique()}</div></div>", unsafe_allow_html=True)
+                            except Exception:
+                                pass
+                    st.markdown("### 📄 Sample Results")
+                    st.dataframe(hits, use_container_width=True, height=400)
+                    export_data_button(hits, f"term_search_{term[:40]}", "csv")
+                else:
+                    st.warning(f"No articles found containing '{term}'.")
+            except Exception as e:
+                st.error(f"Error searching for term: {e}")
+
+with tab3:
     st.subheader("People - Network Influence")
     st.markdown("Explore relationships between publications, authors, channels, and terms.")
     # Network CSV discovery
