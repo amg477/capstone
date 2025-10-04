@@ -35,17 +35,8 @@ except ImportError:
         """Custom metric card styling when streamlit-extras is not available"""
         st.markdown(f"""
         <style>
-        .metric-container {{
-            background-color: {background_color};
-            border: 1px solid {border_color};
-            border-left: 4px solid {border_left_color};
-            padding: 1rem;
-            border-radius: 0.5rem;
-            margin: 0.5rem 0;
-        }}
         [data-testid="metric-container"] {{
             background-color: {background_color};
-            border: 1px solid {border_color};
             border-left: 4px solid {border_left_color};
             padding: 1rem;
             border-radius: 0.5rem;
