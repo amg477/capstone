@@ -176,7 +176,20 @@
   }
   
   /* ---------- Inputs ---------- */
-  /* Let Streamlit handle input styling naturally */
+  /* Completely remove all borders from input elements */
+  .stSelectbox input, .stMultiSelect input, .stTextInput input, .stNumberInput input, .stDateInput input,
+  .stSelectbox > div input, .stMultiSelect > div input, .stTextInput > div input, .stNumberInput > div input, .stDateInput > div input {
+    border: none !important;
+    outline: none !important;
+    box-shadow: none !important;
+    background: transparent !important;
+  }
+  
+  /* Remove any container borders that might be creating double borders */
+  .stSelectbox > div, .stMultiSelect > div, .stTextInput > div, .stNumberInput > div, .stDateInput > div {
+    border: none !important;
+    box-shadow: none !important;
+  }
   
   /* Dropdown arrows and icons */
   .stSelectbox [data-testid="stSelectboxDropdownIcon"],
