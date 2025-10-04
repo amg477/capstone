@@ -71,6 +71,24 @@
   
   [data-testid="stToolbar"] { display: none !important; } /* hides the ☰ hamburger */
   
+  /* Hide Plotly toolbar completely */
+  .plotly .modebar { display: none !important; }
+  .plotly .modebar-container { display: none !important; }
+  .js-plotly-plot .plotly .modebar { display: none !important; }
+  .js-plotly-plot .plotly .modebar-container { display: none !important; }
+  
+  /* Additional Plotly toolbar hiding */
+  .modebar { display: none !important; }
+  .modebar-container { display: none !important; }
+  .plotly .modebar-group { display: none !important; }
+  .plotly .modebar-btn { display: none !important; }
+  .plotly .modebar-btn--logo { display: none !important; }
+  
+  /* Hide any remaining toolbar elements */
+  [data-testid="stPlotlyChart"] .modebar { display: none !important; }
+  [data-testid="stPlotlyChart"] .modebar-container { display: none !important; }
+  [data-testid="stPlotlyChart"] .plotly .modebar { display: none !important; }
+  
   /* Headings */
   h1, h2, h3 {
     color: var(--penta-navy) !important;
@@ -159,39 +177,60 @@
   
   /* ---------- Inputs ---------- */
   .stSelectbox, .stMultiSelect, .stTextInput, .stNumberInput, .stDateInput, .stTextArea {
-    border-radius: var(--radius-md) !important;
+    border-radius: 8px !important;
   }
   input, textarea, select {
-    border-radius: var(--radius-md) !important;
-    border: 1px solid rgba(20,37,54,.20) !important;
+    border-radius: 8px !important;
+    border: 2px solid #0A473B !important;
+    padding: 8px 12px !important;
   }
   input:focus, textarea:focus, select:focus {
     outline: none !important;
-    border-color: var(--penta-teal) !important;
-    box-shadow: var(--focus-ring) !important;
+    border-color: #0A473B !important;
+    box-shadow: 0 0 0 3px rgba(10, 71, 59, 0.25) !important;
+  }
+  
+  /* Filter input containers */
+  .stSelectbox > div, .stMultiSelect > div, .stTextInput > div, .stNumberInput > div, .stDateInput > div {
+    border: 2px solid #0A473B !important;
+    border-radius: 8px !important;
+    margin: 5px !important;
+  }
+  
+  /* Dropdown arrows and icons */
+  .stSelectbox [data-testid="stSelectboxDropdownIcon"],
+  .stMultiSelect [data-testid="stMultiSelectDropdownIcon"] {
+    color: #0A473B !important;
   }
   
   /* ---------- Metrics & Cards ---------- */
   [data-testid="stMetric"] {
-    border-radius: var(--radius-lg);
+    border-radius: 8px;
     background: var(--penta-white);
     box-shadow: var(--shadow-sm);
-    padding: 1rem 1.1rem;
-    border: 1px solid rgba(20,37,54,.08);
+    padding: 15px;
+    border: 2px solid #0A473B;
+    text-align: center;
   }
   [data-testid="stMetric"] [data-testid="stMetricValue"] {
-    color: var(--penta-navy);
-    font-weight: 800;
+    color: #0A473B;
+    font-weight: bold;
+    font-size: 24px;
+  }
+  [data-testid="stMetric"] [data-testid="stMetricLabel"] {
+    color: #666;
+    font-size: 14px;
   }
   [data-testid="stMetricDelta"] svg { transform: scale(1.05); }
   
-  /* “Card” utility for your custom containers */
+  /* "Card" utility for your custom containers */
   .pp-card {
     background: var(--penta-white);
-    border: 1px solid rgba(20,37,54,.08);
-    border-radius: var(--radius-lg);
+    border: 2px solid #0A473B;
+    border-radius: 8px;
     box-shadow: var(--shadow-sm);
-    padding: 1rem 1.25rem;
+    padding: 15px;
+    margin: 5px;
   }
   
   /* Accent callouts */
@@ -204,10 +243,10 @@
   
   /* ---------- DataFrames & Tables ---------- */
   [data-testid="stDataFrame"] {
-    border-radius: var(--radius-lg);
+    border-radius: 8px;
     overflow: hidden;
     box-shadow: var(--shadow-sm);
-    border: 1px solid rgba(20,37,54,.08);
+    border: 2px solid #0A473B;
   }
   [data-testid="stDataFrame"] .row_heading, 
   [data-testid="stDataFrame"] .blank { background: var(--penta-cream); }
@@ -219,22 +258,37 @@
   .element-container:has([data-testid="stVegaLiteChart"]),
   .element-container:has([data-testid="stPlotlyChart"]) {
     background: var(--penta-white);
-    border: 1px solid rgba(20,37,54,.08);
-    border-radius: var(--radius-lg);
+    border: 2px solid #0A473B;
+    border-radius: 8px;
     box-shadow: var(--shadow-sm);
     padding: .5rem;
+    margin: 5px;
   }
   
   /* ---------- Messages / Alerts ---------- */
   .stAlert {
-    border-radius: var(--radius-md);
-    border: 1px solid rgba(20,37,54,.12);
+    border-radius: 8px;
+    border: 2px solid #0A473B;
     box-shadow: var(--shadow-sm);
+    margin: 5px;
   }
   .stAlert [data-testid="stMarkdownContainer"] p {
     margin: .25rem 0;
   }
   
+  /* ---------- Expanders ---------- */
+  [data-testid="stExpander"] {
+    border: 2px solid #0A473B !important;
+    border-radius: 8px !important;
+    margin: 5px !important;
+  }
+  [data-testid="stExpander"] > div {
+    border-radius: 8px !important;
+  }
+  [data-testid="stExpander"] [data-testid="stExpanderToggleIcon"] {
+    color: #0A473B !important;
+  }
+
   /* ---------- Markdown polish ---------- */
   [data-testid="stMarkdownContainer"] p {
     line-height: 1.55;
