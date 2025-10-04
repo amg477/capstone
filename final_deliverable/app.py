@@ -141,7 +141,7 @@ def load_combined_dataset() -> pd.DataFrame:
                     circulation_threshold = df['circulation_size'].quantile(0.1)
                     combined.append(df[df['circulation_size'] >= circulation_threshold])
                 else:
-                    combined.append(df.sample(n=int(len(df) * 0.7)))
+                    combined.append(df.sample(n=int(len(df) * 0.9)))
             except Exception:
                 # skip bad file but continue
                 pass
@@ -754,6 +754,116 @@ with tab2:
     df_main, df_attr, COLUMNS = get_data()
     available_cols = df_main.columns.tolist() if not df_main.empty else []
 
+    st.markdown("### 📊 Attribution Terms Sentiment Analysis")
+    st.markdown("Analyze sentiment patterns in policy attribution terms using TextBlob")
+
+    if not df_attr.empty:
+        # Filter for terms where kind = "term"
+        if 'kind' in df_attr.columns:
+            terms_df = df_attr[df_attr['kind'] == 'term'].copy()
+            if not terms_df.empty:
+                # Look for value column (the actual term text)
+                value_col = 'value' if 'value' in terms_df.columns else None
+                if value_col:
+                    try:
+                        result = create_sentiment_wordclouds_from_attribution(terms_df, value_col)
+                        if result[0] is None:
+                            st.info("📦 Required libraries installing... Showing simplified analysis.")
+                            sentiment_col1, sentiment_col2, sentiment_col3 = st.columns(3)
+                            with sentiment_col1:
+                                st.markdown("#### 🟢 Positive Attribution Terms")
+                                st.markdown("innovation • progress • benefit • solution • improvement")
+                            with sentiment_col2:
+                                st.markdown("#### 🟡 Neutral Attribution Terms")
+                                st.markdown("analysis • report • study • data • research")
+                            with sentiment_col3:
+                                st.markdown("#### 🔴 Negative Attribution Terms")
+                                st.markdown("concern • issue • challenge • risk • problem")
+                        else:
+                            wc_positive, wc_neutral, wc_negative, pos_count, neu_count, neg_count = result
+                            cloud1, cloud2, cloud3 = st.columns(3)
+
+                            with cloud1:
+                                st.markdown(f"#### 🟢 Positive Attribution Terms ({pos_count} terms)")
+                                if wc_positive:
+                                    try:
+                                        plt.figure(figsize=(8, 6))
+                                        plt.imshow(wc_positive, interpolation='bilinear')
+                                        plt.axis("off")
+                                        plt.title("Positive Attribution Terms", fontsize=10)
+                                        st.pyplot(plt.gcf())
+                                        plt.close()
+                                    except Exception as e:
+                                        st.warning(f"Could not display positive wordcloud: {e}")
+                                else:
+                                    st.info("No positive attribution terms found")
+
+                            with cloud2:
+                                st.markdown(f"#### 🟡 Neutral Attribution Terms ({neu_count} terms)")
+                                if wc_neutral:
+                                    try:
+                                        plt.figure(figsize=(8, 6))
+                                        plt.imshow(wc_neutral, interpolation='bilinear')
+                                        plt.axis("off")
+                                        plt.title("Neutral Attribution Terms", fontsize=10)
+                                        st.pyplot(plt.gcf())
+                                        plt.close()
+                                    except Exception as e:
+                                        st.warning(f"Could not display neutral wordcloud: {e}")
+                                else:
+                                    st.info("No neutral attribution terms found")
+
+                            with cloud3:
+                                st.markdown(f"#### 🔴 Negative Attribution Terms ({neg_count} terms)")
+                                if wc_negative:
+                                    try:
+                                        plt.figure(figsize=(8, 6))
+                                        plt.imshow(wc_negative, interpolation='bilinear')
+                                        plt.axis("off")
+                                        plt.title("Negative Attribution Terms", fontsize=10)
+                                        st.pyplot(plt.gcf())
+                                        plt.close()
+                                    except Exception as e:
+                                        st.warning(f"Could not display negative wordcloud: {e}")
+                                else:
+                                    st.info("No negative attribution terms found")
+
+                            total_terms = pos_count + neu_count + neg_count
+                            if total_terms > 0:
+                                st.markdown("---")
+                                summary_col1, summary_col2, summary_col3, summary_col4 = st.columns(4)
+                                with summary_col1:
+                                    st.metric("Total Terms", f"{total_terms:,}")
+                                with summary_col2:
+                                    st.metric("Positive %", f"{(pos_count/total_terms)*100:.1f}%")
+                                with summary_col3:
+                                    st.metric("Neutral %", f"{(neu_count/total_terms)*100:.1f}%")
+                                with summary_col4:
+                                    st.metric("Negative %", f"{(neg_count/total_terms)*100:.1f}%")
+                    except Exception as e:
+                        st.error(f"Error in attribution sentiment analysis: {e}")
+                        st.info("Using fallback attribution sentiment analysis")
+                        sentiment_col1, sentiment_col2, sentiment_col3 = st.columns(3)
+                        with sentiment_col1:
+                            st.markdown("#### 🟢 Positive Attribution Terms")
+                            st.markdown("innovation • progress • benefit • solution • improvement")
+                        with sentiment_col2:
+                            st.markdown("#### 🟡 Neutral Attribution Terms")
+                            st.markdown("analysis • report • study • data • research")
+                        with sentiment_col3:
+                            st.markdown("#### 🔴 Negative Attribution Terms")
+                            st.markdown("concern • issue • challenge • risk • problem")
+                else:
+                    st.warning("No 'value' column found in attribution data for terms.")
+            else:
+                st.info("No terms found where kind = 'term' in attribution data.")
+        else:
+            st.warning("No 'kind' column found in attribution data.")
+    else:
+        st.info("No attribution data found.")
+
+    st.markdown("---")
+    
     col1, col2 = st.columns([2, 1])
     with col1:
         lookup_type = st.radio("Search Type", ["Item Attribution", "Term Attribution"], horizontal=True)
@@ -839,7 +949,6 @@ with tab2:
                     except Exception as e:
                         st.error(f"Error searching: {e}")
     else:
-        st.markdown("### Term Search")
         term = st.text_input("Type a term to search", placeholder="Enter a policy term or keyword...")
         if term and len(term) >= 2 and not df_main.empty:
             try:
@@ -904,107 +1013,6 @@ with tab2:
                     st.warning(f"No articles found containing '{term}'.")
             except Exception as e:
                 st.error(f"Error searching for term: {e}")
-
-        st.markdown("---")
-        st.markdown("### 📊 Attribution Terms Sentiment Analysis")
-        st.markdown("Analyze sentiment patterns in policy attribution terms using TextBlob")
-
-        if not df_attr.empty:
-            terms_cols = [c for c in df_attr.columns if any(k in c.lower() for k in ['terms', 'term', 'text', 'content'])]
-            if terms_cols:
-                selected_terms_col = st.selectbox("Select attribution terms column", terms_cols, key="sentiment_col_selector")
-                try:
-                    result = create_sentiment_wordclouds_from_attribution(df_attr, selected_terms_col)
-                    if result[0] is None:
-                        st.info("📦 Required libraries installing... Showing simplified analysis.")
-                        sentiment_col1, sentiment_col2, sentiment_col3 = st.columns(3)
-                        with sentiment_col1:
-                            st.markdown("#### 🟢 Positive Attribution Terms")
-                            st.markdown("innovation • progress • benefit • solution • improvement")
-                        with sentiment_col2:
-                            st.markdown("#### 🟡 Neutral Attribution Terms")
-                            st.markdown("analysis • report • study • data • research")
-                        with sentiment_col3:
-                            st.markdown("#### 🔴 Negative Attribution Terms")
-                            st.markdown("concern • issue • challenge • risk • problem")
-                    else:
-                        wc_positive, wc_neutral, wc_negative, pos_count, neu_count, neg_count = result
-                        cloud1, cloud2, cloud3 = st.columns(3)
-
-                        with cloud1:
-                            st.markdown(f"#### 🟢 Positive Attribution Terms ({pos_count} terms)")
-                            if wc_positive:
-                                try:
-                                    plt.figure(figsize=(8, 6))
-                                    plt.imshow(wc_positive, interpolation='bilinear')
-                                    plt.axis("off")
-                                    plt.title("Positive Attribution Terms", fontsize=10)
-                                    st.pyplot(plt.gcf())
-                                    plt.close()
-                                except Exception as e:
-                                    st.warning(f"Could not display positive wordcloud: {e}")
-                            else:
-                                st.info("No positive attribution terms found")
-
-                        with cloud2:
-                            st.markdown(f"#### 🟡 Neutral Attribution Terms ({neu_count} terms)")
-                            if wc_neutral:
-                                try:
-                                    plt.figure(figsize=(8, 6))
-                                    plt.imshow(wc_neutral, interpolation='bilinear')
-                                    plt.axis("off")
-                                    plt.title("Neutral Attribution Terms", fontsize=10)
-                                    st.pyplot(plt.gcf())
-                                    plt.close()
-                                except Exception as e:
-                                    st.warning(f"Could not display neutral wordcloud: {e}")
-                            else:
-                                st.info("No neutral attribution terms found")
-
-                        with cloud3:
-                            st.markdown(f"#### 🔴 Negative Attribution Terms ({neg_count} terms)")
-                            if wc_negative:
-                                try:
-                                    plt.figure(figsize=(8, 6))
-                                    plt.imshow(wc_negative, interpolation='bilinear')
-                                    plt.axis("off")
-                                    plt.title("Negative Attribution Terms", fontsize=10)
-                                    st.pyplot(plt.gcf())
-                                    plt.close()
-                                except Exception as e:
-                                    st.warning(f"Could not display negative wordcloud: {e}")
-                            else:
-                                st.info("No negative attribution terms found")
-
-                        total_terms = pos_count + neu_count + neg_count
-                        if total_terms > 0:
-                            st.markdown("---")
-                            summary_col1, summary_col2, summary_col3, summary_col4 = st.columns(4)
-                            with summary_col1:
-                                st.metric("Total Terms", f"{total_terms:,}")
-                            with summary_col2:
-                                st.metric("Positive %", f"{(pos_count/total_terms)*100:.1f}%")
-                            with summary_col3:
-                                st.metric("Neutral %", f"{(neu_count/total_terms)*100:.1f}%")
-                            with summary_col4:
-                                st.metric("Negative %", f"{(neg_count/total_terms)*100:.1f}%")
-                except Exception as e:
-                    st.error(f"Error in attribution sentiment analysis: {e}")
-                    st.info("Using fallback attribution sentiment analysis")
-                    sentiment_col1, sentiment_col2, sentiment_col3 = st.columns(3)
-                    with sentiment_col1:
-                        st.markdown("#### 🟢 Positive Attribution Terms")
-                        st.markdown("innovation • progress • benefit • solution • improvement")
-                    with sentiment_col2:
-                        st.markdown("#### 🟡 Neutral Attribution Terms")
-                        st.markdown("analysis • report • study • data • research")
-                    with sentiment_col3:
-                        st.markdown("#### 🔴 Negative Attribution Terms")
-                        st.markdown("concern • issue • challenge • risk • problem")
-            else:
-                st.warning("No attribution terms columns found. Expected columns with 'terms', 'term', 'text', or 'content'.")
-        else:
-            st.info("No attribution data available for sentiment analysis.")
 
 with tab3:
     st.subheader("People - Network Influence")
