@@ -331,7 +331,7 @@ st.markdown("""
 
 # -------------------- Helpers --------------------
 def apply_penta_style():
-    alt.themes.enable('default')
+    alt.theme.enable('default')
     alt.data_transformers.disable_max_rows()
     return {
         'primary': "#12715D",
