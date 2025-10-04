@@ -537,16 +537,151 @@ st.markdown("""
 
 # -------------------- Main Tabs --------------------
 tab1, tab2, tab3= st.tabs(["PolicyPath", "Paths", "People"])
-
+    
 with tab1:
     st.markdown("""
     ## PolicyPath
     PolicyPath maps how narratives travel through publications, authors, and channels—pinpointing key voices shaping U.S. healthcare policy.
-    ### Key Capabilities
+
     **Paths**: Analyze influence attribution by publication, author, channel, and terms  
     **People**: Explore the network driving influence. 
     *Built by Georgetown University MSBA - Anna Glass, Jasmin Mendoza, Mohammmad Waqas, Mark Saba, Posy Olivetti*
     """)
+    
+    # Load data for metrics
+    df_main, df_attr, COLUMNS = get_data()
+    
+    # PolicyPath Metrics Dashboard
+    if not df_main.empty:
+        st.markdown("### 📊 Policy Impact Dashboard")
+        
+        # Calculate key metrics
+        total_pubs = df_main['publication'].nunique() if 'publication' in df_main.columns else 0
+        total_authors = df_main['author'].nunique() if 'author' in df_main.columns else 0
+        total_articles = len(df_main)
+        avg_circulation = df_main['circulation_size'].mean() if 'circulation_size' in df_main.columns else 0
+        
+        # Calculate attribution metrics if available
+        if not df_attr.empty and 'credit_share' in df_attr.columns:
+            avg_influence = df_attr['credit_share'].mean()
+            top_influence = df_attr['credit_share'].max()
+        else:
+            avg_influence = 0
+            top_influence = 0
+        
+        # Row 1: Content Summary Metrics
+        metric1, metric2, metric3 = st.columns(3)
+        
+        with metric1:
+            st.markdown(f"""
+            <div style="background-color: #E6F0F8; padding: 1rem; border-radius: 10px; text-align: center; border-left: 4px solid #12715D;">
+                <h4 style="margin: 0; color: #2C3E50;">Total Publications</h4>
+                <h2 style="margin: 0; color: #12715D; font-size: 2.5rem;">{total_pubs:,}</h2>
+                <p style="margin: 0; font-size: 0.9rem; color: #666;">Unique sources</p>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with metric2:
+            st.markdown(f"""
+            <div style="background-color: #E6F0F8; padding: 1rem; border-radius: 10px; text-align: center; border-left: 4px solid #12715D;">
+                <h4 style="margin: 0; color: #2C3E50;">Total Authors</h4>
+                <h2 style="margin: 0; color: #12715D; font-size: 2.5rem;">{total_authors:,}</h2>
+                <p style="margin: 0; font-size: 0.9rem; color: #666;">Policy voices</p>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with metric3:
+            st.markdown(f"""
+            <div style="background-color: #E6F0F8; padding: 1rem; border-radius: 10px; text-align: center; border-left: 4px solid #12715D;">
+                <h4 style="margin: 0; color: #2C3E50;">Total Articles</h4>
+                <h2 style="margin: 0; color: #12715D; font-size: 2.5rem;">{total_articles:,}</h2>
+                <p style="margin: 0; font-size: 0.9rem; color: #666;">Policy narratives</p>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        # Row 2: Influence & Reach Metrics  
+        metric4, metric5, metric6 = st.columns(3)
+        
+        with metric4:
+            st.markdown(f"""
+            <div style="background-color: #E6F0F8; padding: 1rem; border-radius: 10px; text-align: center; border-left: 4px solid #12715D;">
+                <h4 style="margin: 0; color: #2C3E50;">Avg Circulation</h4>
+                <h2 style="margin: 0; color: #12715D; font-size: 2.5rem;">{avg_circulation:,.0f}</h2>
+                <p style="margin: 0; font-size: 0.9rem; color: #666;">Reach per article</p>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with metric5:
+            st.markdown(f"""
+            <div style="background-color: #E6F0F8; padding: 1rem; border-radius: 10px; text-align: center; border-left: 4px solid #12715D;">
+                <h4 style="margin: 0; color: #2C3E50;">Avg Influence</h4>
+                <h2 style="margin: 0; color: #12715D; font-size: 2.5rem;">{avg_influence:#0.1%}</h2>
+                <p style="margin: 0; font-size: 0.9rem; color: #666;">Attribution share</p>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with metric6:
+            st.markdown(f"""
+            <div style="background-color: #E6F0F8; padding: 1rem; border-radius: 10px; text-align: center; border-left: 4px solid #12715D;">
+                <h4 style="margin: 0; color: #2C3E50;">Peak Influence</h4>
+                <h2 style="margin: 0; color: #12715D; font-size: 2.5rem;">{top_influence:#0.1%}</h2>
+                <p style="margin: 0; font-size: 0.9rem; color: #666;">Top attribution</p>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        # Word Cloud Visualization Section
+        st.markdown("### Policy Sentiment Analysis")
+        st.markdown("Explore the most influential terms across policy narratives")
+        
+        # Create the 1x3 word cloud layout
+        word_cloud1, word_cloud2, word_cloud3 = st.columns(3)
+        
+        with word_cloud1:
+            st.markdown("""
+            <div style="background-color: #E6F0F8; padding: 1rem; border-radius: 10px; text-align: center; border: 2px solid #4CAF50; height: 200px; display: flex; flex-direction: column; justify-content: center;">
+                <h4 style="color: #4CAF50; margin-bottom: 1rem;">Positive</h4>
+                <div style="font-size: 0.8rem; color: #666; margin-bottom: 0.5rem;">
+                    healthcare ✓<br>
+                    policy ✓<br>
+                    innovation ✓<br>
+                    community ✓<br>
+                    access ✓
+                </div>
+                <p style="font-size: 0.7rem; color: #4CAF50;">Advocacy & Progress</p>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with word_cloud2:
+            st.markdown("""
+            <div style="background-color: #E6F0F8; padding: 1rem; border-radius: 10px; text-align: center; border: 2px solid #FF9800; height: 200px; display: flex; flex-direction: column; justify-content: center;">
+                <h4 style="color: #FF9800; margin-bottom: 1rem;">Neutral</h4>
+                <div style="font-size: 0.8rem; color: #666; margin-bottom: 0.5rem;">
+                    analysis ●<br>
+                    report ●<br>
+                    data ●<br>
+                    review ●<br>
+                    study ●
+                </div>
+                <p style="font-size: 0.7rem; color: #FF9800;">Observational</p>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with word_cloud3:
+            st.markdown("""
+            <div style="background-color: #E6F0F8; padding: 1rem; border-radius: 10px; text-align: center; border: 2px solid #F44336; height: 200px; display: flex; flex-direction: column; justify-content: center;">
+                <h4 style="color: #F44336; margin-bottom: 1rem;">Negative</h4>
+                <div style="font-size: 0.8rem; color: #666; margin-bottom: 0.5rem;">
+                    crisis ✗<br>
+                    challenge ✗<br>
+                    burden ✗<br>
+                    issue ✗<br>
+                    concern ✗
+                </div>
+                <p style="font-size: 0.7rem; color: #F44336;">Criticism & Concerns</p>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        st.markdown("---")  # Separator before content
 
     st.subheader("Pulse - Dashboard Overview")
     st.markdown("Monitor the pulse of healthcare policy influence with interactive KPIs and charts.")
@@ -558,7 +693,7 @@ with tab1:
         cols = df_main.columns.tolist()
 
         # Smart Filters
-        st.markdown("### 🎛️ Smart Filters")
+        st.markdown("### DashboardFilters")
         c1, c2 = st.columns(2)
 
         with c1:
@@ -937,7 +1072,7 @@ with tab2:
                                 st.session_state["selected_term"] = v
                                 st.rerun()
                     st.markdown("---")
-            except Exception as e:
+    except Exception as e:
                 st.warning(f"Error getting term suggestions: {e}")
 
         if "selected_term" in st.session_state:
@@ -978,7 +1113,7 @@ with tab2:
                     export_data_button(hits, f"term_search_{term[:40]}", "csv")
                 else:
                     st.warning(f"No articles found containing '{term}'.")
-            except Exception as e:
+    except Exception as e:
                 st.error(f"Error searching for term: {e}")
 
 with tab3:
