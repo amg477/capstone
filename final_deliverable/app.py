@@ -527,18 +527,18 @@ tab1, tab2, tab3, tab4 = st.tabs(["🏛️PolicyPath", "🎯 Paths", "📊 Pulse
 
 with tab1:
     st.markdown("""
-    ## Welcome to 🏛️PolicyPath
+    ## PolicyPath
     **Your indispensable guide to healthcare policy influence**
     PolicyPath maps how narratives travel through publications, authors, and channels—pinpointing key voices shaping U.S. healthcare policy.
     ### Key Capabilities
-    🎯 **Paths**: Analyze influence attribution by publication, author, channel, and terms  
-    📊 **Pulse**: Monitor KPIs and narrative trends  
-    🕸️ **People**: Explore the network driving influence
+    **Paths**: Analyze influence attribution by publication, author, channel, and terms  
+    **Pulse**: Dashboard overview to monitor KPIs and narrative trends.
+    **People**: Explore the network driving influence. 
     *Built by Georgetown University MSBA - Anna Glass, Jasmin Mendoza, Mohammmad Waqas, Mark Saba, Posy Olivetti*
     """)
     
 with tab2:
-    st.subheader("🎯 Paths - Attribution Analysis")
+    st.subheader("Attribution Analysis")
     st.markdown("Discover the influence pathways in healthcare policy and understand impact patterns.")
 
     df_main, df_attr, COLUMNS = get_data()
@@ -640,7 +640,7 @@ with tab2:
                     except Exception as e:
                         st.error(f"Error searching: {e}")
     else:
-        st.markdown("### 🔍 Term Search")
+        st.markdown("###Term Search")
         term = st.text_input("Type a term to search", placeholder="Enter a policy term or keyword...")
         if term and len(term) >= 2 and not df_main.empty:
             try:
@@ -709,7 +709,7 @@ with tab2:
                 st.error(f"Error searching for term: {e}")
 
 with tab3:
-    st.subheader("📊 Pulse - Real-time Analytics")
+    st.subheader("Pulse - Dashboard Overview")
     st.markdown("Monitor the pulse of healthcare policy influence with interactive KPIs and charts.")
 
     df_main, df_attr, COLUMNS = get_data()
@@ -831,7 +831,7 @@ with tab3:
                         norm = (circ - circ.min()) / (circ.max() - circ.min() + 1e-9)
                         score += norm.fillna(0) * 100
                     filtered_df = filtered_df.loc[score.nlargest(sample_size).index]
-                    st.info(f"📊 Showing top {sample_size:,} items by importance")
+                    st.info(f"Top {sample_size:,} items by importance")
 
                 agg_dict: Dict[str, str] = {filtered_df.columns[0]: "count"}
                 if infl_col and infl_col in filtered_df: agg_dict[infl_col] = "mean"
@@ -976,34 +976,16 @@ with tab3:
         st.divider()
 
         # Sample + Export
-        st.markdown("### 📊 Filtered Data Sample")
-        c1, c2, c3 = st.columns([2,1,1])
+        st.markdown("### Data Export")
+        c1, c2= st.columns([2,1])
         with c1:
             sample_size = st.slider("Sample Size", 100, 5000, 1000)
         with c2:
-            if st.button("📥 Export CSV"):
+            if st.button("Export CSV"):
                 export_data_button(filtered_df.head(sample_size), "filtered_data", "csv")
-        with c3:
-            if st.button("📊 Export JSON"):
-                export_data_button(filtered_df.head(sample_size), "filtered_data", "json")
-
-        sample = filtered_df.head(sample_size)
-        if not sample.empty:
-            st.markdown(f"**Showing {len(sample)} rows**")
-            st.dataframe(sample, use_container_width=True, height=400)
-            with st.expander("🔍 Data Insights"):
-                c1, c2, c3 = st.columns(3)
-                with c1:
-                    st.markdown(f"<div class='metric-card'><h4>Total Rows</h4><div style='font-size:2rem;color:#12715D;'>{len(sample):,}</div></div>", unsafe_allow_html=True)
-                with c2:
-                    st.markdown(f"<div class='metric-card'><h4>Numeric Columns</h4><div style='font-size:2rem;color:#12715D;'>{sample.select_dtypes(include=['number']).shape[1]}</div></div>", unsafe_allow_html=True)
-                with c3:
-                    st.markdown(f"<div class='metric-card'><h4>Text Columns</h4><div style='font-size:2rem;color:#12715D;'>{sample.select_dtypes(include=['object','string']).shape[1]}</div></div>", unsafe_allow_html=True)
-        else:
-            st.warning("No data found for the selected filters.")
 
 with tab4:
-    st.subheader("🕸️ People - Network Intelligence")
+    st.subheader("People - Network Influence")
     st.markdown("Explore relationships between publications, authors, channels, and terms.")
     # Network CSV discovery
     edges_path = None
