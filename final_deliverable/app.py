@@ -138,7 +138,7 @@ def load_combined_dataset() -> pd.DataFrame:
                 # Keep top 70% by circulation (high-impact)
                 if 'circulation_size' in df.columns:
                     df['circulation_size'] = pd.to_numeric(df['circulation_size'], errors='coerce')
-                    circulation_threshold = df['circulation_size'].quantile(0.3)
+                    circulation_threshold = df['circulation_size'].quantile(0.1)
                     combined.append(df[df['circulation_size'] >= circulation_threshold])
                 else:
                     combined.append(df.sample(n=int(len(df) * 0.7)))
@@ -673,7 +673,7 @@ with tab1:
                                 label=labels_short,
                                 pad=35, 
                                 thickness=30,
-                                line=dict(width=0.5, color="rgba(0,0,0,0.1)"),
+                                line=dict(width=0),
                                 color=node_colors,
                             ),
                             link=dict(
@@ -691,6 +691,14 @@ with tab1:
                             height=600,
                             plot_bgcolor="white",
                             paper_bgcolor="white"
+                        )
+                        # Remove text shadows and outlines
+                        fig.update_traces(
+                            textfont=dict(
+                                family="Arial, sans-serif",
+                                size=16,
+                                color="black"
+                            )
                         )
                         st.plotly_chart(fig, use_container_width=True)
                     else:
@@ -1053,7 +1061,7 @@ if 'dataset_info' in st.session_state:
         f"""
         <div style="font-size: 0.8em; text-align: center; margin-top: 2rem;">
             Dataset: {st.session_state.dataset_info['rows']:,} observations from {st.session_state.dataset_info['files']} files.
-            Filtered to show top 70% by circulation size for high-impact analysis.
+            Filtered to show top 90% by circulation size for high-impact analysis.
         </div>
         """,
         unsafe_allow_html=True
