@@ -6,312 +6,105 @@ import streamlit as st
 
 # Minimal configuration for Streamlit Cloud
 st.set_page_config(
-    page_title="PolicyPath", 
-    layout="wide")
-
-# Core imports (always needed)
-import pandas as pd
-from collections import Counter
-import re
-import matplotlib.pyplot as plt
-from wordcloud import WordCloud
-from textblob import TextBlob
-
-# Function to create word clouds based on Text see Blob sentiment analysis
-def create_sentiment_wordclouds_from_attribution(df_attr, text_col='terms'):
-    """
-    Create word clouds for positive, neutral, and negative sentiment analysis using TextBlob
-    Uses attribution terms data instead of headlines for more relevant sentiment analysis
-    """
-    
-    # Use attribution terms data for sentiment analysis
-    if df_attr.empty or text_col not in df_attr.columns:
-        return None, None, None, 0, 0, 0
-    
-    # Sample attribution terms data for sentiment analysis  
-    text_data = [str(x) for x in df_attr[text_col].dropna().tolist()[:50]]  # Sample first 50 for performance
-    
-    # Classify texts using TextBlob sentiment analysis
-    positive_texts = []
-    negative_texts = []
-    neutral_texts = []
-    
-    for text in text_data:
-        try:
-            # Get TextBlob sentiment polarity (-1 to 1)
-            polarity = TextBlob(text).sentiment.polarity
-            
-            # Classify based on polarity thresholds
-            if polarity > 0.1:
-                positive_texts.append(text)
-            elif polarity < -0.1:
-                negative_texts.append(text)
-            else:
-                neutral_texts.append(text)
-        except:
-            # Skip texts that can't be processed
-            continue
-    
-    # Extract words for each sentiment category
-    def extract_words(texts):
-        words = []
-        for text in texts:
-            # Extract meaningful words (3+ characters, alphabetic only)
-            text_words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
-            # Filter out common stop words
-            stop_words = {'the', 'and', 'for', 'are', 'with', 'this', 'that', 'have', 'from', 'they', 'will', 'been', 'said', 'each', 'which', 'their', 'time', 'will', 'about', 'after', 'how', 'its', 'may', 'more', 'new', 'not', 'than', 'two', 'use', 'what', 'when', 'where', 'who', 'but', 'also', 'can', 'get', 'much', 'such', 'been', 'now', 'were', 'would', 'because'}
-            words.extend([w for w in text_words if w not in stop_words])
-        return words
-    
-    # Get words for each sentiment
-    pos_words = extract_words(positive_texts)
-    neg_words = extract_words(negative_texts)
-    neu_words = extract_words(neutral_texts)
-    
-    # Create word clouds using your clean example format
-    def create_wordcloud(words):
-        if not words:
-            return None
-        
-        # Join words into text string for WordCloud
-        word_text = ' '.join(words)
-        if len(word_text.strip()) == 0:
-            return None
-        
-        # Create word cloud using your example format
-        wordcloud = WordCloud(width=400, height=300, background_color='white').generate(word_text)
-        return wordcloud
-    
-    wc_positive = create_wordcloud(pos_words)
-    wc_negative = create_wordcloud(neg_words)
-    wc_neutral = create_wordcloud(neu_words)
-    
-    return wc_positive, wc_neutral, wc_negative, len(positive_texts), len(negative_texts), len(neutral_texts)
-
-# -------------------- Placeholder for CSS - moved later --------------------
-st.markdown("""
-<style>
-    :root {
-        --penta-primary: #12715D;
-        --penta-accent: #4AB48E;
-        --penta-light: #E5F4F1;
-        --penta-lighter: #C8EADF;
-        --penta-dark: #0A473B;
-        --penta-white: #FFFFFF;
-        --penta-bg-texture: #f8fcff;
-    }
-
-    .main .block-container {
-        padding-top: 0.5rem;
-        padding-bottom: 2rem;
-        max-width: 1200px;
-    }
-
-    /* Remove extra white space from header */
-    .stApp > div:first-child > div:first-child {
-        margin-top: 0.5rem !important;
-    }
-
-    h1, h2, h3 {
-        color: var(--penta-dark);
-        font-family: 'Inter','Helvetica Neue',Arial,sans-serif;
-        font-weight: 600;
-    }
-
-    h1 {
-        font-size: 2.5rem;
-        letter-spacing: -0.02em;
-    }
-
-    h2 {
-        font-size: 1.8rem;
-        margin-top: 2rem;
-        margin-bottom: 1rem;
-        background: linear-gradient(135deg, var(--penta-primary) 0%, var(--penta-accent) 100%);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        background-clip: text;
-    }
-
-    h3 {
-        font-size: 1.4rem;
-        margin-top: 1.5rem;
-        margin-bottom: 0.75rem;
-    }
-
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 1rem;
-    }
-
-    .stTabs [data-baseweb="tab"] {
-        background-color: var(--penta-light);
-        border-radius: 8px;
-        padding: 0.75rem 1.5rem;
-        font-weight: 500;
-        color: var(--penta-dark);
-        transition: all 0.3s ease;
-        border: 1px solid rgba(18, 56, 93, 0.1);
-    }
-
-    .stTabs [aria-selected="true"] {
-        background-color: var(--penta-primary);
-        color: var(--penta-white);
-    }
-
-    .stTabs [data-baseweb="tab"]:hover {
-        background-color: var(--penta-accent);
-        color: var(--penta-white);
-        transform: translateY(-2px);
-        box-shadow: 0 4px 8px rgba(18, 113, 93, 0.2);
-    }
-
-    .stButton > button {
-        background-color: var(--penta-primary);
-        color: var(--penta-white);
-        border-radius: 6px;
-        font-weight: 500;
-        transition: all 0.3s ease;
-        box-shadow: 0 2px 4px rgba(18,113,93,0.2);
-        border: none;
-    }
-
-    .stButton > button:hover {
-        background-color: var(--penta-accent);
-        transform: translateY(-1px);
-        box-shadow: 0 4px 8px rgba(18,113,93,0.3);
-    }
-
-    .loading-spinner {
-        display: inline-block;
-        width: 20px;
-        height: 20px;
-        border: 3px solid var(--penta-light);
-        border-radius: 50%;
-        border-top-color: var(--penta-primary);
-        animation: spin 1s ease-in-out infinite;
-    }
-
-    @keyframes spin {
-        to { transform: rotate(360deg); }
-    }
-
-    .pulse-animation {
-        animation: pulse 2s infinite;
-    }
-
-    @keyframes pulse {
-        0%{opacity:1;}
-        50%{opacity:.5;}
-        100%{opacity:1;}
-    }
-
-    .metric-card {
-        background: linear-gradient(135deg, var(--penta-light) 0%, var(--penta-lighter) 100%);
-        border-radius: 12px;
-        padding: 1.5rem;
-        margin: .5rem 0;
-        border-left: 4px solid var(--penta-primary);
-        box-shadow: 0 2px 8px rgba(18, 113, 93, .1);
-        transition: transform .2s ease;
-    }
-
-    .metric-card:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 4px 16px rgba(18, 113, 93,.2);
-    }
-
-    .stDataFrame {
-        border-radius: 12px;
-        overflow: hidden;
-        box-shadow: 0 2px 8px rgba(0,0,0,.1);
-    }
-
-    .stDataFrame th {
-        background: linear-gradient(135deg, var(--penta-primary) 0%, var(--penta-accent) 100%);
-        color: var(--penta-white);
-        font-weight: 600;
-        padding: 12px;
-    }
-
-    .stDataFrame td {
-        padding: 10px 12px;
-        border-bottom: 1px solid var(--penta-light);
-    }
-
-    .success-message {
-        background: linear-gradient(135deg, #4CAF50, #45a049);
-        color: white;
-        padding: 1rem;
-        border-radius: 8px;
-        margin: 1rem 0;
-    }
-
-    .error-message {
-        background: linear-gradient(135deg, #f44336, #d32f2f);
-        color: white;
-        padding: 1rem;
-        border-radius: 8px;
-        margin: 1rem 0;
-    }
-
-    .dark-mode-toggle {
-        position: fixed;
-        top: 20px;
-        right: 20px;
-        z-index: 1000;
-        background: var(--penta-primary);
-        color: var(--penta-white);
-        border: none;
-        border-radius: 50%;
-        width: 50px;
-        height: 50px;
-        cursor: pointer;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.2);
-        transition: all 0.3s ease;
-    }
-
-    .dark-mode-toggle:hover {
-        background: var(--penta-accent);
-        transform: scale(1.1);
-    }
-
-    .stSelectbox > div > div {
-        background-color: rgba(255, 255, 255, 0.95);
-        border-radius: 8px;
-    }
-
-    .stTextInput > div > div > input {
-        background-color: rgba(255, 255, 255, 0.95);
-        border-radius: 8px;
-    }
-</style>
-""", unsafe_allow_html=True)
+    page_title="PolicyPath",
+    layout="wide"
+)
 
 # -------------------- Imports --------------------
 import re
-from pathlib import Path
 from typing import Dict, Optional, Tuple, List, Set
 import pandas as pd
 import altair as alt
 import plotly.express as px
 import plotly.graph_objects as go
 import base64
+import matplotlib.pyplot as plt
+from wordcloud import WordCloud
+from textblob import TextBlob
+from pathlib import Path
+
+# -------------------- CSS Injection --------------------
+def inject_css(path: str = "style.css"):
+    """
+    Load external CSS once (replaces all inline <style> blocks).
+    Searches the app root, then final_deliverable/.
+    """
+    p = Path(path)
+    if not p.exists():
+        fallback = Path("final_deliverable/style.css")
+        p = fallback if fallback.exists() else None
+    if p:
+        st.markdown(f"<style>{p.read_text(encoding='utf-8')}</style>", unsafe_allow_html=True)
+    else:
+        st.warning("Custom style.css not found. Using Streamlit defaults.")
+
+inject_css()
+
+# -------------------- Sentiment Wordclouds --------------------
+def create_sentiment_wordclouds_from_attribution(df_attr: pd.DataFrame, text_col: str = "terms"):
+    """
+    Create word clouds for positive, neutral, and negative sentiment analysis using TextBlob.
+    Uses attribution terms data instead of headlines for more relevant sentiment analysis.
+    """
+    if df_attr is None or df_attr.empty or text_col not in df_attr.columns:
+        return None, None, None, 0, 0, 0
+
+    # sample first 50 for performance
+    text_data = [str(x) for x in df_attr[text_col].dropna().tolist()[:50]]
+
+    positive_texts, negative_texts, neutral_texts = [], [], []
+    for text in text_data:
+        try:
+            polarity = TextBlob(text).sentiment.polarity
+            if polarity > 0.1:
+                positive_texts.append(text)
+            elif polarity < -0.1:
+                negative_texts.append(text)
+            else:
+                neutral_texts.append(text)
+        except Exception:
+            continue
+
+    def extract_words(texts: List[str]) -> List[str]:
+        words: List[str] = []
+        stop_words = {
+            'the', 'and', 'for', 'are', 'with', 'this', 'that', 'have', 'from', 'they', 'will', 'been', 'said',
+            'each', 'which', 'their', 'time', 'about', 'after', 'how', 'its', 'may', 'more', 'new', 'not', 'than',
+            'two', 'use', 'what', 'when', 'where', 'who', 'but', 'also', 'can', 'get', 'much', 'such', 'now', 'were',
+            'would', 'because'
+        }
+        for text in texts:
+            text_words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
+            words.extend([w for w in text_words if w not in stop_words])
+        return words
+
+    pos_words = extract_words(positive_texts)
+    neg_words = extract_words(negative_texts)
+    neu_words = extract_words(neutral_texts)
+
+    def create_wordcloud(words: List[str]):
+        if not words:
+            return None
+        word_text = " ".join(words).strip()
+        if not word_text:
+            return None
+        # keep white background for light theme
+        return WordCloud(width=400, height=300, background_color="white").generate(word_text)
+
+    wc_positive = create_wordcloud(pos_words)
+    wc_negative = create_wordcloud(neg_words)
+    wc_neutral = create_wordcloud(neu_words)
+
+    return wc_positive, wc_neutral, wc_negative, len(positive_texts), len(negative_texts), len(neutral_texts)
 
 # -------------------- App paths (define early; used by Debug/Logo) --------------------
 APP_DIR = Path(__file__).resolve().parent
 ROOT = APP_DIR.parent
 
-# Note: Server options should be set in .streamlit/config.toml or as command line arguments
-# Example config.toml entries:
-# [server]
-# maxMessageSize = 500
-# maxUploadSize = 500
-
 # -------------------- Load Split Dataset Files --------------------
 @st.cache_data
 def load_combined_dataset() -> pd.DataFrame:
-    """Load and combine all split dataset files."""
-    # Put your repo path first for Cloud
+    """Load and combine a subset of split dataset files for memory efficiency."""
     possible_paths = [
         Path("data/processed/split"),
         Path.cwd() / "data" / "processed" / "split",
@@ -336,84 +129,34 @@ def load_combined_dataset() -> pd.DataFrame:
         if fp.exists():
             try:
                 df = pd.read_csv(fp, dtype_backend="pyarrow")
-                
-                # Filter to keep only high-impact observations (top 70% by circulation)
+                # Keep top 70% by circulation (high-impact)
                 if 'circulation_size' in df.columns:
                     df['circulation_size'] = pd.to_numeric(df['circulation_size'], errors='coerce')
                     circulation_threshold = df['circulation_size'].quantile(0.3)
-                    df_filtered = df[df['circulation_size'] >= circulation_threshold]
-                    combined.append(df_filtered)
+                    combined.append(df[df['circulation_size'] >= circulation_threshold])
                 else:
-                    # If no circulation data, keep 70% randomly
-                    df_sample = df.sample(n=int(len(df) * 0.7))
-                    combined.append(df_sample)
+                    combined.append(df.sample(n=int(len(df) * 0.7)))
             except Exception:
-                # Skip bad file but keep loading others
+                # skip bad file but continue
                 pass
 
     if not combined:
         return pd.DataFrame()
 
-    final_df = pd.concat(combined, ignore_index=True)
-    final_df = final_df.drop_duplicates()
+    final_df = pd.concat(combined, ignore_index=True).drop_duplicates()
     files_count = len(combined)
     combined.clear()
-    
-    # Store dataset info for footnote
-    st.session_state.dataset_info = {
-        'rows': len(final_df),
-        'files': files_count
-    }
-    
+
+    st.session_state.dataset_info = {'rows': len(final_df), 'files': files_count}
     return final_df
 
 @st.cache_data
 def get_dataset() -> pd.DataFrame:
-    """Get the combined dataset (cached)."""
     return load_combined_dataset()
-
-# -------------------- Brand styling (CSS) --------------------
-st.markdown("""
-<style>
-    :root {
-        --penta-primary: #12715D;
-        --penta-accent: #4AB48E;
-        --penta-light: #E5F4F1;
-        --penta-lighter: #C8EADF;
-        --penta-dark: #0A473B;
-        --penta-white: #FFFFFF;
-    }
-    .main .block-container { padding-top: 0.5rem; padding-bottom: 2rem; max-width: 1200px; }
-    
-    /* Remove extra white space from header */
-    .stApp > div:first-child > div:first-child {
-        margin-top: 0.5rem !important;
-    }
-    h1, h2, h3 { color: var(--penta-dark); font-family: 'Inter','Helvetica Neue',Arial,sans-serif; font-weight: 600; }
-    h1 { font-size: 2.5rem; letter-spacing: -0.02em; }
-    h2 { font-size: 1.8rem; margin-top: 2rem; margin-bottom: 1rem; }
-    h3 { font-size: 1.4rem; margin-top: 1.5rem; margin-bottom: 0.75rem; }
-    .stTabs [data-baseweb="tab-list"] { gap: 1rem; }
-    .stTabs [data-baseweb="tab"] { background-color: var(--penta-light); border-radius: 8px; padding: 0.75rem 1.5rem; font-weight: 500; color: var(--penta-dark); }
-    .stTabs [aria-selected="true"] { background-color: var(--penta-primary); color: var(--penta-white); }
-    .stButton > button { background-color: var(--penta-primary); color: var(--penta-white); border-radius: 6px; font-weight: 500; transition: all 0.3s ease; box-shadow: 0 2px 4px rgba(18,113,93,0.2); }
-    .stButton > button:hover { background-color: var(--penta-accent); transform: translateY(-1px); box-shadow: 0 4px 8px rgba(18,113,93,0.3); }
-    .loading-spinner { display:inline-block; width:20px; height:20px; border:3px solid var(--penta-light); border-radius:50%; border-top-color:var(--penta-primary); animation:spin 1s ease-in-out infinite; }
-    @keyframes spin { to { transform: rotate(360deg); } }
-    .pulse-animation { animation: pulse 2s infinite; }
-    @keyframes pulse { 0%{opacity:1;} 50%{opacity:.5;} 100%{opacity:1;} }
-    .metric-card { background: linear-gradient(135deg, var(--penta-light) 0%, var(--penta-lighter) 100%); border-radius:12px; padding:1.5rem; margin:.5rem 0; border-left:4px solid var(--penta-primary); box-shadow:0 2px 8px rgba(18,113,93,.1); transition:transform .2s ease; }
-    .metric-card:hover { transform: translateY(-2px); box-shadow:0 4px 16px rgba(18,113,93,.2); }
-    .stDataFrame { border-radius:12px; overflow:hidden; box-shadow:0 2px 8px rgba(0,0,0,.1); }
-    .stDataFrame th { background: linear-gradient(135deg, var(--penta-primary) 0%, var(--penta-accent) 100%); color:var(--penta-white); font-weight:600; padding:12px; }
-    .stDataFrame td { padding:10px 12px; border-bottom:1px solid var(--penta-light); }
-    .success-message { background: linear-gradient(135deg,#4CAF50,#45a049); color:white; padding:1rem; border-radius:8px; margin:1rem 0; }
-    .error-message { background: linear-gradient(135deg,#f44336,#d32f2f); color:white; padding:1rem; border-radius:8px; margin:1rem 0; }
-</style>
-""", unsafe_allow_html=True)
 
 # -------------------- Helpers --------------------
 def apply_penta_style():
+    """Optional Altair defaults (call once if desired)."""
     alt.theme.enable('default')
     alt.data_transformers.disable_max_rows()
     return {
@@ -424,12 +167,6 @@ def apply_penta_style():
         'dark': "#0A473B",
         'white': "#FFFFFF"
     }
-
-def show_success_message(message: str):
-    st.markdown(f"""<div class="success-message">✅ {message}</div>""", unsafe_allow_html=True)
-
-def show_error_message(message: str):
-    st.markdown(f"""<div class="error-message">❌ {message}</div>""", unsafe_allow_html=True)
 
 def add_to_recent_searches(term: str):
     if term and term not in st.session_state.recent_searches:
@@ -446,7 +183,7 @@ def export_data_button(df: pd.DataFrame, filename: str, fmt: str = "csv"):
         return
     if fmt == "csv":
         st.download_button(
-            label=f"📥 Download {filename}.csv",
+            label=f"Download {filename}.csv",
             data=df.to_csv(index=False),
             file_name=f"{filename}.csv",
             mime="text/csv",
@@ -491,9 +228,7 @@ def get_data() -> Tuple[pd.DataFrame, pd.DataFrame, Set[str]]:
     global df_main, df_attr, COLUMNS
     if df_main is None:
         try:
-            df_main = get_dataset()
-            if df_main is None:
-                df_main = pd.DataFrame()
+            df_main = get_dataset() or pd.DataFrame()
             COLUMNS = set(df_main.columns) if not df_main.empty else set()
 
             attr_csv = _find_first_existing(ATTR_NAME, "attribution_all_scored_sample.csv")
@@ -506,18 +241,17 @@ def get_data() -> Tuple[pd.DataFrame, pd.DataFrame, Set[str]]:
             else:
                 df_attr = pd.DataFrame()
         except Exception as e:
-            show_error_message(f"Failed to load data: {e}")
+            st.error(f"Failed to load data: {e}")
             df_main, df_attr, COLUMNS = pd.DataFrame(), pd.DataFrame(), set()
     return df_main, df_attr, COLUMNS
 
 # -------------------- Header / Logo --------------------
 def render_header():
     logo_path = None
-    # Try a few logo locations
     for p in [
         ROOT / "final_deliverable" / "penta_logo.png",
-        ROOT / "data" / "penta_logo.png",
-        LOGO_FALLBACK
+        ROOT / "data" / "penta_logo.png",  # optional extra fallback
+        LOGO_FALLBACK,
     ]:
         if p.exists():
             logo_path = p
@@ -528,95 +262,38 @@ def render_header():
             logo_b64 = base64.b64encode(f.read()).decode("utf-8")
         st.markdown(
             f"""
-            <style>
-            .header-bar {{
-                display: flex; align-items: center; margin-bottom: 2rem; padding: 1rem 0;
-                border-bottom: 2px solid #E5F4F1;
-            }}
-            .penta-logo {{ height: 120px; width: auto; margin-right: 20px; }}
-            .header-title h1 {{
-                margin: 0; color: #0A473B; font-family: 'Inter','Helvetica Neue',Arial,sans-serif;
-                font-weight: 600; font-size: 2.5rem; letter-spacing: -0.02em;
-            }}
-            .header-subtitle {{ color: #12715D; font-size: 1.1rem; font-weight: 400; margin-top: .25rem; }}
-            </style>
             <div class="header-bar">
-                <img src="data:image/png;base64,{logo_b64}" class="penta-logo"/>
+                <img src="data:image/png;base64,{logo_b64}" class="penta-logo" alt="Penta logo"/>
                 <div class="header-title">
                     <h1>PolicyPath</h1>
                     <div class="header-subtitle">Your indispensable guide to healthcare policy influence</div>
                 </div>
-                <div style="margin-left:auto;">
-                </div>
+                <div class="header-spacer"></div>
             </div>
             """,
-            unsafe_allow_html=True
+            unsafe_allow_html=True,
         )
     else:
         st.markdown(
             """
-            <div class="header-bar" style="display:flex; align-items:center; margin-bottom:2rem; padding:1rem 0; border-bottom: 2px solid #E5F4F1;">
+            <div class="header-bar">
                 <div class="header-title">
-                    <h1 style="margin:0; color:#0A473B;">PolicyPath</h1>
-                    <div class="header-subtitle" style="color:#12715D;">Your indispensable guide to healthcare policy influence</div>
+                    <h1>PolicyPath</h1>
+                    <div class="header-subtitle">Your indispensable guide to healthcare policy influence</div>
                 </div>
-                <div style="margin-left:auto;">
-                </div>
+                <div class="header-spacer"></div>
             </div>
             """,
-            unsafe_allow_html=True
+            unsafe_allow_html=True,
         )
 
-# Simple header to avoid startup issues
-st.markdown("# 🏛️ PolicyPath")
-st.markdown("Your indispensable guide to healthcare policy influence")
-st.markdown("---")
-
-# -------------------- Apply Custom Styling --------------------
-st.markdown("""
-<style>
-    :root {
-        --penta-primary: #12715D;
-        --penta-accent: #4AB48E;
-        --penta-light: #E5F4F1;
-        --penta-lighter: #C8EADF;
-        --penta-dark: #0A473B;
-        --penta-white: #FFFFFF;
-    }
-
-    /* Minimize top whitespace */
-    .main .block-container {
-        padding-top: 0rem;
-        padding-bottom: 2rem;
-        max-width: 1200px;
-    }
-    
-    /* Remove header margin */
-    .stApp > div:first-child > div:first-child {
-        margin-top: 0rem !important;
-    }
-    
-    /* Reduce padding on main content area */
-    .main .block-container > div {
-        padding-top: 0rem !important;
-    }
-    
-    /* Minimize space after header */
-    main .block-container {
-        margin-top: 0rem !important;
-    }
-    
-    /* Hide Streamlit's default header padding */
-    .css-1d391kg {
-        padding-top: 0rem !important;
-    }
-</style>
-""", unsafe_allow_html=True)
-
 # -------------------- Main Tabs --------------------
-tab1, tab2, tab3= st.tabs(["PolicyPath", "Paths", "People"])
-    
+render_header()
+tab1, tab2, tab3 = st.tabs(["PolicyPath", "Paths", "People"])
+
 with tab1:
+    _ = apply_penta_style()  # optional; sets Altair defaults
+
     st.markdown("""
     ## PolicyPath
     PolicyPath maps how narratives travel through publications, authors, and channels—pinpointing key voices shaping U.S. healthcare policy.
@@ -625,88 +302,93 @@ with tab1:
     **People**: Explore the network driving influence. 
     *Built by Georgetown University MSBA - Anna Glass, Jasmin Mendoza, Mohammmad Waqas, Mark Saba, Posy Olivetti*
     """)
-    
+
     # Load data for metrics
     df_main, df_attr, COLUMNS = get_data()
-    
+
     # PolicyPath Metrics Dashboard
     if not df_main.empty:
         st.markdown("### 📊 Policy Impact Dashboard")
-        
+
         # Calculate key metrics
         total_pubs = df_main['publication'].nunique() if 'publication' in df_main.columns else 0
         total_authors = df_main['author'].nunique() if 'author' in df_main.columns else 0
         total_articles = len(df_main)
         avg_circulation = df_main['circulation_size'].mean() if 'circulation_size' in df_main.columns else 0
-        
-        # Calculate attribution metrics if available
+
+        # Attribution metrics if available
         if not df_attr.empty and 'credit_share' in df_attr.columns:
             avg_influence = df_attr['credit_share'].mean()
             top_influence = df_attr['credit_share'].max()
         else:
             avg_influence = 0
             top_influence = 0
-        
+
         # Row 1: Content Summary Metrics
         metric1, metric2, metric3 = st.columns(3)
-        
         with metric1:
-            st.markdown(f"""
-            <div style="background-color: #E6F0F8; padding: 1rem; border-radius: 10px; text-align: center; border-left: 4px solid #12715D;">
-                <h4 style="margin: 0; color: #2C3E50;">Total Publications</h4>
-                <h2 style="margin: 0; color: #12715D; font-size: 2.5rem;">{total_pubs:,}</h2>
-                <p style="margin: 0; font-size: 0.9rem; color: #666;">Unique sources</p>
-            </div>
-            """, unsafe_allow_html=True)
-        
+            st.markdown(
+                f"""
+                <div class="metric-card">
+                  <h4>Total Publications</h4>
+                  <div style="font-size:2.5rem;">{total_pubs:,}</div>
+                  <p>Unique sources</p>
+                </div>
+                """, unsafe_allow_html=True
+            )
         with metric2:
-            st.markdown(f"""
-            <div style="background-color: #E6F0F8; padding: 1rem; border-radius: 10px; text-align: center; border-left: 4px solid #12715D;">
-                <h4 style="margin: 0; color: #2C3E50;">Total Authors</h4>
-                <h2 style="margin: 0; color: #12715D; font-size: 2.5rem;">{total_authors:,}</h2>
-                <p style="margin: 0; font-size: 0.9rem; color: #666;">Policy voices</p>
-            </div>
-            """, unsafe_allow_html=True)
-        
+            st.markdown(
+                f"""
+                <div class="metric-card">
+                  <h4>Total Authors</h4>
+                  <div style="font-size:2.5rem;">{total_authors:,}</div>
+                  <p>Policy voices</p>
+                </div>
+                """, unsafe_allow_html=True
+            )
         with metric3:
-            st.markdown(f"""
-            <div style="background-color: #E6F0F8; padding: 1rem; border-radius: 10px; text-align: center; border-left: 4px solid #12715D;">
-                <h4 style="margin: 0; color: #2C3E50;">Total Articles</h4>
-                <h2 style="margin: 0; color: #12715D; font-size: 2.5rem;">{total_articles:,}</h2>
-                <p style="margin: 0; font-size: 0.9rem; color: #666;">Policy narratives</p>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        # Row 2: Influence & Reach Metrics  
+            st.markdown(
+                f"""
+                <div class="metric-card">
+                  <h4>Total Articles</h4>
+                  <div style="font-size:2.5rem;">{total_articles:,}</div>
+                  <p>Policy narratives</p>
+                </div>
+                """, unsafe_allow_html=True
+            )
+
+        # Row 2: Influence & Reach Metrics
         metric4, metric5, metric6 = st.columns(3)
-        
         with metric4:
-            st.markdown(f"""
-            <div style="background-color: #E6F0F8; padding: 1rem; border-radius: 10px; text-align: center; border-left: 4px solid #12715D;">
-                <h4 style="margin: 0; color: #2C3E50;">Avg Circulation</h4>
-                <h2 style="margin: 0; color: #12715D; font-size: 2.5rem;">{avg_circulation:,.0f}</h2>
-                <p style="margin: 0; font-size: 0.9rem; color: #666;">Reach per article</p>
-            </div>
-            """, unsafe_allow_html=True)
-        
+            st.markdown(
+                f"""
+                <div class="metric-card">
+                  <h4>Avg Circulation</h4>
+                  <div style="font-size:2.5rem;">{avg_circulation:,.0f}</div>
+                  <p>Reach per article</p>
+                </div>
+                """, unsafe_allow_html=True
+            )
         with metric5:
-            st.markdown(f"""
-            <div style="background-color: #E6F0F8; padding: 1rem; border-radius: 10px; text-align: center; border-left: 4px solid #12715D;">
-                <h4 style="margin: 0; color: #2C3E50;">Avg Influence</h4>
-                <h2 style="margin: 0; color: #12715D; font-size: 2.5rem;">{avg_influence:#0.1%}</h2>
-                <p style="margin: 0; font-size: 0.9rem; color: #666;">Attribution share</p>
-            </div>
-            """, unsafe_allow_html=True)
-        
+            st.markdown(
+                f"""
+                <div class="metric-card">
+                  <h4>Avg Influence</h4>
+                  <div style="font-size:2.5rem;">{avg_influence:#0.1%}</div>
+                  <p>Attribution share</p>
+                </div>
+                """, unsafe_allow_html=True
+            )
         with metric6:
-            st.markdown(f"""
-            <div style="background-color: #E6F0F8; padding: 1rem; border-radius: 10px; text-align: center; border-left: 4px solid #12715D;">
-                <h4 style="margin: 0; color: #2C3E50;">Peak Influence</h4>
-                <h2 style="margin: 0; color: #12715D; font-size: 2.5rem;">{top_influence:#0.1%}</h2>
-                <p style="margin: 0; font-size: 0.9rem; color: #666;">Top attribution</p>
-            </div>
-            """, unsafe_allow_html=True)
-        
+            st.markdown(
+                f"""
+                <div class="metric-card">
+                  <h4>Peak Influence</h4>
+                  <div style="font-size:2.5rem;">{top_influence:#0.1%}</div>
+                  <p>Top attribution</p>
+                </div>
+                """, unsafe_allow_html=True
+            )
 
     st.subheader("Pulse - Dashboard Overview")
     st.markdown("Monitor the pulse of healthcare policy influence with interactive KPIs and charts.")
@@ -836,7 +518,13 @@ with tab1:
                 if infl_col and infl_col in filtered_df: agg_dict[infl_col] = "mean"
                 if circ_col and circ_col in filtered_df: agg_dict[circ_col] = "sum"
 
-                agg = filtered_df.groupby(dim).agg(agg_dict).reset_index().rename(columns={filtered_df.columns[0]: "n", dim: "dim"})
+                agg = (
+                    filtered_df
+                    .groupby(dim)
+                    .agg(agg_dict)
+                    .reset_index()
+                    .rename(columns={filtered_df.columns[0]: "n", dim: "dim"})
+                )
                 if infl_col and infl_col in agg: agg = agg.rename(columns={infl_col: "avg_influence"})
                 if circ_col and circ_col in agg: agg = agg.rename(columns={circ_col: "total_metric"})
                 agg = agg[agg["dim"].notna()]
@@ -847,23 +535,23 @@ with tab1:
             cA, cB = st.columns(2)
             if not agg.empty:
                 if "avg_influence" in agg.columns:
-                    b1 = alt.Chart(agg.sort_values("avg_influence", ascending=False).head(top_n)).mark_bar(color="#12715D").encode(
+                    b1 = alt.Chart(agg.sort_values("avg_influence", ascending=False).head(top_n)).mark_bar().encode(
                         y=alt.Y("dim:N", sort="-x", title=None),
                         x=alt.X("avg_influence:Q", title="Avg influence"),
                         tooltip=["dim", alt.Tooltip("avg_influence:Q", format=".3f"), "n"],
                     )
-                    b2 = alt.Chart(agg.sort_values("n", ascending=False).head(top_n)).mark_bar(color="#4AB48E").encode(
+                    b2 = alt.Chart(agg.sort_values("n", ascending=False).head(top_n)).mark_bar().encode(
                         y=alt.Y("dim:N", sort="-x", title=None),
                         x=alt.X("n:Q", title="Count"),
                         tooltip=["dim", "n", alt.Tooltip("avg_influence:Q", format=".3f")],
                     )
                 else:
-                    b1 = alt.Chart(agg.sort_values("n", ascending=False).head(top_n)).mark_bar(color="#12715D").encode(
+                    b1 = alt.Chart(agg.sort_values("n", ascending=False).head(top_n)).mark_bar().encode(
                         y=alt.Y("dim:N", sort="-x", title=None),
                         x=alt.X("n:Q", title="Count"),
                         tooltip=["dim", "n"],
                     )
-                    b2 = alt.Chart(agg.sort_values("total_metric", ascending=False).head(top_n)).mark_bar(color="#4AB48E").encode(
+                    b2 = alt.Chart(agg.sort_values("total_metric", ascending=False).head(top_n)).mark_bar().encode(
                         y=alt.Y("dim:N", sort="-x", title=None),
                         x=alt.X("total_metric:Q", title="Total Metric"),
                         tooltip=["dim", "total_metric"],
@@ -873,21 +561,18 @@ with tab1:
             else:
                 st.info("No data for current filters.")
 
-            # Pie
+            # Pie (when avg_influence exists)
             if infl_col and not agg.empty and "avg_influence" in agg.columns:
                 pie_df = agg.sort_values("avg_influence", ascending=False).head(20)
-                fig_pie = px.pie(pie_df, names="dim", values="avg_influence",
-                                 color_discrete_sequence=["#12715D", "#4AB48E", "#CFECE4", "#E7F6F1"])
+                fig_pie = px.pie(pie_df, names="dim", values="avg_influence")
                 fig_pie.update_traces(textinfo="percent+label", pull=[0.02]*len(pie_df))
-                fig_pie.update_layout(height=420, margin=dict(l=10,r=10,t=10,b=10))
+                fig_pie.update_layout(height=420, margin=dict(l=10, r=10, t=10, b=10))
                 st.plotly_chart(fig_pie, use_container_width=True)
 
         st.divider()
 
         # Sankey
-        if not cat_cols:
-            pass
-        else:
+        if cat_cols:
             left, right = st.columns(2)
             src = left.selectbox("Sankey source", cat_cols, index=0, key="sank_src")
             tgt = right.selectbox("Sankey target", cat_cols, index=min(1, len(cat_cols)-1), key="sank_tgt")
@@ -907,34 +592,34 @@ with tab1:
                 nt = filtered_df[[src, tgt]].dropna().copy()
                 nt["s"] = nt[src].apply(lambda x: x if str(x) in keep_s else "Other")
                 nt["t"] = nt[tgt].apply(lambda x: x if str(x) in keep_t else "Other")
-                sdata = nt.groupby(["s","t"]).size().reset_index(name="v").sort_values("v", ascending=False).head(int(max_links))
+                sdata = (
+                    nt.groupby(["s", "t"]).size().reset_index(name="v")
+                    .sort_values("v", ascending=False).head(int(max_links))
+                )
                 if not bucket_other:
                     sdata = sdata[(sdata["s"].isin(keep_s)) & (sdata["t"].isin(keep_t))]
 
                 if not sdata.empty:
                     nodes = pd.Series(pd.concat([sdata["s"], sdata["t"]])).astype(str).unique().tolist()
                     labels_short = [shorten(x) for x in nodes]
-                    idx = {n:i for i,n in enumerate(nodes)}
-                    hc = st.checkbox("High-contrast labels", value=True)
+                    idx = {n: i for i, n in enumerate(nodes)}
 
                     fig = go.Figure(go.Sankey(
                         arrangement="snap",
                         node=dict(
                             label=labels_short,
                             pad=26, thickness=22,
-                            color=["#CFECE4" if hc else "#12715D"] * len(nodes),
-                            line=dict(color="rgba(0,0,0,0)", width=0),
+                            line=dict(),
                         ),
                         link=dict(
                             source=[idx[s] for s in sdata["s"]],
                             target=[idx[t] for t in sdata["t"]],
                             value=sdata["v"],
-                            color="rgba(18,113,93,0.22)" if hc else "rgba(18,113,93,0.35)",
                             hovertemplate="Count: %{value:,}<br>source: %{source.label}<br>target: %{target.label}<extra></extra>",
                         ),
                     ))
                     fig.update_layout(
-                        font=dict(family="Inter, Helvetica, Arial, sans-serif", size=16 if hc else 15, color="#133C35"),
+                        font=dict(family="Inter, Helvetica, Arial, sans-serif", size=16),
                         hoverlabel=dict(font_size=13, font_family="Inter, Helvetica, Arial, sans-serif"),
                         margin=dict(l=8, r=8, t=6, b=6), height=640
                     )
@@ -959,12 +644,12 @@ with tab1:
                 tmp = filtered_df.copy()
                 tmp["_d"] = ts.dt.date
                 if conv_col and conv_col in tmp:
-                    conv = tmp.groupby("_d")[conv_col].sum().reset_index().rename(columns={"_d":"d", conv_col:"y"})
+                    conv = tmp.groupby("_d")[conv_col].sum().reset_index().rename(columns={"_d": "d", conv_col: "y"})
                 else:
-                    conv = tmp.groupby("_d").size().reset_index().rename(columns={"_d":"d", 0:"y"})
+                    conv = tmp.groupby("_d").size().reset_index().rename(columns={"_d": "d", 0: "y"})
                 conv = conv.sort_values("d")
                 if not conv.empty:
-                    chart = alt.Chart(conv).mark_bar(color="#12715D").encode(
+                    chart = alt.Chart(conv).mark_bar().encode(
                         x=alt.X("d:T", title="Date"),
                         y=alt.Y("y:Q", title="Count" if not conv_col else "Conversions")
                     ).properties(height=300).interactive()
@@ -976,7 +661,7 @@ with tab1:
 
         # Sample + Export
         st.markdown("### Data Export")
-        c1, c2= st.columns([2,1])
+        c1, c2 = st.columns([2, 1])
         with c1:
             sample_size = st.slider("Sample Size", 100, 5000, 1000)
         with c2:
@@ -1059,13 +744,13 @@ with tab2:
                                     st.markdown(f"### 📊 Data for: {selected_item}")
                                     c1, c2, c3 = st.columns(3)
                                     with c1:
-                                        st.markdown(f"<div class='metric-card'><h4>Records</h4><div style='font-size:2rem;color:#12715D;'>{len(item_rows):,}</div></div>", unsafe_allow_html=True)
+                                        st.markdown(f"<div class='metric-card'><h4>Records</h4><div style='font-size:2rem;'>{len(item_rows):,}</div></div>", unsafe_allow_html=True)
                                     with c2:
                                         if "circulation_size" in item_rows:
-                                            st.markdown(f"<div class='metric-card'><h4>Avg Circulation</h4><div style='font-size:2rem;color:#12715D;'>{item_rows['circulation_size'].mean():,.0f}</div></div>", unsafe_allow_html=True)
+                                            st.markdown(f"<div class='metric-card'><h4>Avg Circulation</h4><div style='font-size:2rem;'>{item_rows['circulation_size'].mean():,.0f}</div></div>", unsafe_allow_html=True)
                                     with c3:
                                         if "body_token_count" in item_rows:
-                                            st.markdown(f"<div class='metric-card'><h4>Avg Tokens</h4><div style='font-size:2rem;color:#12715D;'>{item_rows['body_token_count'].mean():,.0f}</div></div>", unsafe_allow_html=True)
+                                            st.markdown(f"<div class='metric-card'><h4>Avg Tokens</h4><div style='font-size:2rem;'>{item_rows['body_token_count'].mean():,.0f}</div></div>", unsafe_allow_html=True)
                                     st.dataframe(item_rows, use_container_width=True, height=400)
                                     export_data_button(item_rows, f"{sel_col}_{str(selected_item)[:40]}", "csv")
                                 else:
@@ -1120,17 +805,17 @@ with tab2:
                     st.success(f"Found {len(hits)} articles containing '{term}'")
                     c1, c2, c3 = st.columns(3)
                     with c1:
-                        st.markdown(f"<div class='metric-card'><h4>Total Matches</h4><div style='font-size:2rem;color:#12715D;'>{len(hits):,}</div></div>", unsafe_allow_html=True)
+                        st.markdown(f"<div class='metric-card'><h4>Total Matches</h4><div style='font-size:2rem;'>{len(hits):,}</div></div>", unsafe_allow_html=True)
                     with c2:
                         if "circulation_size" in hits:
-                            st.markdown(f"<div class='metric-card'><h4>Total Reach</h4><div style='font-size:2rem;color:#12715D;'>{hits['circulation_size'].sum():,.0f}</div></div>", unsafe_allow_html=True)
+                            st.markdown(f"<div class='metric-card'><h4>Total Reach</h4><div style='font-size:2rem;'>{hits['circulation_size'].sum():,.0f}</div></div>", unsafe_allow_html=True)
                     with c3:
                         date_cols = [c for c in hits.columns if ("date" in c.lower() or "time" in c.lower())]
                         if date_cols:
                             dc = date_cols[0]
                             try:
                                 dates = pd.to_datetime(hits[dc], errors="coerce").dropna()
-                                st.markdown(f"<div class='metric-card'><h4>Date Span (days)</h4><div style='font-size:2rem;color:#12715D;'>{dates.dt.date.nunique()}</div></div>", unsafe_allow_html=True)
+                                st.markdown(f"<div class='metric-card'><h4>Date Span (days)</h4><div style='font-size:2rem;'>{dates.dt.date.nunique()}</div></div>", unsafe_allow_html=True)
                             except Exception:
                                 pass
                     st.markdown("### 📄 Sample Results")
@@ -1140,83 +825,70 @@ with tab2:
                     st.warning(f"No articles found containing '{term}'.")
             except Exception as e:
                 st.error(f"Error searching for term: {e}")
-        
-        # Add sentiment analysis of attribution terms
+
         st.markdown("---")
         st.markdown("### 📊 Attribution Terms Sentiment Analysis")
         st.markdown("Analyze sentiment patterns in policy attribution terms using TextBlob")
-        
+
         if not df_attr.empty:
-            # Check if we have terms column or similar
             terms_cols = [c for c in df_attr.columns if any(k in c.lower() for k in ['terms', 'term', 'text', 'content'])]
-            
             if terms_cols:
                 selected_terms_col = st.selectbox("Select attribution terms column", terms_cols, key="sentiment_col_selector")
-                
-                # Generate sentiment analysis word clouds
                 try:
                     result = create_sentiment_wordclouds_from_attribution(df_attr, selected_terms_col)
-                    
                     if result[0] is None:
                         st.info("📦 Required libraries installing... Showing simplified analysis.")
                         sentiment_col1, sentiment_col2, sentiment_col3 = st.columns(3)
-                        
                         with sentiment_col1:
                             st.markdown("#### 🟢 Positive Attribution Terms")
                             st.markdown("innovation • progress • benefit • solution • improvement")
-                        
                         with sentiment_col2:
-                            st.markdown("#### 🟡 Neutral Attribution Terms") 
+                            st.markdown("#### 🟡 Neutral Attribution Terms")
                             st.markdown("analysis • report • study • data • research")
-                        
                         with sentiment_col3:
                             st.markdown("#### 🔴 Negative Attribution Terms")
                             st.markdown("concern • issue • challenge • risk • problem")
                     else:
-                        # Real word clouds available
                         wc_positive, wc_neutral, wc_negative, pos_count, neu_count, neg_count = result
-                        
                         cloud1, cloud2, cloud3 = st.columns(3)
-                        
+
                         with cloud1:
                             st.markdown(f"#### 🟢 Positive Attribution Terms ({pos_count} terms)")
                             if wc_positive:
                                 plt.imshow(wc_positive, interpolation='bilinear')
                                 plt.axis("off")
-                                plt.title("Positive Attribution Terms", fontsize=10, color='#4CAF50')
+                                plt.title("Positive Attribution Terms", fontsize=10)
                                 st.pyplot()
                                 plt.close()
                             else:
                                 st.info("No positive attribution terms found")
-                        
+
                         with cloud2:
                             st.markdown(f"#### 🟡 Neutral Attribution Terms ({neu_count} terms)")
                             if wc_neutral:
                                 plt.imshow(wc_neutral, interpolation='bilinear')
                                 plt.axis("off")
-                                plt.title("Neutral Attribution Terms", fontsize=10, color='#FF9800')
+                                plt.title("Neutral Attribution Terms", fontsize=10)
                                 st.pyplot()
                                 plt.close()
                             else:
                                 st.info("No neutral attribution terms found")
-                        
+
                         with cloud3:
                             st.markdown(f"#### 🔴 Negative Attribution Terms ({neg_count} terms)")
                             if wc_negative:
                                 plt.imshow(wc_negative, interpolation='bilinear')
                                 plt.axis("off")
-                                plt.title("Negative Attribution Terms", fontsize=10, color='#F44336')
+                                plt.title("Negative Attribution Terms", fontsize=10)
                                 st.pyplot()
                                 plt.close()
                             else:
                                 st.info("No negative attribution terms found")
-                        
-                        # Summary statistics
+
                         total_terms = pos_count + neu_count + neg_count
                         if total_terms > 0:
                             st.markdown("---")
                             summary_col1, summary_col2, summary_col3, summary_col4 = st.columns(4)
-                            
                             with summary_col1:
                                 st.metric("Total Terms", f"{total_terms:,}")
                             with summary_col2:
@@ -1225,21 +897,16 @@ with tab2:
                                 st.metric("Neutral %", f"{(neu_count/total_terms)*100:.1f}%")
                             with summary_col4:
                                 st.metric("Negative %", f"{(neg_count/total_terms)*100:.1f}%")
-                            
                 except Exception as e:
                     st.error(f"Error in attribution sentiment analysis: {e}")
-                    # Fallback
                     st.info("Using fallback attribution sentiment analysis")
                     sentiment_col1, sentiment_col2, sentiment_col3 = st.columns(3)
-                    
                     with sentiment_col1:
                         st.markdown("#### 🟢 Positive Attribution Terms")
                         st.markdown("innovation • progress • benefit • solution • improvement")
-                    
                     with sentiment_col2:
-                        st.markdown("#### 🟡 Neutral Attribution Terms") 
+                        st.markdown("#### 🟡 Neutral Attribution Terms")
                         st.markdown("analysis • report • study • data • research")
-                    
                     with sentiment_col3:
                         st.markdown("#### 🔴 Negative Attribution Terms")
                         st.markdown("concern • issue • challenge • risk • problem")
@@ -1264,7 +931,7 @@ with tab3:
         except Exception:
             edges = pd.read_csv(edges_path)
 
-        required = {"source","target","weight"}
+        required = {"source", "target", "weight"}
         if required.issubset(set(edges.columns)):
             st.write("Edges sample:")
             st.dataframe(edges.head(200), use_container_width=True)
@@ -1299,9 +966,12 @@ with tab3:
 # -------------------- Dataset Footnote --------------------
 if 'dataset_info' in st.session_state:
     st.markdown("---")
-    st.markdown(f"""
-    <div style="font-size: 0.8em; color: #666; text-align: center; margin-top: 2rem;">
-        Dataset: {st.session_state.dataset_info['rows']:,} observations from {st.session_state.dataset_info['files']} files. 
-        Filtered to show top 70% by circulation size for high-impact analysis.
-    </div>
-    """, unsafe_allow_html=True)
+    st.markdown(
+        f"""
+        <div style="font-size: 0.8em; text-align: center; margin-top: 2rem;">
+            Dataset: {st.session_state.dataset_info['rows']:,} observations from {st.session_state.dataset_info['files']} files.
+            Filtered to show top 70% by circulation size for high-impact analysis.
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
