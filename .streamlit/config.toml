@@ -1,0 +1,23 @@
+[server]
+headless = true
+enableCORS = false
+enableXsrfProtection = false
+
+[browser]
+gatherUsageStats = false
+
+[logger]
+level = "info"
+
+[global]
+developmentMode = false
+
+[client]
+showErrorDetails = true
+
+[runner]
+magicEnabled = false
+installTracer = false
+
+[theme]
+base = "light"
