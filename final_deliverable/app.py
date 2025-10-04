@@ -6,6 +6,221 @@ from __future__ import annotations
 import streamlit as st
 st.set_page_config(page_title="🏛️PolicyPath", layout="wide")
 
+# -------------------- Custom CSS for light blue textured background --------------------
+st.markdown("""
+<style>
+    :root {
+        --penta-primary: #12715D;
+        --penta-accent: #4AB48E;
+        --penta-light: #E5F4F1;
+        --penta-lighter: #C8EADF;
+        --penta-dark: #0A473B;
+        --penta-white: #FFFFFF;
+        --penta-bg-texture: #f8fcff;
+    }
+
+    /* Main background with textured light blue */
+    .stApp {
+        background: var(--penta-bg-texture);
+        background-image:
+            radial-gradient(circle at 20% 80%, rgba(120, 220, 255, 0.1) 0%, transparent 50%),
+            radial-gradient(circle at 80% 20%, rgba(120, 220, 255, 0.15) 0%, transparent 50%),
+            radial-gradient(circle at 40% 40%, rgba(120, 220, 255, 0.05) 0%, transparent 50%);
+        background-size: 400px 400px, 600px 600px, 800px 800px;
+        background-position: 0 0, 100px 100px, 200px 200px;
+        background-attachment: fixed;
+    }
+
+    .main .block-container {
+        padding-top: 0.5rem;
+        padding-bottom: 2rem;
+        max-width: 1200px;
+        background: rgba(255, 255, 255, 0.9);
+        border-radius: 12px;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+        backdrop-filter: blur(10px);
+    }
+
+    /* Remove extra white space from header */
+    .stApp > div:first-child > div:first-child {
+        margin-top: 0.5rem !important;
+    }
+
+    h1, h2, h3 {
+        color: var(--penta-dark);
+        font-family: 'Inter','Helvetica Neue',Arial,sans-serif;
+        font-weight: 600;
+    }
+
+    h1 {
+        font-size: 2.5rem;
+        letter-spacing: -0.02em;
+    }
+
+    h2 {
+        font-size: 1.8rem;
+        margin-top: 2rem;
+        margin-bottom: 1rem;
+        background: linear-gradient(135deg, var(--penta-primary) 0%, var(--penta-accent) 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+    }
+
+    h3 {
+        font-size: 1.4rem;
+        margin-top: 1.5rem;
+        margin-bottom: 0.75rem;
+    }
+
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 1rem;
+    }
+
+    .stTabs [data-baseweb="tab"] {
+        background-color: var(--penta-light);
+        border-radius: 8px;
+        padding: 0.75rem 1.5rem;
+        font-weight: 500;
+        color: var(--penta-dark);
+        transition: all 0.3s ease;
+        border: 1px solid rgba(18, 56, 93, 0.1);
+    }
+
+    .stTabs [aria-selected="true"] {
+        background-color: var(--penta-primary);
+        color: var(--penta-white);
+    }
+
+    .stTabs [data-baseweb="tab"]:hover {
+        background-color: var(--penta-accent);
+        color: var(--penta-white);
+        transform: translateY(-2px);
+        box-shadow: 0 4px 8px rgba(18, 113, 93, 0.2);
+    }
+
+    .stButton > button {
+        background-color: var(--penta-primary);
+        color: var(--penta-white);
+        border-radius: 6px;
+        font-weight: 500;
+        transition: all 0.3s ease;
+        box-shadow: 0 2px 4px rgba(18,113,93,0.2);
+        border: none;
+    }
+
+    .stButton > button:hover {
+        background-color: var(--penta-accent);
+        transform: translateY(-1px);
+        box-shadow: 0 4px 8px rgba(18,113,93,0.3);
+    }
+
+    .loading-spinner {
+        display: inline-block;
+        width: 20px;
+        height: 20px;
+        border: 3px solid var(--penta-light);
+        border-radius: 50%;
+        border-top-color: var(--penta-primary);
+        animation: spin 1s ease-in-out infinite;
+    }
+
+    @keyframes spin {
+        to { transform: rotate(360deg); }
+    }
+
+    .pulse-animation {
+        animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+        0%{opacity:1;}
+        50%{opacity:.5;}
+        100%{opacity:1;}
+    }
+
+    .metric-card {
+        background: linear-gradient(135deg, var(--penta-light) 0%, var(--penta-lighter) 100%);
+        border-radius: 12px;
+        padding: 1.5rem;
+        margin: .5rem 0;
+        border-left: 4px solid var(--penta-primary);
+        box-shadow: 0 2px 8px rgba(18, 113, 93, .1);
+        transition: transform .2s ease;
+    }
+
+    .metric-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 16px rgba(18, 113, 93,.2);
+    }
+
+    .stDataFrame {
+        border-radius: 12px;
+        overflow: hidden;
+        box-shadow: 0 2px 8px rgba(0,0,0,.1);
+    }
+
+    .stDataFrame th {
+        background: linear-gradient(135deg, var(--penta-primary) 0%, var(--penta-accent) 100%);
+        color: var(--penta-white);
+        font-weight: 600;
+        padding: 12px;
+    }
+
+    .stDataFrame td {
+        padding: 10px 12px;
+        border-bottom: 1px solid var(--penta-light);
+    }
+
+    .success-message {
+        background: linear-gradient(135deg, #4CAF50, #45a049);
+        color: white;
+        padding: 1rem;
+        border-radius: 8px;
+        margin: 1rem 0;
+    }
+
+    .error-message {
+        background: linear-gradient(135deg, #f44336, #d32f2f);
+        color: white;
+        padding: 1rem;
+        border-radius: 8px;
+        margin: 1rem 0;
+    }
+
+    .dark-mode-toggle {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        z-index: 1000;
+        background: var(--penta-primary);
+        color: var(--penta-white);
+        border: none;
+        border-radius: 50%;
+        width: 50px;
+        height: 50px;
+        cursor: pointer;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+        transition: all 0.3s ease;
+    }
+
+    .dark-mode-toggle:hover {
+        background: var(--penta-accent);
+        transform: scale(1.1);
+    }
+
+    .stSelectbox > div > div {
+        background-color: rgba(255, 255, 255, 0.95);
+        border-radius: 8px;
+    }
+
+    .stTextInput > div > div > input {
+        background-color: rgba(255, 255, 255, 0.95);
+        border-radius: 8px;
+    }
+</style>
+""", unsafe_allow_html=True)
+
 # -------------------- Imports --------------------
 import re
 from pathlib import Path
@@ -32,8 +247,11 @@ def load_combined_dataset() -> pd.DataFrame:
     """Load and combine all split dataset files."""
     # Put your repo path first for Cloud
     possible_paths = [
-        Path("final_deliverable/data/split"),
-        Path.cwd() / "final_deliverable" / "data" / "split",
+        Path("data/processed/split"),
+        Path.cwd() / "data" / "processed" / "split",
+        Path("../data/processed/split"),
+        APP_DIR.parent / "data" / "processed" / "split",
+        APP_DIR.parent.parent / "data" / "processed" / "split",
         Path("data/split"),
         Path.cwd() / "data" / "split",
         APP_DIR / "data" / "split",
@@ -80,7 +298,12 @@ st.markdown("""
         --penta-dark: #0A473B;
         --penta-white: #FFFFFF;
     }
-    .main .block-container { padding-top: 2rem; padding-bottom: 2rem; max-width: 1200px; }
+    .main .block-container { padding-top: 0.5rem; padding-bottom: 2rem; max-width: 1200px; }
+    
+    /* Remove extra white space from header */
+    .stApp > div:first-child > div:first-child {
+        margin-top: 0.5rem !important;
+    }
     h1, h2, h3 { color: var(--penta-dark); font-family: 'Inter','Helvetica Neue',Arial,sans-serif; font-weight: 600; }
     h1 { font-size: 2.5rem; letter-spacing: -0.02em; }
     h2 { font-size: 1.8rem; margin-top: 2rem; margin-bottom: 1rem; }
@@ -291,85 +514,6 @@ def render_header():
 
 render_header()
 apply_penta_style()
-
-# -------------------- Debug Information (safe on Cloud) --------------------
-with st.expander("🔧 Debug Information", expanded=False):
-    st.write("**Current working directory:**", Path.cwd())
-    st.write("**App file location:**", APP_DIR)
-    st.write("**Root directory:**", ROOT)
-    # Show which split dirs exist
-    paths = [
-        Path("final_deliverable/data/split"),
-        Path.cwd() / "final_deliverable" / "data" / "split",
-        Path("data/split"),
-        Path.cwd() / "data" / "split",
-        APP_DIR / "data" / "split",
-        APP_DIR.parent / "data" / "split",
-        Path.cwd().parent / "data" / "split",
-        Path("../data/split"),
-    ]
-    st.write("**Split file locations:**")
-    for p in paths:
-        exists = p.exists()
-        st.write(f"- {p.resolve()}: {'✅ EXISTS' if exists else '❌ NOT FOUND'}")
-        if exists:
-            files = list(p.glob("final_model_dataset_part_*.csv"))
-            st.write(f"  Found {len(files)} split files")
-
-# -------------------- Sidebar --------------------
-with st.sidebar:
-    st.markdown("### 🚀 Quick Actions")
-    quick_search = st.text_input("🔍 Quick Search", placeholder="Search publications, authors, terms...", key="sidebar_search")
-
-    # Suggestions (pandas-only)
-    if quick_search and len(quick_search) >= 2:
-        try:
-            df_main, _, _ = get_data()
-            cols = df_main.columns.tolist() if not df_main.empty else []
-            search_cols = [c for c in cols if any(k in c.lower() for k in ["publication", "author", "headline", "body", "channel"])]
-            suggs: List[str] = []
-            for c in search_cols[:3]:
-                s = df_main[c].astype("string[pyarrow]", errors="ignore") if c in df_main else pd.Series([], dtype="string[pyarrow]")
-                mask = s.fillna("").str.contains(quick_search, case=False, na=False)
-                suggs.extend(s[mask].dropna().drop_duplicates().head(2).tolist())
-            unique = list(dict.fromkeys([str(x) for x in suggs]))[:5]
-            if unique:
-                st.markdown("**💡 Quick Suggestions:**")
-                for i, s in enumerate(unique):
-                    label = s[:25] + "..." if len(s) > 25 else s
-                    if st.button(f"🔍 {label}", key=f"qs_{i}", help=f"Search for: {s}"):
-                        st.session_state.current_search = s
-                        st.rerun()
-        except Exception as e:
-            st.warning(f"Error getting suggestions: {e}")
-
-    if quick_search:
-        add_to_recent_searches(quick_search)
-        st.session_state.current_search = quick_search
-
-    st.markdown("---")
-    st.markdown("### 💾 Saved Views")
-    if st.session_state.saved_views:
-        for name, data in st.session_state.saved_views.items():
-            if st.button(f"📁 {name}", key=f"sv_{name}"):
-                st.session_state.current_view = name
-                st.rerun()
-    else:
-        st.info("No saved views yet. Create one from the main tabs!")
-
-    st.markdown("---")
-    st.markdown("### ⭐ Favorites")
-    if st.session_state.favorites:
-        for fav in st.session_state.favorites[:5]:
-            if st.button(f"⭐ {fav}", key=f"fav_{fav}"):
-                st.session_state.current_search = fav
-                st.rerun()
-    else:
-        st.info("No favorites yet. Start searching to build your favorites!")
-
-    st.markdown("---")
-    st.markdown("### ℹ️ About PolicyPath")
-    st.markdown("**Built by**: Georgetown University MSBA - Anna Glass, Jasmin Mendoza, Mohammmad Waqas, Mark Saba, Posy Olivetti")
 
 # -------------------- Main Tabs --------------------
 tab1, tab2, tab3, tab4 = st.tabs(["🏛️PolicyPath", "🎯 Paths", "📊 Pulse", "🕸️ People"])

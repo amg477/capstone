@@ -1,7 +1,5 @@
-azure-storage-blob>=12.20  # only needed if you use Azure mode
-streamlit>=1.37
-duckdb>=1.4
-pandas>=2.2
-matplotlib>=3.8
-seaborn>=0.13
-plotly>=5.24 
+streamlit==1.50.0
+pandas>=2.0.0
+numpy>=1.24.0
+pyarrow>=10.0.0
+plotly>=5.0.0
