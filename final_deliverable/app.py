@@ -524,8 +524,8 @@ st.markdown("""
 
 # -------------------- Main Tabs --------------------
 tab1, tab2, tab3, tab4 = st.tabs(["🏛️PolicyPath", "🎯 Paths", "📊 Pulse", "🕸️ People"])
-    
-    with tab1:
+
+with tab1:
     st.markdown("""
     ## Welcome to 🏛️PolicyPath
     **Your indispensable guide to healthcare policy influence**
