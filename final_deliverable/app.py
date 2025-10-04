@@ -265,12 +265,10 @@ def load_combined_dataset() -> pd.DataFrame:
                     circulation_threshold = df['circulation_size'].quantile(0.3)
                     df_filtered = df[df['circulation_size'] >= circulation_threshold]
                     combined.append(df_filtered)
-                    st.info(f"✅ {fp.name}: {len(df_filtered):,} high-impact rows")
                 else:
                     # If no circulation data, keep 70% randomly
                     df_sample = df.sample(n=int(len(df) * 0.7))
                     combined.append(df_sample)
-                    st.info(f"📁 {fp.name}: {len(df_sample):,} sampled rows")
             except Exception:
                 # Skip bad file but keep loading others
                 pass
@@ -283,8 +281,11 @@ def load_combined_dataset() -> pd.DataFrame:
     files_count = len(combined)
     combined.clear()
     
-    st.success(f"🎯 Loaded {len(final_df):,} high-impact observations from {files_count} files")
-    st.info("💡 Filtering strategy: Kept top 70% by circulation size per file")
+    # Store dataset info for footnote
+    st.session_state.dataset_info = {
+        'rows': len(final_df),
+        'files': files_count
+    }
     
     return final_df
 
@@ -523,8 +524,8 @@ st.markdown("""
 
 # -------------------- Main Tabs --------------------
 tab1, tab2, tab3, tab4 = st.tabs(["🏛️PolicyPath", "🎯 Paths", "📊 Pulse", "🕸️ People"])
-
-with tab1:
+    
+    with tab1:
     st.markdown("""
     ## Welcome to 🏛️PolicyPath
     **Your indispensable guide to healthcare policy influence**
@@ -535,8 +536,8 @@ with tab1:
     🕸️ **People**: Explore the network driving influence
     *Built by Georgetown University MSBA - Anna Glass, Jasmin Mendoza, Mohammmad Waqas, Mark Saba, Posy Olivetti*
     """)
-
-with tab2:
+    
+    with tab2:
     st.subheader("🎯 Paths - Attribution Analysis")
     st.markdown("Discover the influence pathways in healthcare policy and understand impact patterns.")
 
@@ -661,7 +662,7 @@ with tab2:
                                 st.session_state["selected_term"] = v
                                 st.rerun()
                     st.markdown("---")
-            except Exception as e:
+    except Exception as e:
                 st.warning(f"Error getting term suggestions: {e}")
 
         if "selected_term" in st.session_state:
@@ -669,7 +670,7 @@ with tab2:
             st.success(f"Selected term: {term}")
             if st.button("Clear Term Selection", key="clear_term"):
                 del st.session_state["selected_term"]
-                st.rerun()
+            st.rerun()
 
         if term and not df_main.empty:
             add_to_recent_searches(f"Term: {term}")
@@ -704,7 +705,7 @@ with tab2:
                     with c2: export_data_button(hits, f"term_search_{term[:40]}", "json")
                 else:
                     st.warning(f"No articles found containing '{term}'.")
-            except Exception as e:
+    except Exception as e:
                 st.error(f"Error searching for term: {e}")
 
 with tab3:
@@ -1048,3 +1049,13 @@ with tab4:
             st.warning("network_edges.csv found but must contain columns: source, target, weight")
     else:
         st.info("No network_edges.csv found. Place one under data/ or data/processed with columns: source,target,weight.")
+
+# -------------------- Dataset Footnote --------------------
+if 'dataset_info' in st.session_state:
+    st.markdown("---")
+    st.markdown(f"""
+    <div style="font-size: 0.8em; color: #666; text-align: center; margin-top: 2rem;">
+        Dataset: {st.session_state.dataset_info['rows']:,} observations from {st.session_state.dataset_info['files']} files. 
+        Filtered to show top 70% by circulation size for high-impact analysis.
+    </div>
+    """, unsafe_allow_html=True)
