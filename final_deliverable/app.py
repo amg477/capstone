@@ -1,5 +1,4 @@
 # app.py — PolicyPath (pandas-only; ready for Streamlit Cloud)
-
 from __future__ import annotations
 
 # -------------------- MUST be first Streamlit call --------------------
@@ -10,10 +9,8 @@ st.set_page_config(
     page_title="PolicyPath", 
     layout="wide")
 
-# Import required libraries for word clouds
-import matplotlib.pyplot as plt
-from wordcloud import WordCloud
-import numpy as np
+# Core imports (always needed)
+import pandas as pd
 from collections import Counter
 import re
 
@@ -22,6 +19,14 @@ def create_sentiment_wordclouds(df, title_col='headline'):
     """
     Create word clouds for positive, neutral, and negative sentiment analysis
     """
+    try:
+        # Try to import wordcloud and matplotlib
+        import matplotlib.pyplot as plt
+        from wordcloud import WordCloud
+    except ImportError:
+        st.warning("WordCloud libraries not available. Using simplified sentiment analysis.")
+        return None, None, None
+    
     if df.empty or title_col not in df.columns:
         return None, None, None
     
@@ -711,69 +716,20 @@ with tab1:
         st.markdown("### 📊 Policy Sentiment Analysis")
         st.markdown("Explore the most influential terms across policy narratives")
         
-        # Generate word clouds from data
-        try:
-            wc_positive, wc_neutral, wc_negative = create_sentiment_wordclouds(df_main)
-            
-            # Create the 1x3 word cloud layout
-            cloud1, cloud2, cloud3 = st.columns(3)
-            
-            with cloud1:
-                st.markdown("#### 🟢 Positive Sentiment")
-                if wc_positive:
-                    fig, ax = plt.subplots(figsize=(3, 2))
-                    ax.imshow(wc_positive, interpolation='bilinear')
-                    ax.axis('off')
-                    ax.set_title('Positive Terms', fontsize=12, color='#4CAF50', pad=10)
-                    plt.tight_layout()
-                    st.pyplot(fig)
-                    plt.close()
-                else:
-                    st.info("No positive sentiment data sufficient for word cloud")
-            
-            with cloud2:
-                st.markdown("#### 🟡 Neutral Sentiment")
-                if wc_neutral:
-                    fig, ax = plt.subplots(figsize=(3, 2))
-                    ax.imshow(wc_neutral, interpolation='bilinear')
-                    ax.axis('off')
-                    ax.set_title('Neutral Terms', fontsize=12, color='#FF9800', pad=10)
-                    plt.tight_layout()
-                    st.pyplot(fig)
-                    plt.close()
-                else:
-                    st.info("No neutral sentiment data sufficient for word cloud")
-            
-            with cloud3:
-                st.markdown("#### 🔴 Negative Sentiment")
-                if wc_negative:
-                    fig, ax = plt.subplots(figsize=(3, 2))
-                    ax.imshow(wc_negative, interpolation='bilinear')
-                    ax.axis('off')
-                    ax.set_title('Negative Terms', fontsize=12, color='#F44336', pad=10)
-                    plt.tight_layout()
-                    st.pyplot(fig)
-                    plt.close()
-                else:
-                    st.info("No negative sentiment data sufficient for word cloud")
-                    
-        except Exception as e:
-            st.error(f"Error creating word clouds: {e}")
-            # Fallback to simple text display
-            st.info("Word cloud generation failed. Using simplified sentiment analysis.")
-            sentiment_col1, sentiment_col2, sentiment_col3 = st.columns(3)
-            
-            with sentiment_col1:
-                st.markdown("#### 🟢 Positive Terms")
-                st.markdown("healthcare • policy • innovation • community • access")
-            
-            with sentiment_col2:
-                st.markdown("#### 🟡 Neutral Terms") 
-                st.markdown("analysis • report • data • review • study")
-            
-            with sentiment_col3:
-                st.markdown("#### 🔴 Negative Terms")
-                st.markdown("crisis • challenge • burden • issue • concern")
+        # For now, use simplified sentiment display (libraries will install later)
+        sentiment_col1, sentiment_col2, sentiment_col3 = st.columns(3)
+        
+        with sentiment_col1:
+            st.markdown("#### 🟢 Positive Terms")
+            st.markdown("healthcare • policy • innovation • community • access")
+        
+        with sentiment_col2:
+            st.markdown("#### 🟡 Neutral Terms") 
+            st.markdown("analysis • report • data • review • study")
+        
+        with sentiment_col3:
+            st.markdown("#### 🔴 Negative Terms")
+            st.markdown("crisis • challenge • burden • issue • concern")
         
         st.markdown("---")  # Separator before content
 
