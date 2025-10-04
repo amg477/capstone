@@ -11,7 +11,8 @@ warnings.filterwarnings("ignore")
 st.set_page_config(
     page_title="🏛️PolicyPath", 
     layout="wide",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="collapsed",
+    page_icon="🏛️"
 )
 
 # -------------------- Placeholder for CSS - moved later --------------------
@@ -482,8 +483,13 @@ def render_header():
             unsafe_allow_html=True
         )
 
-render_header()
-apply_penta_style()
+try:
+    render_header()
+    apply_penta_style()
+except Exception as e:
+    st.error(f"Header error: {e}")
+    st.markdown("# 🏛️ PolicyPath")
+    st.markdown("Your indispensable guide to healthcare policy influence")
 
 # -------------------- Apply Custom Styling --------------------
 st.markdown("""
