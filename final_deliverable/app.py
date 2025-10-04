@@ -180,8 +180,21 @@ def add_to_recent_searches(term: str):
         st.session_state.recent_searches = st.session_state.recent_searches[:10]
 
 def shorten(label: str, max_len: int = 28) -> str:
-    s = str(label)
-    return s if len(s) <= max_len else s[:max_len-1] + "…"
+    s = str(label).strip()
+    if len(s) <= max_len:
+        return s
+    # Try to break at word boundaries for better readability
+    if ' ' in s:
+        words = s.split()
+        result = ""
+        for word in words:
+            if len(result + " " + word) <= max_len - 1:
+                result += (" " + word) if result else word
+            else:
+                break
+        if result:
+            return result + "…"
+    return s[:max_len-1] + "…"
 
 def export_data_button(df: pd.DataFrame, filename: str, fmt: str = "csv"):
     if df is None or df.empty:
@@ -658,31 +671,43 @@ with tab1:
                             arrangement="snap",
                             node=dict(
                                 label=labels_short,
-                                pad=30, 
-                                thickness=25,
-                                line=dict(width=1, color="rgba(0,0,0,0.2)"),
+                                pad=35, 
+                                thickness=30,
+                                line=dict(width=0.5, color="rgba(0,0,0,0.1)"),
                                 color=node_colors,
                             ),
                             link=dict(
                                 source=[idx[s] for s in sdata_clean["s"]],
                                 target=[idx[t] for t in sdata_clean["t"]],
                                 value=sdata_clean["v"],
-                                color="rgba(0,0,0,0.3)",  # Subtle link colors
+                                color="rgba(0,0,0,0.2)",
                                 hovertemplate="<b>%{source.label}</b> → <b>%{target.label}</b><br>Count: %{value:,}<extra></extra>",
                             ),
                         ))
                         fig.update_layout(
-                            font=dict(family="Inter, Helvetica, Arial, sans-serif", size=14),
-                            hoverlabel=dict(
-                                font_size=12, 
-                                font_family="Inter, Helvetica, Arial, sans-serif",
-                                bgcolor="rgba(255,255,255,0.9)",
-                                bordercolor="rgba(0,0,0,0.1)"
+                            title=dict(
+                                text=f"Flow Analysis: {src} → {tgt}",
+                                font=dict(size=18, color="black", family="Arial, sans-serif"),
+                                x=0.5,
+                                xanchor="center"
                             ),
-                            margin=dict(l=20, r=20, t=40, b=20), 
-                            height=500,
-                            plot_bgcolor="rgba(0,0,0,0)",
-                            paper_bgcolor="rgba(0,0,0,0)"
+                            font=dict(
+                                family="Arial, sans-serif", 
+                                size=16,
+                                color="black"
+                            ),
+                            hoverlabel=dict(
+                                font_size=13, 
+                                font_family="Arial, sans-serif",
+                                font_color="black",
+                                bgcolor="rgba(255,255,255,0.95)",
+                                bordercolor="rgba(0,0,0,0.2)",
+                                borderwidth=1
+                            ),
+                            margin=dict(l=40, r=40, t=80, b=40), 
+                            height=600,
+                            plot_bgcolor="white",
+                            paper_bgcolor="white"
                         )
                         st.plotly_chart(fig, use_container_width=True)
                     else:
@@ -823,7 +848,7 @@ with tab2:
                     except Exception as e:
                         st.error(f"Error searching: {e}")
     else:
-        st.markdown("###Term Search")
+        st.markdown("### Term Search")
         term = st.text_input("Type a term to search", placeholder="Enter a policy term or keyword...")
         if term and len(term) >= 2 and not df_main.empty:
             try:
