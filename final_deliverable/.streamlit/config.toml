@@ -1,6 +1,6 @@
 [theme]
-primaryColor = "#4682B4" 
-backgroundColor = "#E6F0F8" 
-secondaryBackgroundColor = "#C9D6DF" 
-textColor = "#2C3E50" 
-font = "sans serif" 
+primaryColor="#00A3A3"      # --penta-teal
+backgroundColor="#F7F7F5"   # --penta-cream
+secondaryBackgroundColor="#FFFFFF"
+textColor="#142536"         # --penta-ink
+font="sans serif"

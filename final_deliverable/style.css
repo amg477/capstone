@@ -11,6 +11,19 @@
    - Large headings >= 3:1
 */
 
+.header-bar {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 2rem;
+    padding: 1rem 0;
+    border-bottom: 2px solid var(--penta-light);
+  }
+  .penta-logo { height: 120px; width: auto; }
+  .header-title h1 { margin: 0; color: var(--penta-dark); font-weight: 800; letter-spacing: -0.02em; }
+  .header-subtitle { color: var(--penta-primary); font-size: 1.05rem; font-weight: 500; margin-top: .25rem; }
+  .header-spacer { margin-left: auto; }
+  
 /* ---------- Brand Tokens ---------- */
 :root {
     /* CORE */
