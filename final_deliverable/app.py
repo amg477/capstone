@@ -24,21 +24,27 @@ from textblob import TextBlob
 from pathlib import Path
 
 # -------------------- CSS Injection --------------------
+@st.cache_resource
 def inject_css(path: str = "style.css"):
     """
     Load external CSS once (replaces all inline <style> blocks).
     Searches the app root, then final_deliverable/.
     """
-    p = Path(path)
-    if not p.exists():
-        fallback = Path("final_deliverable/style.css")
-        p = fallback if fallback.exists() else None
-    if p:
-        st.markdown(f"<style>{p.read_text(encoding='utf-8')}</style>", unsafe_allow_html=True)
-    else:
-        st.warning("Custom style.css not found. Using Streamlit defaults.")
-
-inject_css()
+    try:
+        p = Path(path)
+        if not p.exists():
+            fallback = Path("final_deliverable/style.css")
+            p = fallback if fallback.exists() else None
+        if p:
+            css_content = p.read_text(encoding='utf-8')
+            st.markdown(f"<style>{css_content}</style>", unsafe_allow_html=True)
+            return True
+        else:
+            st.warning("Custom style.css not found. Using Streamlit defaults.")
+            return False
+    except Exception as e:
+        st.warning(f"Could not load CSS: {e}. Using Streamlit defaults.")
+        return False
 
 # -------------------- Sentiment Wordclouds --------------------
 def create_sentiment_wordclouds_from_attribution(df_attr: pd.DataFrame, text_col: str = "terms"):
@@ -228,13 +234,15 @@ def get_data() -> Tuple[pd.DataFrame, pd.DataFrame, Set[str]]:
     global df_main, df_attr, COLUMNS
     if df_main is None:
         try:
-            df_main = get_dataset() or pd.DataFrame()
-            COLUMNS = set(df_main.columns) if not df_main.empty else set()
+            with st.spinner("Loading dataset..."):
+                df_main = get_dataset() or pd.DataFrame()
+                COLUMNS = set(df_main.columns) if not df_main.empty else set()
 
             attr_csv = _find_first_existing(ATTR_NAME, "attribution_all_scored_sample.csv")
             if attr_csv:
                 try:
-                    df_attr = pd.read_csv(attr_csv, dtype_backend="pyarrow")
+                    with st.spinner("Loading attribution data..."):
+                        df_attr = pd.read_csv(attr_csv, dtype_backend="pyarrow")
                 except Exception as e:
                     st.warning(f"⚠️ Could not load attribution data: {e}")
                     df_attr = pd.DataFrame()
@@ -287,9 +295,27 @@ def render_header():
             unsafe_allow_html=True,
         )
 
-# -------------------- Main Tabs --------------------
-render_header()
-tab1, tab2, tab3 = st.tabs(["PolicyPath", "Paths", "People"])
+# -------------------- Main App --------------------
+def main():
+    """Main application function with error handling."""
+    try:
+        # Load CSS after Streamlit is fully initialized
+        inject_css()
+        
+        render_header()
+        tab1, tab2, tab3 = st.tabs(["PolicyPath", "Paths", "People"])
+        
+        return tab1, tab2, tab3
+    except Exception as e:
+        st.error(f"Application error: {e}")
+        st.info("Please refresh the page or contact support if the issue persists.")
+        return None, None, None
+
+# Run main app
+tab1, tab2, tab3 = main()
+
+if tab1 is None:
+    st.stop()
 
 with tab1:
     _ = apply_penta_style()  # optional; sets Altair defaults
@@ -687,7 +713,7 @@ with tab2:
             for s in st.session_state.recent_searches[:5]:
                 if st.button(f"🔍 {s}", key=f"recent_{s}"):
                     st.session_state.current_search = s
-                    st.rerun()
+                    # Don't use st.rerun() here - let the search happen naturally
 
     if lookup_type == "Item Attribution":
         if not available_cols:
@@ -717,7 +743,7 @@ with tab2:
                                 with cols[i % 3]:
                                     if st.button(f"🔍 {label}", key=f"sugg_{i}_{sel_col}", help=f"Search for: {val}"):
                                         st.session_state[f"selected_{sel_col}"] = val
-                                        st.rerun()
+                                        # Don't use st.rerun() here - let the selection happen naturally
                             st.markdown("---")
                     except Exception as e:
                         st.warning(f"Error getting suggestions: {e}")
@@ -727,7 +753,7 @@ with tab2:
                     st.success(f"Selected: {search_term}")
                     if st.button("Clear Selection", key=f"clear_{sel_col}"):
                         del st.session_state[f"selected_{sel_col}"]
-                        st.rerun()
+                        # Don't use st.rerun() here - let the clearing happen naturally
 
                 if search_term and sel_col in df_main:
                     add_to_recent_searches(f"{sel_col}: {search_term}")
@@ -780,7 +806,7 @@ with tab2:
                         with cols[i % 3]:
                             if st.button(f"🔍 {label}", key=f"term_sugg_{i}", help=f"Search for: {v}"):
                                 st.session_state["selected_term"] = v
-                                st.rerun()
+                                # Don't use st.rerun() here - let the selection happen naturally
                     st.markdown("---")
             except Exception as e:
                 st.warning(f"Error getting term suggestions: {e}")
@@ -790,7 +816,7 @@ with tab2:
             st.success(f"Selected term: {term}")
             if st.button("Clear Term Selection", key="clear_term"):
                 del st.session_state["selected_term"]
-            st.rerun()
+                # Don't use st.rerun() here - let the clearing happen naturally
 
         if term and not df_main.empty:
             add_to_recent_searches(f"Term: {term}")
@@ -855,33 +881,45 @@ with tab2:
                         with cloud1:
                             st.markdown(f"#### 🟢 Positive Attribution Terms ({pos_count} terms)")
                             if wc_positive:
-                                plt.imshow(wc_positive, interpolation='bilinear')
-                                plt.axis("off")
-                                plt.title("Positive Attribution Terms", fontsize=10)
-                                st.pyplot()
-                                plt.close()
+                                try:
+                                    plt.figure(figsize=(8, 6))
+                                    plt.imshow(wc_positive, interpolation='bilinear')
+                                    plt.axis("off")
+                                    plt.title("Positive Attribution Terms", fontsize=10)
+                                    st.pyplot(plt.gcf())
+                                    plt.close()
+                                except Exception as e:
+                                    st.warning(f"Could not display positive wordcloud: {e}")
                             else:
                                 st.info("No positive attribution terms found")
 
                         with cloud2:
                             st.markdown(f"#### 🟡 Neutral Attribution Terms ({neu_count} terms)")
                             if wc_neutral:
-                                plt.imshow(wc_neutral, interpolation='bilinear')
-                                plt.axis("off")
-                                plt.title("Neutral Attribution Terms", fontsize=10)
-                                st.pyplot()
-                                plt.close()
+                                try:
+                                    plt.figure(figsize=(8, 6))
+                                    plt.imshow(wc_neutral, interpolation='bilinear')
+                                    plt.axis("off")
+                                    plt.title("Neutral Attribution Terms", fontsize=10)
+                                    st.pyplot(plt.gcf())
+                                    plt.close()
+                                except Exception as e:
+                                    st.warning(f"Could not display neutral wordcloud: {e}")
                             else:
                                 st.info("No neutral attribution terms found")
 
                         with cloud3:
                             st.markdown(f"#### 🔴 Negative Attribution Terms ({neg_count} terms)")
                             if wc_negative:
-                                plt.imshow(wc_negative, interpolation='bilinear')
-                                plt.axis("off")
-                                plt.title("Negative Attribution Terms", fontsize=10)
-                                st.pyplot()
-                                plt.close()
+                                try:
+                                    plt.figure(figsize=(8, 6))
+                                    plt.imshow(wc_negative, interpolation='bilinear')
+                                    plt.axis("off")
+                                    plt.title("Negative Attribution Terms", fontsize=10)
+                                    st.pyplot(plt.gcf())
+                                    plt.close()
+                                except Exception as e:
+                                    st.warning(f"Could not display negative wordcloud: {e}")
                             else:
                                 st.info("No negative attribution terms found")
 
