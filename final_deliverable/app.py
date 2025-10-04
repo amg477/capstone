@@ -44,32 +44,6 @@ except ImportError:
         </style>
         """, unsafe_allow_html=True)
 
-# Force remove all input borders with highest priority
-st.markdown("""
-<style>
-/* Nuclear option - remove ALL input borders with maximum specificity */
-input, textarea, select, 
-.stSelectbox input, .stMultiSelect input, .stTextInput input, .stNumberInput input, .stDateInput input,
-.stSelectbox > div input, .stMultiSelect > div input, .stTextInput > div input, .stNumberInput > div input, .stDateInput > div input,
-.stSelectbox > div > div input, .stMultiSelect > div > div input, .stTextInput > div > div input,
-[data-testid="stSelectbox"] input, [data-testid="stMultiSelect"] input, [data-testid="stTextInput"] input,
-[data-testid="stSelectbox"] > div input, [data-testid="stMultiSelect"] > div input, [data-testid="stTextInput"] > div input {
-    border: none !important;
-    outline: none !important;
-    box-shadow: none !important;
-    background: transparent !important;
-    border-radius: 0 !important;
-}
-
-.stSelectbox > div, .stMultiSelect > div, .stTextInput > div, .stNumberInput > div, .stDateInput > div,
-.stSelectbox > div > div, .stMultiSelect > div > div, .stTextInput > div > div,
-[data-testid="stSelectbox"] > div, [data-testid="stMultiSelect"] > div, [data-testid="stTextInput"] > div {
-    border: none !important;
-    box-shadow: none !important;
-    background: transparent !important;
-}
-</style>
-""", unsafe_allow_html=True)
 
 # -------------------- CSS Injection --------------------
 @st.cache_resource
