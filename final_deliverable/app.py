@@ -685,12 +685,8 @@ with tab1:
                             ),
                         ))
                         fig.update_layout(
-                            title=dict(
-                                text=f"Flow Analysis: {src} → {tgt}",
-                                font=dict(size=18, color="black", family="Arial, sans-serif"),
-                                x=0.5,
-                                xanchor="center"
-                            ),
+                            title=f"Flow Analysis: {src} → {tgt}",
+                            title_font=dict(size=18, color="black", family="Arial, sans-serif"),
                             font=dict(
                                 family="Arial, sans-serif", 
                                 size=16,
