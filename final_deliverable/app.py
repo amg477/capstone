@@ -22,7 +22,36 @@ import matplotlib.pyplot as plt
 from wordcloud import WordCloud
 from textblob import TextBlob
 from pathlib import Path
-from streamlit_extras.metric_cards import style_metric_cards
+# Try to import streamlit_extras, fallback to custom styling if not available
+try:
+    from streamlit_extras.metric_cards import style_metric_cards
+    STREAMLIT_EXTRAS_AVAILABLE = True
+except ImportError:
+    STREAMLIT_EXTRAS_AVAILABLE = False
+    print("streamlit-extras not available, using custom metric styling")
+    
+    # Custom metric styling function as fallback
+    def style_metric_cards(background_color="#fafafa", border_color="#fafafa", border_left_color="#12715D"):
+        """Custom metric card styling when streamlit-extras is not available"""
+        st.markdown(f"""
+        <style>
+        .metric-container {{
+            background-color: {background_color};
+            border: 1px solid {border_color};
+            border-left: 4px solid {border_left_color};
+            padding: 1rem;
+            border-radius: 0.5rem;
+            margin: 0.5rem 0;
+        }}
+        [data-testid="metric-container"] {{
+            background-color: {background_color};
+            border: 1px solid {border_color};
+            border-left: 4px solid {border_left_color};
+            padding: 1rem;
+            border-radius: 0.5rem;
+        }}
+        </style>
+        """, unsafe_allow_html=True)
 
 # -------------------- CSS Injection --------------------
 @st.cache_resource
