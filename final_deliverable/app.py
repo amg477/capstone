@@ -506,10 +506,31 @@ st.markdown("""
         --penta-white: #FFFFFF;
     }
 
+    /* Minimize top whitespace */
     .main .block-container {
-        padding-top: 0.5rem;
+        padding-top: 0rem;
         padding-bottom: 2rem;
         max-width: 1200px;
+    }
+    
+    /* Remove header margin */
+    .stApp > div:first-child > div:first-child {
+        margin-top: 0rem !important;
+    }
+    
+    /* Reduce padding on main content area */
+    .main .block-container > div {
+        padding-top: 0rem !important;
+    }
+    
+    /* Minimize space after header */
+    main .block-container {
+        margin-top: 0rem !important;
+    }
+    
+    /* Hide Streamlit's default header padding */
+    .css-1d391kg {
+        padding-top: 0rem !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -517,7 +538,7 @@ st.markdown("""
 # -------------------- Main Tabs --------------------
 tab1, tab2, tab3, tab4 = st.tabs(["PolicyPath", "Paths", "Pulse", "People"])
     
-with tab1:
+    with tab1:
     st.markdown("""
     ## PolicyPath
     **Your indispensable guide to healthcare policy influence**
@@ -529,7 +550,7 @@ with tab1:
     *Built by Georgetown University MSBA - Anna Glass, Jasmin Mendoza, Mohammmad Waqas, Mark Saba, Posy Olivetti*
     """)
     
-with tab2:
+    with tab2:
     st.subheader("Attribution Analysis")
     st.markdown("Discover the influence pathways in healthcare policy and understand impact patterns.")
 
@@ -643,7 +664,7 @@ with tab2:
                                 st.session_state["selected_term"] = v
                                 st.rerun()
                     st.markdown("---")
-            except Exception as e:
+    except Exception as e:
                 st.warning(f"Error getting term suggestions: {e}")
 
         if "selected_term" in st.session_state:
@@ -684,7 +705,7 @@ with tab2:
                     export_data_button(hits, f"term_search_{term[:40]}", "csv")
                 else:
                     st.warning(f"No articles found containing '{term}'.")
-            except Exception as e:
+    except Exception as e:
                 st.error(f"Error searching for term: {e}")
 
 with tab3:
