@@ -6,7 +6,7 @@ from __future__ import annotations
 import streamlit as st
 st.set_page_config(page_title="🏛️PolicyPath", layout="wide")
 
-# -------------------- Custom CSS for light blue textured background --------------------
+# -------------------- Placeholder for CSS - moved later --------------------
 st.markdown("""
 <style>
     :root {
@@ -514,6 +514,43 @@ def render_header():
 
 render_header()
 apply_penta_style()
+
+# -------------------- Apply Custom Background Styling --------------------
+st.markdown("""
+<style>
+    :root {
+        --penta-primary: #12715D;
+        --penta-accent: #4AB48E;
+        --penta-light: #E5F4F1;
+        --penta-lighter: #C8EADF;
+        --penta-dark: #0.573B;
+        --penta-white: #FFFFFF;
+        --penta-bg-texture: #f8fcff;
+    }
+
+    /* Main background with textured light blue */
+    .stApp {
+        background: var(--penta-bg-texture) !important;
+        background-image:
+            radial-gradient(circle at 20% 80%, rgba(120, 220, 255, 0.1) 0%, transparent 50%),
+            radial-gradient(circle at 80% 20%, rgba(120, 220, 255, 0.15) 0%, transparent 50%),
+            radial-gradient(circle at 40% 40%, rgba(120, 220, 255, 0.05) 0%, transparent 50%) !important;
+        background-size: 400px 400px, 600px 600px, 800px 800px !important;
+        background-position: 0 0, 100px 100px, 200px 200px !important;
+        background-attachment: fixed !important;
+    }
+
+    .main .block-container {
+        padding-top: 0.5rem;
+        padding-bottom: 2rem;
+        max-width: 1200px;
+        background: rgba(255, 255, 255, 0.9) !important;
+        border-radius: 12px;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+        backdrop-filter: blur(10px);
+    }
+</style>
+""", unsafe_allow_html=True)
 
 # -------------------- Main Tabs --------------------
 tab1, tab2, tab3, tab4 = st.tabs(["🏛️PolicyPath", "🎯 Paths", "📊 Pulse", "🕸️ People"])
