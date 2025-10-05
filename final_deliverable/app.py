@@ -4,7 +4,12 @@ from __future__ import annotations
 # -------------------- MUST be first Streamlit call --------------------
 import streamlit as st
 
-st.set_page_config(page_title="PolicyPath", layout="wide",page_icon="🏛️")
+# Add startup error handling
+try:
+    st.set_page_config(page_title="PolicyPath", layout="wide",page_icon="🏛️")
+except Exception as e:
+    st.error(f"Configuration error: {e}")
+    st.stop()
 
 # Load external CSS file
 import os
@@ -118,49 +123,13 @@ pio.templates.default = "penta"
 px.defaults.color_discrete_sequence = PENTA_COLORS
 px.defaults.template = "penta"
 
-# Altair configuration
-alt.theme.enable("default")
-alt.renderers.set_embed_options(actions=False)
-alt.data_transformers.disable_max_rows()
-
-# Custom Altair theme - simplified approach
-def penta_altair_theme():
-    return {
-        "config": {
-            "title": {
-                "font": "Fraunces",
-                "fontSize": 18,
-                "color": PENTA_DARK,
-                "anchor": "start"
-            },
-            "axis": {
-                "labelFont": "Inter",
-                "titleFont": "Inter", 
-                "labelColor": PENTA_DARK,
-                "titleColor": PENTA_DARK,
-                "gridColor": "#E5E7EB",
-                "domainColor": "#D1D5DB"
-            },
-            "legend": {
-                "labelFont": "Inter",
-                "titleFont": "Inter",
-                "labelColor": PENTA_DARK,
-                "titleColor": PENTA_DARK
-            },
-            "range": {
-                "category": PENTA_COLORS
-            }
-        }
-    }
-
-# Try to register the theme with fallback
+# Altair configuration - simplified to avoid startup issues
 try:
-    alt.theme.register("penta", penta_altair_theme)
-    alt.theme.enable("penta")
-except Exception as e:
-    # Fallback: just use default theme if registration fails
-    print(f"Could not register Penta theme: {e}")
     alt.theme.enable("default")
+    alt.renderers.set_embed_options(actions=False)
+    alt.data_transformers.disable_max_rows()
+except Exception as e:
+    print(f"Altair configuration warning: {e}")
 
 def create_penta_chart(fig, title=None, height=400):
     """Apply Penta branding to Plotly charts."""
