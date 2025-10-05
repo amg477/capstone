@@ -1484,16 +1484,19 @@ with tab3:
     def load_network_data():
         """Load all pre-computed network data files"""
         try:
-            data_dir = "/Users/annaglass/capstone/capstone/data/processed"
+            # Use relative path from the app directory
+            import os
+            app_dir = os.path.dirname(os.path.abspath(__file__))
+            data_dir = os.path.join(app_dir, "..", "data", "processed")
             
             network_data = {
-                'influence_nodes': pd.read_csv(f"{data_dir}/influence_nodes.csv"),
-                'influence_edges': pd.read_csv(f"{data_dir}/influence_edges.csv"),
-                'publisher_term_edges': pd.read_csv(f"{data_dir}/publisher_term_edges.csv"),
-                'community_summary': pd.read_csv(f"{data_dir}/community_summary.csv"),
-                'term_comparison': pd.read_csv(f"{data_dir}/term_comparison.csv"),
-                'top_terms_chunk': pd.read_csv(f"{data_dir}/top_terms_chunk.csv"),
-                'top_terms_global': pd.read_csv(f"{data_dir}/top_terms_global.csv")
+                'influence_nodes': pd.read_csv(os.path.join(data_dir, "influence_nodes.csv")),
+                'influence_edges': pd.read_csv(os.path.join(data_dir, "influence_edges.csv")),
+                'publisher_term_edges': pd.read_csv(os.path.join(data_dir, "publisher_term_edges.csv")),
+                'community_summary': pd.read_csv(os.path.join(data_dir, "community_summary.csv")),
+                'term_comparison': pd.read_csv(os.path.join(data_dir, "term_comparison.csv")),
+                'top_terms_chunk': pd.read_csv(os.path.join(data_dir, "top_terms_chunk.csv")),
+                'top_terms_global': pd.read_csv(os.path.join(data_dir, "top_terms_global.csv"))
             }
             
             return network_data
