@@ -285,8 +285,69 @@
     border-bottom-color: var(--penta-navy);
   }
   
+  /* ---------- Hide Header Link Icons ---------- */
+  /* Hide Streamlit's automatic header link icons - comprehensive approach */
+  
+  /* Target all possible header link selectors */
+  .css-1d391kg,
+  .css-1d391kg a,
+  .css-1d391kg svg,
+  .stApp .css-1d391kg,
+  .stApp .css-1d391kg a,
+  .stApp .css-1d391kg svg,
+  [data-testid="stHeader"] .css-1d391kg,
+  [data-testid="stHeader"] .css-1d391kg a,
+  [data-testid="stHeader"] .css-1d391kg svg {
+      display: none !important;
+      visibility: hidden !important;
+  }
+
+  /* Alternative CSS class patterns */
+  [class*="css-"][class*="1d391kg"],
+  [class*="css-"][class*="1d391kg"] a,
+  [class*="css-"][class*="1d391kg"] svg,
+  .stApp [class*="css-"][class*="1d391kg"],
+  .stApp [class*="css-"][class*="1d391kg"] a,
+  .stApp [class*="css-"][class*="1d391kg"] svg {
+      display: none !important;
+      visibility: hidden !important;
+  }
+
+  /* Target header links more broadly */
+  h1 a, h2 a, h3 a, h4 a, h5 a, h6 a,
+  [data-testid="stMarkdownContainer"] h1 a,
+  [data-testid="stMarkdownContainer"] h2 a,
+  [data-testid="stMarkdownContainer"] h3 a,
+  [data-testid="stMarkdownContainer"] h4 a,
+  [data-testid="stMarkdownContainer"] h5 a,
+  [data-testid="stMarkdownContainer"] h6 a {
+      display: none !important;
+      visibility: hidden !important;
+  }
+
+  /* Hide any SVG icons next to headers */
+  h1 svg, h2 svg, h3 svg, h4 svg, h5 svg, h6 svg,
+  [data-testid="stMarkdownContainer"] h1 svg,
+  [data-testid="stMarkdownContainer"] h2 svg,
+  [data-testid="stMarkdownContainer"] h3 svg,
+  [data-testid="stMarkdownContainer"] h4 svg,
+  [data-testid="stMarkdownContainer"] h5 svg,
+  [data-testid="stMarkdownContainer"] h6 svg {
+      display: none !important;
+      visibility: hidden !important;
+  }
+
+  /* Target specific link icons */
+  .css-1d391kg a[href*="#"],
+  .css-1d391kg svg,
+  .stApp .css-1d391kg a[href*="#"],
+  .stApp .css-1d391kg svg {
+      display: none !important;
+      visibility: hidden !important;
+  }
+
   /* ---------- Footer ---------- */
-  footer, #MainMenu { visibility: hidden; } /* Hide Streamlit’s default footer/menu */
+  footer, #MainMenu { visibility: hidden; } /* Hide Streamlit's default footer/menu */
   
   /* ---------- Dark Mode (opt-in via body[data-theme="dark"]) ---------- */
   body[data-theme="dark"] {
