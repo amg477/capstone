@@ -4,15 +4,21 @@ from __future__ import annotations
 # -------------------- MUST be first Streamlit call --------------------
 import streamlit as st
 
-# Minimal configuration for Streamlit Cloud
-st.set_page_config(
-    page_title="PolicyPath 🏛️",
-    layout="wide"
-)
+st.set_page_config(page_title="PolicyPath", layout="wide",page_icon="🏛️")
 
 # Load external CSS file
-with open("style.css") as f:
-    st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
+import os
+css_path = os.path.join(os.path.dirname(__file__), "style.css")
+try:
+    with open(css_path) as f:
+        st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
+except FileNotFoundError:
+    # Fallback: try relative path
+    try:
+        with open("style.css") as f:
+            st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
+    except FileNotFoundError:
+        st.warning("CSS file not found. App will run without custom styling.")
 
 # -------------------- Imports --------------------
 import re
