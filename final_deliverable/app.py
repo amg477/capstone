@@ -1468,29 +1468,14 @@ with tab3:
                     except Exception as e:
                         st.error(f"Error searching: {e}")
     else:
-        # Get unique terms from text columns for searchable selectbox
-        if not df_main.empty:
-            text_cols = [c for c in available_cols if any(k in c.lower() for k in ["headline", "body", "content", "text"])]
-            term_options = []
-            if text_cols:
-                # Extract unique words/phrases from text columns
-                for c in text_cols[:2]:  # Use first 2 text columns
-                    s = df_main[c].astype("string[pyarrow]", errors="ignore")
-                    # Get unique values and filter out very short ones
-                    unique_vals = s.dropna().unique()
-                    term_options.extend([str(x) for x in unique_vals if len(str(x)) > 3][:100])  # Limit for performance
-            
-            # Remove duplicates and limit
-            term_options = sorted(list(dict.fromkeys(term_options)))[:200]
-            
-            term = st.selectbox(
-                "Type a term to search",
-                options=[""] + term_options,
-                key="term_search",
-                help="Type to search and select from available terms"
-            )
-        else:
-            term = ""
+        # Term Attribution - Use a simple text input instead of heavy selectbox
+        st.markdown("**Search for terms in article content:**")
+        term = st.text_input(
+            "Enter a term to search for",
+            placeholder="e.g., healthcare, policy, reform...",
+            key="term_search",
+            help="Search for specific terms in headlines and article content"
+        )
 
         if "selected_term" in st.session_state:
             term = st.session_state["selected_term"]
@@ -1502,51 +1487,84 @@ with tab3:
         if term and not df_main.empty:
             add_to_recent_searches(f"Term: {term}")
             try:
+                # Limit search to prevent memory issues
+                search_df = df_main.head(10000)  # Limit to first 10k rows for performance
+                
                 text_cols = [c for c in available_cols if any(k in c.lower() for k in ["headline", "body", "content", "text"])]
-                mask = pd.Series(False, index=df_main.index)
-                for c in text_cols:
-                    s = df_main[c].astype("string[pyarrow]", errors="ignore")
-                    mask |= s.fillna("").str.contains(term, case=False, na=False)
-                hits = df_main[mask].head(100)
-                if not hits.empty:
-                    st.success(f"Found {len(hits)} articles containing '{term}'")
-                    c1, c2, c3 = st.columns(3)
-                    with c1:
-                        st.markdown(f"""
-                        <div style="text-align: center; border: 2px solid #0A473B; padding: 15px; border-radius: 8px; margin: 5px;">
-                            <div style="font-size: 24px; font-weight: bold; color: #0A473B;">{len(hits):,}</div>
-                            <div style="font-size: 14px; color: #666;">Total Matches</div>
-                        </div>
-                        """, unsafe_allow_html=True)
-                    with c2:
-                        if "circulation_size" in hits:
+                if not text_cols:
+                    st.warning("No text columns found for term search.")
+                else:
+                    # Create search mask more efficiently
+                    mask = pd.Series(False, index=search_df.index)
+                    for c in text_cols:
+                        try:
+                            s = search_df[c].astype(str, errors="ignore")
+                            mask |= s.fillna("").str.contains(term, case=False, na=False, regex=False)
+                        except Exception as col_error:
+                            st.warning(f"Could not search column '{c}': {col_error}")
+                            continue
+                    
+                    hits = search_df[mask].head(100)
+                    
+                    if not hits.empty:
+                        st.success(f"Found {len(hits)} articles containing '{term}' (searched {len(search_df):,} articles)")
+                        
+                        # Display metrics
+                        c1, c2, c3 = st.columns(3)
+                        with c1:
                             st.markdown(f"""
                             <div style="text-align: center; border: 2px solid #0A473B; padding: 15px; border-radius: 8px; margin: 5px;">
-                                <div style="font-size: 24px; font-weight: bold; color: #0A473B;">{hits['circulation_size'].sum():,.0f}</div>
-                                <div style="font-size: 14px; color: #666;">Total Reach</div>
+                                <div style="font-size: 24px; font-weight: bold; color: #0A473B;">{len(hits):,}</div>
+                                <div style="font-size: 14px; color: #666;">Total Matches</div>
                             </div>
                             """, unsafe_allow_html=True)
-                    with c3:
-                        date_cols = [c for c in hits.columns if ("date" in c.lower() or "time" in c.lower())]
-                        if date_cols:
-                            dc = date_cols[0]
-                            try:
-                                dates = pd.to_datetime(hits[dc], errors="coerce").dropna()
-                                st.markdown(f"""
-                                <div style="text-align: center; border: 2px solid #0A473B; padding: 15px; border-radius: 8px; margin: 5px;">
-                                    <div style="font-size: 24px; font-weight: bold; color: #0A473B;">{dates.dt.date.nunique()}</div>
-                                    <div style="font-size: 14px; color: #666;">Date Span (days)</div>
-                                </div>
-                                """, unsafe_allow_html=True)
-                            except Exception:
-                                pass
-                    st.markdown("### Sample Results")
-                    st.dataframe(hits, use_container_width=True, height=400)
-                    export_data_button(hits, f"term_search_{term[:40]}", "csv")
-                else:
-                    st.warning(f"No articles found containing '{term}'.")
+                        with c2:
+                            if "circulation_size" in hits.columns:
+                                try:
+                                    total_reach = hits['circulation_size'].sum()
+                                    st.markdown(f"""
+                                    <div style="text-align: center; border: 2px solid #0A473B; padding: 15px; border-radius: 8px; margin: 5px;">
+                                        <div style="font-size: 24px; font-weight: bold; color: #0A473B;">{total_reach:,.0f}</div>
+                                        <div style="font-size: 14px; color: #666;">Total Reach</div>
+                                    </div>
+                                    """, unsafe_allow_html=True)
+                                except Exception:
+                                    st.markdown(f"""
+                                    <div style="text-align: center; border: 2px solid #0A473B; padding: 15px; border-radius: 8px; margin: 5px;">
+                                        <div style="font-size: 24px; font-weight: bold; color: #0A473B;">N/A</div>
+                                        <div style="font-size: 14px; color: #666;">Total Reach</div>
+                                    </div>
+                                    """, unsafe_allow_html=True)
+                        with c3:
+                            date_cols = [c for c in hits.columns if ("date" in c.lower() or "time" in c.lower())]
+                            if date_cols:
+                                try:
+                                    dc = date_cols[0]
+                                    dates = pd.to_datetime(hits[dc], errors="coerce").dropna()
+                                    unique_dates = dates.dt.date.nunique()
+                                    st.markdown(f"""
+                                    <div style="text-align: center; border: 2px solid #0A473B; padding: 15px; border-radius: 8px; margin: 5px;">
+                                        <div style="font-size: 24px; font-weight: bold; color: #0A473B;">{unique_dates}</div>
+                                        <div style="font-size: 14px; color: #666;">Date Span (days)</div>
+                                    </div>
+                                    """, unsafe_allow_html=True)
+                                except Exception:
+                                    st.markdown(f"""
+                                    <div style="text-align: center; border: 2px solid #0A473B; padding: 15px; border-radius: 8px; margin: 5px;">
+                                        <div style="font-size: 24px; font-weight: bold; color: #0A473B;">N/A</div>
+                                        <div style="font-size: 14px; color: #666;">Date Span</div>
+                                    </div>
+                                    """, unsafe_allow_html=True)
+                        
+                        st.markdown("### Sample Results")
+                        st.dataframe(hits, use_container_width=True, height=400)
+                        export_data_button(hits, f"term_search_{term[:40]}", "csv")
+                    else:
+                        st.warning(f"No articles found containing '{term}' in the searched {len(search_df):,} articles.")
+                    
             except Exception as e:
                 st.error(f"Error searching for term: {e}")
+                st.info("Try using a shorter or simpler search term.")
 
 with tab4:
     st.subheader("People - Network Analysis")
