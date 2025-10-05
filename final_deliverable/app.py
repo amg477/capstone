@@ -196,8 +196,10 @@ def load_combined_dataset() -> pd.DataFrame:
 
     split_dir = next((p for p in possible_paths if p.exists()), None)
     if split_dir is None:
+        print("Warning: No split data directory found")
         return pd.DataFrame()
 
+    print(f"Loading data from: {split_dir}")
     combined: List[pd.DataFrame] = []
     for i in range(1, 6):  # Load only 5 files to reduce memory
         fp = split_dir / f"final_model_dataset_part_{i:03d}.csv"
@@ -211,17 +213,20 @@ def load_combined_dataset() -> pd.DataFrame:
                     combined.append(df[df['circulation_size'] >= circulation_threshold])
                 else:
                     combined.append(df.sample(n=int(len(df) * 0.9)))
-            except Exception:
-                # skip bad file but continue
+                print(f"Loaded {fp.name}: {len(df)} rows")
+            except Exception as e:
+                print(f"Warning: Could not load {fp.name}: {e}")
                 pass
 
     if not combined:
+        print("Warning: No data files could be loaded")
         return pd.DataFrame()
 
     final_df = pd.concat(combined, ignore_index=True).drop_duplicates()
     files_count = len(combined)
     combined.clear()
 
+    print(f"Successfully loaded {len(final_df)} rows from {files_count} files")
     st.session_state.dataset_info = {'rows': len(final_df), 'files': files_count}
     return final_df
 
@@ -680,24 +685,27 @@ def get_data() -> Tuple[pd.DataFrame, pd.DataFrame, Set[str]]:
     global df_main, df_attr, COLUMNS
     if df_main is None:
         try:
-            with st.spinner("Loading dataset..."):
-                df_main = get_dataset()
-                if df_main is None:
-                    df_main = pd.DataFrame()
-                COLUMNS = set(df_main.columns) if not df_main.empty else set()
+            # Load main dataset with better error handling
+            df_main = get_dataset()
+            if df_main is None or df_main.empty:
+                print("Warning: No main dataset loaded, using empty DataFrame")
+                df_main = pd.DataFrame()
+            COLUMNS = set(df_main.columns) if not df_main.empty else set()
 
+            # Load attribution data with better error handling
             attr_csv = _find_first_existing(ATTR_NAME, "attribution_all_scored_sample.csv")
             if attr_csv:
                 try:
-                    with st.spinner("Loading attribution data..."):
-                        df_attr = pd.read_csv(attr_csv, dtype_backend="pyarrow")
+                    df_attr = pd.read_csv(attr_csv, dtype_backend="pyarrow")
+                    print(f"Successfully loaded attribution data from {attr_csv}")
                 except Exception as e:
-                    st.warning(f"⚠️ Could not load attribution data: {e}")
+                    print(f"Warning: Could not load attribution data from {attr_csv}: {e}")
                     df_attr = pd.DataFrame()
             else:
+                print("Warning: No attribution data file found")
                 df_attr = pd.DataFrame()
         except Exception as e:
-            st.error(f"Failed to load data: {e}")
+            print(f"Error in get_data(): {e}")
             df_main, df_attr, COLUMNS = pd.DataFrame(), pd.DataFrame(), set()
     return df_main, df_attr, COLUMNS
 
@@ -1566,34 +1574,47 @@ with tab3:
                 st.error(f"Error searching for term: {e}")
                 st.info("Try using a shorter or simpler search term.")
 
+# -------------------- Network Data Loading --------------------
+@st.cache_data
+def load_network_data():
+    """Load all pre-computed network data files"""
+    try:
+        # Use relative path from the app directory
+        import os
+        app_dir = os.path.dirname(os.path.abspath(__file__))
+        data_dir = os.path.join(app_dir, "..", "data", "processed")
+        
+        network_data = {}
+        required_files = [
+            'influence_nodes.csv',
+            'influence_edges.csv', 
+            'publisher_term_edges.csv',
+            'community_summary.csv',
+            'term_comparison.csv',
+            'top_terms_chunk.csv',
+            'top_terms_global.csv'
+        ]
+        
+        for filename in required_files:
+            file_path = os.path.join(data_dir, filename)
+            if os.path.exists(file_path):
+                try:
+                    network_data[filename.replace('.csv', '')] = pd.read_csv(file_path)
+                except Exception as file_error:
+                    print(f"Warning: Could not load {filename}: {file_error}")
+                    network_data[filename.replace('.csv', '')] = pd.DataFrame()
+            else:
+                print(f"Warning: {filename} not found at {file_path}")
+                network_data[filename.replace('.csv', '')] = pd.DataFrame()
+        
+        return network_data
+    except Exception as e:
+        print(f"Error loading network data: {e}")
+        return None
+
 with tab4:
     st.subheader("People - Network Analysis")
     st.markdown("Explore influence networks and publisher-term relationships using pre-computed data.")
-    
-    # Load network data with caching
-    @st.cache_data
-    def load_network_data():
-        """Load all pre-computed network data files"""
-        try:
-            # Use relative path from the app directory
-            import os
-            app_dir = os.path.dirname(os.path.abspath(__file__))
-            data_dir = os.path.join(app_dir, "..", "data", "processed")
-            
-            network_data = {
-                'influence_nodes': pd.read_csv(os.path.join(data_dir, "influence_nodes.csv")),
-                'influence_edges': pd.read_csv(os.path.join(data_dir, "influence_edges.csv")),
-                'publisher_term_edges': pd.read_csv(os.path.join(data_dir, "publisher_term_edges.csv")),
-                'community_summary': pd.read_csv(os.path.join(data_dir, "community_summary.csv")),
-                'term_comparison': pd.read_csv(os.path.join(data_dir, "term_comparison.csv")),
-                'top_terms_chunk': pd.read_csv(os.path.join(data_dir, "top_terms_chunk.csv")),
-                'top_terms_global': pd.read_csv(os.path.join(data_dir, "top_terms_global.csv"))
-            }
-            
-            return network_data
-        except Exception as e:
-            st.error(f"Error loading network data: {e}")
-            return None
     
     # Load network data
     network_data = load_network_data()
@@ -1601,6 +1622,16 @@ with tab4:
     if network_data is None:
         st.error("Failed to load network data. Please ensure the data files exist.")
     else:
+        # Convert keys to match expected format
+        network_data = {
+            'influence_nodes': network_data.get('influence_nodes', pd.DataFrame()),
+            'influence_edges': network_data.get('influence_edges', pd.DataFrame()),
+            'publisher_term_edges': network_data.get('publisher_term_edges', pd.DataFrame()),
+            'community_summary': network_data.get('community_summary', pd.DataFrame()),
+            'term_comparison': network_data.get('term_comparison', pd.DataFrame()),
+            'top_terms_chunk': network_data.get('top_terms_chunk', pd.DataFrame()),
+            'top_terms_global': network_data.get('top_terms_global', pd.DataFrame())
+        }
         # Network type selection (similar to attribution tab)
         col1, col2, col3 = st.columns([2, 1, 1])
         
