@@ -6,75 +6,20 @@ import streamlit as st
 
 # Minimal configuration for Streamlit Cloud
 st.set_page_config(
-    page_title="PolicyPath",
+    page_title="PolicyPath 🏛️",
     layout="wide"
 )
 
-# Hide header link icons
-st.markdown("""
-<style>
-/* Hide Streamlit header link icons - comprehensive approach */
-.css-1d391kg,
-.css-1d391kg a,
-.css-1d391kg svg,
-.stApp .css-1d391kg,
-.stApp .css-1d391kg a,
-.stApp .css-1d391kg svg,
-[data-testid="stHeader"] .css-1d391kg,
-[data-testid="stHeader"] .css-1d391kg a,
-[data-testid="stHeader"] .css-1d391kg svg {
-    display: none !important;
-    visibility: hidden !important;
-}
-
-/* Alternative CSS class patterns */
-[class*="css-"][class*="1d391kg"],
-[class*="css-"][class*="1d391kg"] a,
-[class*="css-"][class*="1d391kg"] svg,
-.stApp [class*="css-"][class*="1d391kg"],
-.stApp [class*="css-"][class*="1d391kg"] a,
-.stApp [class*="css-"][class*="1d391kg"] svg {
-    display: none !important;
-    visibility: hidden !important;
-}
-
-/* Target header links more broadly */
-h1 a, h2 a, h3 a, h4 a, h5 a, h6 a,
-[data-testid="stMarkdownContainer"] h1 a,
-[data-testid="stMarkdownContainer"] h2 a,
-[data-testid="stMarkdownContainer"] h3 a,
-[data-testid="stMarkdownContainer"] h4 a,
-[data-testid="stMarkdownContainer"] h5 a,
-[data-testid="stMarkdownContainer"] h6 a {
-    display: none !important;
-    visibility: hidden !important;
-}
-
-/* Hide any SVG icons next to headers */
-h1 svg, h2 svg, h3 svg, h4 svg, h5 svg, h6 svg,
-[data-testid="stMarkdownContainer"] h1 svg,
-[data-testid="stMarkdownContainer"] h2 svg,
-[data-testid="stMarkdownContainer"] h3 svg,
-[data-testid="stMarkdownContainer"] h4 svg,
-[data-testid="stMarkdownContainer"] h5 svg,
-[data-testid="stMarkdownContainer"] h6 svg {
-    display: none !important;
-    visibility: hidden !important;
-}
-</style>
-""", unsafe_allow_html=True)
+# Load external CSS file
+with open("style.css") as f:
+    st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
 
 # -------------------- Imports --------------------
 import re
 from typing import Dict, Optional, Tuple, List, Set, Iterable
 import pandas as pd
-import altair as alt
-import plotly.express as px
 import plotly.graph_objects as go
 import base64
-import matplotlib.pyplot as plt
-from wordcloud import WordCloud
-from textblob import TextBlob
 from pathlib import Path
 import networkx as nx
 from networkx.algorithms.community import greedy_modularity_communities
@@ -95,7 +40,7 @@ except ImportError:
         [data-testid="metric-container"] {{
             background-color: {background_color};
             border-left: 4px solid {border_left_color};
-            padding: 1rem;
+            padding: 0rem;
             border-radius: 0.5rem;
         }}
         </style>
@@ -124,6 +69,127 @@ def inject_css(path: str = "style.css"):
     except Exception as e:
         st.warning(f"Could not load CSS: {e}. Using Streamlit defaults.")
         return False
+
+# ---- Brand defaults for charts (after set_page_config) ----
+import plotly.express as px
+import plotly.io as pio
+import altair as alt
+
+# Penta brand colors (matching CSS variables)
+PENTA_COLORS = ["#12715D", "#4AB48E", "#142536", "#D4A115", "#2A9D8F", "#D94841"]
+PENTA_PRIMARY = "#12715D"
+PENTA_ACCENT = "#4AB48E" 
+PENTA_DARK = "#142536"
+PENTA_GOLD = "#D4A115"
+
+# Create custom Plotly template
+penta_template = {
+    "layout": {
+        "font": {"family": "Inter, sans-serif", "size": 12, "color": PENTA_DARK},
+        "title": {"font": {"family": "Fraunces, serif", "size": 18, "color": PENTA_DARK}},
+        "paper_bgcolor": "rgba(0,0,0,0)",  # Transparent background
+        "plot_bgcolor": "rgba(0,0,0,0)",   # Transparent background
+        "colorway": PENTA_COLORS,
+        "xaxis": {
+            "gridcolor": "#E5E7EB",
+            "linecolor": "#D1D5DB",
+            "tickcolor": "#9CA3AF"
+        },
+        "yaxis": {
+            "gridcolor": "#E5E7EB", 
+            "linecolor": "#D1D5DB",
+            "tickcolor": "#9CA3AF"
+        },
+        "coloraxis": {"colorbar": {"tickcolor": PENTA_DARK}}
+    }
+}
+
+# Register and set custom template
+pio.templates["penta"] = penta_template
+pio.templates.default = "penta"
+
+# Set Plotly Express defaults
+px.defaults.color_discrete_sequence = PENTA_COLORS
+px.defaults.template = "penta"
+
+# Altair configuration
+alt.themes.enable("default")
+alt.renderers.set_embed_options(actions=False)
+alt.data_transformers.disable_max_rows()
+
+# Custom Altair theme
+def penta_altair_theme():
+    return {
+        "config": {
+            "title": {
+                "font": "Fraunces",
+                "fontSize": 18,
+                "color": PENTA_DARK,
+                "anchor": "start"
+            },
+            "axis": {
+                "labelFont": "Inter",
+                "titleFont": "Inter", 
+                "labelColor": PENTA_DARK,
+                "titleColor": PENTA_DARK,
+                "gridColor": "#E5E7EB",
+                "domainColor": "#D1D5DB"
+            },
+            "legend": {
+                "labelFont": "Inter",
+                "titleFont": "Inter",
+                "labelColor": PENTA_DARK,
+                "titleColor": PENTA_DARK
+            },
+            "range": {
+                "category": PENTA_COLORS
+            }
+        }
+    }
+
+alt.themes.register("penta", penta_altair_theme)
+alt.themes.enable("penta")
+
+def create_penta_chart(fig, title=None, height=400):
+    """Apply Penta branding to Plotly charts."""
+    fig.update_layout(
+        title={
+            "text": title,
+            "font": {"family": "Fraunces, serif", "size": 18, "color": PENTA_DARK},
+            "x": 0.05,
+            "xanchor": "left"
+        },
+        font={"family": "Inter, sans-serif", "size": 12, "color": PENTA_DARK},
+        paper_bgcolor="rgba(0,0,0,0)",  # Transparent
+        plot_bgcolor="rgba(0,0,0,0)",    # Transparent
+        height=height,
+        margin=dict(t=50, b=20, l=20, r=20),
+        xaxis={
+            "gridcolor": "#E5E7EB",
+            "linecolor": "#D1D5DB",
+            "tickcolor": "#9CA3AF",
+            "title_font": {"family": "Inter, sans-serif", "color": PENTA_DARK}
+        },
+        yaxis={
+            "gridcolor": "#E5E7EB",
+            "linecolor": "#D1D5DB", 
+            "tickcolor": "#9CA3AF",
+            "title_font": {"family": "Inter, sans-serif", "color": PENTA_DARK}
+        },
+        legend={
+            "font": {"family": "Inter, sans-serif", "color": PENTA_DARK},
+            "bgcolor": "rgba(255,255,255,0.8)"
+        }
+    )
+    return fig
+
+def apply_penta_style():
+    """Return Penta brand colors for consistent theming."""
+    return {
+        "primaryColor": "#12715D",
+        "backgroundColor": "#F6F7F8", 
+        "textColor": "#142536"
+    }
 
 # -------------------- App paths (define early; used by Debug/Logo) --------------------
 APP_DIR = Path(__file__).resolve().parent
@@ -183,18 +249,6 @@ def get_dataset() -> pd.DataFrame:
     return load_combined_dataset()
 
 # -------------------- Helpers --------------------
-def apply_penta_style():
-    """Optional Altair defaults (call once if desired)."""
-    # Set Altair theme and disable max rows
-    alt.data_transformers.disable_max_rows()
-    return {
-        'primary': "#12715D",
-        'accent': "#4AB48E",
-        'light': "#E5F4F1",
-        'lighter': "#C8EADF",
-        'dark': "#0A473B",
-        'white': "#FFFFFF"
-    }
 
 def add_to_recent_searches(term: str):
     if term and term not in st.session_state.recent_searches:
@@ -686,7 +740,7 @@ def render_header():
             <div class="header-bar">
                 <img src="data:image/png;base64,{logo_b64}" class="penta-logo" alt="Penta logo"/>
                 <div class="header-title">
-                    <h1>PolicyPath</h1>
+                    <h1>PolicyPath 🏛️</h1>
                     <div class="header-subtitle">Your indispensable guide to healthcare policy influence</div>
                 </div>
                 <div class="header-spacer"></div>
@@ -699,7 +753,7 @@ def render_header():
             """
             <div class="header-bar">
                 <div class="header-title">
-                    <h1>PolicyPath</h1>
+                    <h1>PolicyPath 🏛️</h1>
                     <div class="header-subtitle">Your indispensable guide to healthcare policy influence</div>
                 </div>
                 <div class="header-spacer"></div>
@@ -715,28 +769,52 @@ def main():
     inject_css()
     
     render_header()
-    
-    # App description
-    st.markdown("""
-    **PolicyPath** maps how narratives travel through publications, authors, and channels—pinpointing key voices shaping U.S. healthcare policy.
-    
-    **Paths**: Analyze influence attribution by publication, author, channel, and terms. | **People**: Explore the network driving influence.
-    
-    *Built by Georgetown University MSBA - Anna Glass, Jasmin Mendoza, Mohammad Waqas, Mark Saba, Posy Olivetti*
-    """)
 
     # Create tabs outside the expander
-    tab1, tab2, tab3 = st.tabs(["PolicyPath", "Paths", "People"])
+    tab1, tab2, tab3, tab4 = st.tabs(["PolicyPath", "Pulse", "Paths", "People"])
 
-    return tab1, tab2, tab3
+    return tab1, tab2, tab3, tab4
 
 # Run main app
-tab1, tab2, tab3 = main()
+tab1, tab2, tab3, tab4 = main()
 
 if tab1 is None:
     st.stop()
 
 with tab1:
+    _ = apply_penta_style()  # optional; sets Altair defaults
+
+    st.subheader("Welcome to PolicyPath")
+
+    st.markdown("""
+    **PolicyPath** helps you trace how healthcare policy narratives move through the media ecosystem — 
+    identifying the publications, authors, and topics driving the conversation.
+
+    ### How to Use PolicyPath
+
+    **1. Pulse (Analytics Dashboard)**  
+    Monitor the pulse of healthcare policy influence.  
+    Use dynamic filters to explore KPIs such as reach, sentiment, and influence across publications, authors, and channels.  
+    Includes charts, Sankey flows, and data export options.
+
+    **2. Paths (Attribution Analysis)**  
+    Dive into how influence is distributed.  
+    Search for specific publications, authors, or terms, and compare their relative credit shares and circulation impact.  
+    Ideal for identifying high-impact sources and emerging policy topics.
+
+    **3. People (Network Explorer)**  
+    Visualize the relationships between publishers, terms, and influencers.  
+    Toggle between *Influence Networks* and *Publisher-Term Networks* to understand how ideas propagate through different communities.
+
+    ---
+
+    *Data:* All results are filtered to high-impact observations (top 90% by circulation).
+
+    *Built by Georgetown University MSBA - Anna Glass, Jasmin Mendoza, Mohammad Waqas, Mark Saba, Posy Olivetti*
+""")
+
+
+with tab2:
     _ = apply_penta_style()  # optional; sets Altair defaults
 
     # Load data for metrics
@@ -802,7 +880,6 @@ with tab1:
             border_left_color="#12715D"
         )
 
-    df_main, df_attr, COLUMNS = get_data()
     if df_main.empty:
         st.info("No data loaded.")
     else:
@@ -986,7 +1063,7 @@ with tab1:
             
             
             # 2x2 Grid of Policy Analytics
-            st.markdown("### 📊 Policy Influence Analytics")
+            st.markdown("### Policy Influence Analytics")
             
             if not filtered_df.empty:
                 # Row 1
@@ -1024,7 +1101,7 @@ with tab1:
                             title_font_size=16,
                             modebar_remove=['zoom', 'pan', 'select', 'lasso', 'zoomin', 'zoomout', 'autoscale', 'reset', 'toImage']
                         )
-                        st.plotly_chart(fig_pie, use_container_width=True, config={'displayModeBar': False, 'displaylogo': False, 'modeBarButtonsToRemove': ['pan2d', 'lasso2d', 'select2d', 'autoScale2d', 'resetScale2d', 'zoom2d', 'zoomIn2d', 'zoomOut2d', 'toImage']})
+                        st.plotly_chart(fig_pie, use_container_width=True)
             else:
                 st.info("No influence data available")
                 
@@ -1040,20 +1117,25 @@ with tab1:
                                 go.Bar(
                                     x=sentiment_counts.index, 
                                     y=sentiment_counts.values,
-                                    marker_color=['#ff4444', '#ffaa00', '#44aa44'][:len(sentiment_counts)]
+                                    marker_color=[PENTA_COLORS[3], PENTA_COLORS[4], PENTA_COLORS[1]][:len(sentiment_counts)]  # Penta colors
                                 )
                             ])
-                            fig_sentiment.update_layout(
+                            
+                            # Apply Penta branding
+                            fig_sentiment = create_penta_chart(
+                                fig_sentiment, 
                                 title="Sentiment Distribution",
+                                height=300
+                            )
+                            
+                            fig_sentiment.update_layout(
                                 xaxis_title="Sentiment",
                                 yaxis_title="Article Count",
-                                height=300,
                                 showlegend=False,
                                 margin=dict(t=30, b=10, l=10, r=10),
-                                title_font_size=16,
                                 modebar_remove=['zoom', 'pan', 'select', 'lasso', 'zoomin', 'zoomout', 'autoscale', 'reset', 'toImage']
                             )
-                            st.plotly_chart(fig_sentiment, use_container_width=True, config={'displayModeBar': False, 'displaylogo': False, 'modeBarButtonsToRemove': ['pan2d', 'lasso2d', 'select2d', 'autoScale2d', 'resetScale2d', 'zoom2d', 'zoomIn2d', 'zoomOut2d', 'toImage']})
+                            st.plotly_chart(fig_sentiment, use_container_width=True)
                         else:
                             st.info("No sentiment data available")
                 
@@ -1065,20 +1147,25 @@ with tab1:
                                 go.Bar(
                                     x=pub_reach['publication_name'],
                                     y=pub_reach['circulation_size'],
-                                    marker_color='#4CAF50'
+                                    marker_color=PENTA_COLORS[1]  # Penta green
                                 )
                             ])
-                            fig_reach.update_layout(
+                            
+                            # Apply Penta branding
+                            fig_reach = create_penta_chart(
+                                fig_reach, 
                                 title="Top Publications by Reach",
+                                height=300
+                            )
+                            
+                            fig_reach.update_layout(
                                 xaxis_title="Publication",
                                 yaxis_title="Average Circulation",
-                                height=300,
                                 showlegend=False,
                                 margin=dict(t=30, b=10, l=10, r=10),
-                                title_font_size=16,
                                 modebar_remove=['zoom', 'pan', 'select', 'lasso', 'zoomin', 'zoomout', 'autoscale', 'reset', 'toImage']
                             )
-                            st.plotly_chart(fig_reach, use_container_width=True, config={'displayModeBar': False, 'displaylogo': False, 'modeBarButtonsToRemove': ['pan2d', 'lasso2d', 'select2d', 'autoScale2d', 'resetScale2d', 'zoom2d', 'zoomIn2d', 'zoomOut2d', 'toImage']})
+                            st.plotly_chart(fig_reach, use_container_width=True)
                         else:
                             st.info("No publication/reach data available")
                 else:
@@ -1129,12 +1216,8 @@ with tab1:
                         labels_short = [shorten(x, max_len=20) for x in nodes]  # Shorter labels
                         idx = {n: i for i, n in enumerate(nodes)}
 
-                        # Define a better color palette
-                        colors = [
-                            "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd",
-                            "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf",
-                            "#aec7e8", "#ffbb78", "#98df8a", "#ff9896", "#c5b0d5"
-                        ]
+                        # Use Penta brand colors for nodes
+                        colors = PENTA_COLORS + ["#7F9EA3", "#A8B5C0", "#C4D1D9", "#E0E7ED"]
                         node_colors = [colors[i % len(colors)] for i in range(len(nodes))]
 
                         fig = go.Figure(go.Sankey(
@@ -1143,34 +1226,34 @@ with tab1:
                                 label=labels_short,
                                 pad=35, 
                                 thickness=30,
-                                line=dict(width=0),
-                                color=node_colors,
+                                line=dict(width=1, color="#F8F8F8"),
+                                color=node_colors
                             ),
                             link=dict(
                                 source=[idx[s] for s in sdata_clean["s"]],
                                 target=[idx[t] for t in sdata_clean["t"]],
                                 value=sdata_clean["v"],
-                                color="rgba(0,0,0,0.2)",
+                                color=[node_colors[idx[s]] for s in sdata_clean["s"]],  # Match source node colors
                                 hovertemplate="<b>%{source.label}</b> → <b>%{target.label}</b><br>Count: %{value:,}<extra></extra>",
                             ),
                         ))
+                        
+                        # Apply Penta branding
+                        fig = create_penta_chart(
+                            fig, 
+                            title=f"Flow Analysis: {src.replace('_', ' ').title()} → {tgt.replace('_', ' ').title()}",
+                            height=600
+                        )
+                        
+                        # Additional Sankey-specific styling
                         fig.update_layout(
-                            title=f"Flow Analysis: {src} → {tgt}",
-                            font=dict(family="Arial, sans-serif", size=16, color="black"),
-                            margin=dict(l=40, r=40, t=80, b=40), 
-                            height=600,
-                            plot_bgcolor="white",
-                            paper_bgcolor="white"
+                            font=dict(family="Inter, sans-serif", size=12, color=PENTA_DARK),
+                            title_font=dict(family="Fraunces, serif", size=18, color=PENTA_DARK),
+                            paper_bgcolor="rgba(0,0,0,0)",
+                            plot_bgcolor="rgba(0,0,0,0)",
+                            margin=dict(t=80, b=40, l=40, r=40)
                         )
-                        # Remove text shadows and outlines
-                        fig.update_traces(
-                            textfont=dict(
-                                family="Arial, sans-serif",
-                                size=16,
-                                color="black"
-                            )
-                        )
-                        st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False, 'displaylogo': False, 'modeBarButtonsToRemove': ['pan2d', 'lasso2d', 'select2d', 'autoScale2d', 'resetScale2d', 'zoom2d', 'zoomIn2d', 'zoomOut2d', 'toImage']})
+                        st.plotly_chart(fig, use_container_width=True)
                     else:
                         st.info("After filtering, not enough significant flows to display.")
                 else:
@@ -1185,7 +1268,7 @@ with tab1:
             if st.button("Export Data to CSV", use_container_width=True, type="primary"):
                 export_data_button(filtered_df, "filtered_data", "csv")
 
-with tab2:
+with tab3:
     st.subheader("Attribution Analysis")
     st.markdown("Discover the influence pathways in healthcare policy and understand impact patterns.")
 
@@ -1242,21 +1325,26 @@ with tab2:
                             x=top_items_credit['pub_credit_share'],
                             y=top_items_credit[selected_item_col],
                             orientation='h',
-                            marker_color='#12715D',
+                            marker_color=PENTA_COLORS[0],  # Penta primary
                             text=top_items_credit['pub_credit_share'].round(3),
                             textposition='auto'
                         )
                     ])
-                    fig_credit.update_layout(
+                    
+                    # Apply Penta branding
+                    fig_credit = create_penta_chart(
+                        fig_credit, 
                         title=f"Top {selected_item_col.title()} by Credit Share",
+                        height=400
+                    )
+                    
+                    fig_credit.update_layout(
                         xaxis_title="Average Credit Share",
                         yaxis_title=selected_item_col.title(),
-                        height=400,
                         margin=dict(t=30, b=10, l=10, r=10),
-                        title_font_size=16,
                         modebar_remove=['zoom', 'pan', 'select', 'lasso', 'zoomin', 'zoomout', 'autoscale', 'reset', 'toImage']
                     )
-                    st.plotly_chart(fig_credit, use_container_width=True, config={'displayModeBar': False})
+                    st.plotly_chart(fig_credit, use_container_width=True)
                 else:
                     st.info(f"No {selected_item_col} attribution data available")
             else:
@@ -1279,21 +1367,25 @@ with tab2:
                             x=top_items_importance['circulation_size'],
                             y=top_items_importance[selected_item_col],
                             orientation='h',
-                            marker_color='#4AB48E',
+                            marker_color=PENTA_COLORS[1],  # Penta green
                             text=top_items_importance['circulation_size'].round(0),
                             textposition='auto'
                         )
                     ])
-                    fig_importance.update_layout(
+                    # Apply Penta branding
+                    fig_importance = create_penta_chart(
+                        fig_importance, 
                         title=f"Top {selected_item_col.title()} by Circulation",
+                        height=400
+                    )
+                    
+                    fig_importance.update_layout(
                         xaxis_title="Average Circulation Size",
                         yaxis_title=selected_item_col.title(),
-                        height=400,
                         margin=dict(t=30, b=10, l=10, r=10),
-                        title_font_size=16,
                         modebar_remove=['zoom', 'pan', 'select', 'lasso', 'zoomin', 'zoomout', 'autoscale', 'reset', 'toImage']
                     )
-                    st.plotly_chart(fig_importance, use_container_width=True, config={'displayModeBar': False})
+                    st.plotly_chart(fig_importance, use_container_width=True)
                 else:
                     st.info(f"No {selected_item_col} attribution data available")
             else:
@@ -1475,7 +1567,7 @@ with tab2:
             except Exception as e:
                 st.error(f"Error searching for term: {e}")
 
-with tab3:
+with tab4:
     st.subheader("People - Network Analysis")
     st.markdown("Explore influence networks and publisher-term relationships using pre-computed data.")
     
@@ -1516,8 +1608,7 @@ with tab3:
         with col1:
             network_type = st.selectbox(
                 "Select Network Type:",
-                ["Influence Network", "Publisher-Term Network", "Data Tables"],
-                help="Choose the type of network analysis to display"
+                ["Influence Network", "Publisher-Term Network", "Data Tables"]
             )
         
         with col2:
@@ -1574,7 +1665,7 @@ with tab3:
                     x=terms['credit_share'],
                     orientation='h',
                     name='Terms',
-                    marker_color='#ff7f0e',
+                    marker_color=PENTA_COLORS[1],  # Penta green
                     text=terms['credit_share'].round(3),
                     textposition='auto',
                 ))
@@ -1585,16 +1676,21 @@ with tab3:
                     x=items['credit_share'],
                     orientation='h',
                     name='Items',
-                    marker_color='#1f77b4',
+                    marker_color=PENTA_COLORS[0],  # Penta primary
                     text=items['credit_share'].round(3),
                     textposition='auto',
                 ))
             
-            fig.update_layout(
+            # Apply Penta branding
+            fig = create_penta_chart(
+                fig, 
                 title="Top Influence Performers by Credit Share",
+                height=600
+            )
+            
+            fig.update_layout(
                 xaxis_title="Credit Share",
                 yaxis_title="Terms/Items",
-                height=600,
                 barmode='group',
                 showlegend=True
             )
@@ -1602,11 +1698,22 @@ with tab3:
             st.plotly_chart(fig, use_container_width=True)
             
             # Show Network Visualization checkbox
-            show_network = st.checkbox("Show Network Visualization", value=True, key="influence_network")
+            show_network = st.checkbox("Show Network Visualization", value=False, key="influence_network")
             
             if show_network:
                 # Node Network Visualization
-                st.markdown("#### Network Relationships")
+                st.markdown("#### Network Relationships", help="Show the network relationships between terms and items. Zoom and hover over nodes for more information.")
+                
+                # Helpful tooltip for Influence Network
+                with st.expander("What to Look For", expanded=False):
+                    st.markdown("""
+                    - **Node Size**: Larger nodes = higher influence (credit share)
+                    - **Node Shape**: Circles = Terms, Triangles = Items
+                    - **Node Color**: Different colors represent different dimensions
+                    - **Connections**: Lines show influence flow toward conversion (black square)
+                    - **Thick Lines**: Stronger influence relationships
+                    - **Central Nodes**: Most influential terms/items are often centrally positioned
+                    """)
                 
                 try:
                     from streamlit_agraph import agraph, Node, Edge, Config
@@ -1667,8 +1774,8 @@ with tab3:
                     
                     # Clean configuration
                     config = Config(
-                        width=800,
-                        height=600,
+                        width="100%",
+                        height=500,
                         directed=True,
                         physics={
                             "enabled": True,
@@ -1758,27 +1865,44 @@ with tab3:
                 x=top_associations['weight'],
                 orientation='h',
                 name='Associations',
-                marker_color='#2ca02c',
+                marker_color=PENTA_COLORS[2],  # Penta dark
                 text=top_associations['weight'].round(3),
                 textposition='auto',
             ))
             
-            fig.update_layout(
+            # Apply Penta branding
+            fig = create_penta_chart(
+                fig, 
                 title="Strongest Publisher-Term Associations",
+                height=600
+            )
+            
+            fig.update_layout(
                 xaxis_title="Association Weight",
                 yaxis_title="Publisher - Term",
-                height=600,
                 showlegend=False
             )
             
             st.plotly_chart(fig, use_container_width=True)
             
             # Show Network Visualization checkbox
-            show_network = st.checkbox("Show Network Visualization", value=True, key="publisher_term_network")
+            show_network = st.checkbox("Show Network Visualization", value=False, key="publisher_term_network")
             
             if show_network:
                 # Node Network Visualization
-                st.markdown("#### Publisher-Term Network")
+                st.markdown("#### Publisher-Term Network", help="Show the network relationships between terms and items. Zoom and hover over nodes for more information.")
+                
+                # Helpful tooltip for Publisher-Term Network
+                with st.expander("What to Look For", expanded=False):
+                    st.markdown("""
+                    - **Blue Circles**: Publishers (larger = more associations)
+                    - **Orange Triangles**: Terms (larger = more publisher coverage)
+                    - **Connections**: Lines show publisher-term associations
+                    - **Thick Lines**: Stronger associations (higher weight)
+                    - **Hub Publishers**: Publishers connected to many terms
+                    - **Popular Terms**: Terms connected to many publishers
+                    - **Clusters**: Groups of publishers focusing on similar terms
+                    """)
                 
                 try:
                     from streamlit_agraph import agraph, Node, Edge, Config
@@ -1847,7 +1971,7 @@ with tab3:
                         
                         # Clean configuration
                         config = Config(
-                            width=1200,
+                            width="100%",
                             height=500,
                             directed=False,
                             physics={
