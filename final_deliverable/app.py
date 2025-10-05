@@ -119,7 +119,7 @@ px.defaults.color_discrete_sequence = PENTA_COLORS
 px.defaults.template = "penta"
 
 # Altair configuration
-alt.themes.enable("default")
+alt.theme.enable("default")
 alt.renderers.set_embed_options(actions=False)
 alt.data_transformers.disable_max_rows()
 
@@ -153,8 +153,7 @@ def penta_altair_theme():
         }
     }
 
-alt.themes.register("penta", penta_altair_theme)
-alt.themes.enable("penta")
+alt.theme.register("penta", penta_altair_theme, enable=True)
 
 def create_penta_chart(fig, title=None, height=400):
     """Apply Penta branding to Plotly charts."""
