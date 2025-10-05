@@ -1302,13 +1302,6 @@ with tab2:
             else:
                 st.info("Choose different fields for source and target (and ensure data is filtered).")
 
-        # Export Data Bar
-        st.markdown("---")
-        col1, col2, col3 = st.columns([1, 2, 1])
-        with col2:
-            if st.button("Export Data to CSV", use_container_width=True, type="primary"):
-                export_data_button(filtered_df, "filtered_data", "csv")
-
 with tab3:
     st.subheader("Attribution Analysis")
     st.markdown("Discover the influence pathways in healthcare policy and understand impact patterns.")
