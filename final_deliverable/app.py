@@ -4,11 +4,20 @@ from __future__ import annotations
 # -------------------- MUST be first Streamlit call --------------------
 import streamlit as st
 
-# Add startup error handling
+# Add comprehensive startup error handling
 try:
     st.set_page_config(page_title="PolicyPath", layout="wide",page_icon="🏛️")
 except Exception as e:
     st.error(f"Configuration error: {e}")
+    st.stop()
+
+# Add global error handler
+def handle_error(e, context=""):
+    """Handle errors with detailed information"""
+    st.error(f"Error {context}: {str(e)}")
+    st.error(f"Error type: {type(e).__name__}")
+    import traceback
+    st.code(traceback.format_exc())
     st.stop()
 
 # Load external CSS file
@@ -765,7 +774,10 @@ def main():
     return tab1, tab2, tab3, tab4
 
 # Run main app
-tab1, tab2, tab3, tab4 = main()
+try:
+    tab1, tab2, tab3, tab4 = main()
+except Exception as e:
+    handle_error(e, "in main() function")
 
 if tab1 is None:
     st.stop()
