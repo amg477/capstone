@@ -123,8 +123,7 @@ alt.theme.enable("default")
 alt.renderers.set_embed_options(actions=False)
 alt.data_transformers.disable_max_rows()
 
-# Custom Altair theme
-@alt.theme.register("penta", enable=True)
+# Custom Altair theme - simplified approach
 def penta_altair_theme():
     return {
         "config": {
@@ -153,6 +152,15 @@ def penta_altair_theme():
             }
         }
     }
+
+# Try to register the theme with fallback
+try:
+    alt.theme.register("penta", penta_altair_theme)
+    alt.theme.enable("penta")
+except Exception as e:
+    # Fallback: just use default theme if registration fails
+    print(f"Could not register Penta theme: {e}")
+    alt.theme.enable("default")
 
 def create_penta_chart(fig, title=None, height=400):
     """Apply Penta branding to Plotly charts."""
