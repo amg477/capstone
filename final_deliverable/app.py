@@ -189,39 +189,48 @@ ROOT = APP_DIR.parent
 @st.cache_data
 def load_combined_dataset() -> pd.DataFrame:
     """Load and combine a subset of split dataset files for memory efficiency."""
+    # Try multiple possible paths for the data files
     possible_paths = [
-        Path("data/processed/split"),
-        Path.cwd() / "data" / "processed" / "split",
-        Path("../data/processed/split"),
-        APP_DIR.parent / "data" / "processed" / "split",
-        APP_DIR.parent.parent / "data" / "processed" / "split",
-        Path("data/split"),
-        Path.cwd() / "data" / "split",
+        # Streamlit Cloud paths
+        Path("data/split"),  # final_deliverable/data/split
+        Path("../data/processed/split"),  # data/processed/split
+        Path("data/processed/split"),  # data/processed/split
+        # Local development paths
         APP_DIR / "data" / "split",
-        APP_DIR.parent / "data" / "split",
-        Path.cwd().parent / "data" / "split",
-        Path("../data/split"),
+        APP_DIR.parent / "data" / "processed" / "split",
+        Path.cwd() / "data" / "split",
+        Path.cwd() / "data" / "processed" / "split",
     ]
 
     split_dir = next((p for p in possible_paths if p.exists()), None)
     if split_dir is None:
         print("Warning: No split data directory found")
+        print(f"Searched paths: {[str(p) for p in possible_paths]}")
         return pd.DataFrame()
 
     print(f"Loading data from: {split_dir}")
     combined: List[pd.DataFrame] = []
-    for i in range(1, 6):  # Load only 5 files to reduce memory
+    
+    # Try to load files 1-3 first (smaller subset for Streamlit Cloud)
+    for i in range(1, 4):  # Load only 3 files to reduce memory
         fp = split_dir / f"final_model_dataset_part_{i:03d}.csv"
         if fp.exists():
             try:
-                df = pd.read_csv(fp, dtype_backend="pyarrow")
-                # Keep top 70% by circulation (high-impact)
+                # Try with pyarrow first, fallback to regular pandas
+                try:
+                    df = pd.read_csv(fp, dtype_backend="pyarrow")
+                except Exception:
+                    df = pd.read_csv(fp)
+                
+                # Keep top 90% by circulation (high-impact)
                 if 'circulation_size' in df.columns:
                     df['circulation_size'] = pd.to_numeric(df['circulation_size'], errors='coerce')
                     circulation_threshold = df['circulation_size'].quantile(0.1)
                     combined.append(df[df['circulation_size'] >= circulation_threshold])
                 else:
-                    combined.append(df.sample(n=int(len(df) * 0.9)))
+                    # If no circulation_size, take a sample
+                    sample_size = min(10000, len(df))  # Limit to 10k rows max
+                    combined.append(df.sample(n=sample_size))
                 print(f"Loaded {fp.name}: {len(df)} rows")
             except Exception as e:
                 print(f"Warning: Could not load {fp.name}: {e}")
@@ -674,13 +683,16 @@ COLUMNS: Set[str] = set()
 
 def _find_first_existing(*names: str) -> Optional[Path]:
     candidates = [
-        ROOT / "data",
+        # Streamlit Cloud paths
+        Path("../data/processed"),  # data/processed
+        Path("data/processed"),    # data/processed
+        # Local development paths
         ROOT / "data" / "processed",
-        ROOT / "final_deliverable" / "data",
+        ROOT / "data",
         APP_DIR / "data",
         APP_DIR.parent / "data",
         Path.cwd() / "data",
-        Path.cwd() / "final_deliverable" / "data",
+        Path.cwd() / "data" / "processed",
     ]
     for d in candidates:
         for nm in names:
@@ -705,16 +717,23 @@ def get_data() -> Tuple[pd.DataFrame, pd.DataFrame, Set[str]]:
             attr_csv = _find_first_existing(ATTR_NAME, "attribution_all_scored_sample.csv")
             if attr_csv:
                 try:
-                    df_attr = pd.read_csv(attr_csv, dtype_backend="pyarrow")
+                    # Try with pyarrow first, fallback to regular pandas
+                    try:
+                        df_attr = pd.read_csv(attr_csv, dtype_backend="pyarrow")
+                    except Exception:
+                        df_attr = pd.read_csv(attr_csv)
                     print(f"Successfully loaded attribution data from {attr_csv}")
                 except Exception as e:
                     print(f"Warning: Could not load attribution data from {attr_csv}: {e}")
                     df_attr = pd.DataFrame()
             else:
                 print("Warning: No attribution data file found")
+                print(f"Searched for: {ATTR_NAME}, attribution_all_scored_sample.csv")
                 df_attr = pd.DataFrame()
         except Exception as e:
             print(f"Error in get_data(): {e}")
+            import traceback
+            print(traceback.format_exc())
             df_main, df_attr, COLUMNS = pd.DataFrame(), pd.DataFrame(), set()
     return df_main, df_attr, COLUMNS
 
@@ -820,6 +839,27 @@ with tab2:
 
     # Load data for metrics
     df_main, df_attr, COLUMNS = get_data()
+    
+    # Debug information
+    st.write("### Debug Information")
+    st.write(f"Main dataset rows: {len(df_main)}")
+    st.write(f"Attribution dataset rows: {len(df_attr)}")
+    st.write(f"Available columns: {list(COLUMNS)[:10]}...")  # Show first 10 columns
+    
+    # Check if we have any data
+    if df_main.empty and df_attr.empty:
+        st.error("⚠️ No data could be loaded. This might be due to:")
+        st.markdown("""
+        - Data files not found in expected locations
+        - Memory limitations on Streamlit Cloud
+        - File format issues
+        
+        **Troubleshooting steps:**
+        1. Check that data files exist in the repository
+        2. Verify file paths are correct
+        3. Try reducing the dataset size
+        """)
+        st.stop()
 
     # PolicyPath Metrics Dashboard
     if not df_main.empty:
@@ -1276,6 +1316,10 @@ with tab3:
     df_main, df_attr, COLUMNS = get_data()
     available_cols = df_main.columns.tolist() if not df_main.empty else []
     
+    # Debug information for attribution tab
+    if df_main.empty:
+        st.warning("⚠️ No main dataset loaded. Check the Pulse tab for debug information.")
+    
     # Attribution Metrics Dashboard
     if not df_main.empty:
         
@@ -1591,11 +1635,24 @@ with tab3:
 def load_network_data():
     """Load all pre-computed network data files"""
     try:
-        # Use relative path from the app directory
-        import os
-        app_dir = os.path.dirname(os.path.abspath(__file__))
-        data_dir = os.path.join(app_dir, "..", "data", "processed")
+        # Try multiple possible paths for the data files
+        possible_paths = [
+            # Streamlit Cloud paths
+            Path("../data/processed"),  # data/processed
+            Path("data/processed"),    # data/processed
+            # Local development paths
+            APP_DIR.parent / "data" / "processed",
+            ROOT / "data" / "processed",
+            Path.cwd() / "data" / "processed",
+        ]
         
+        data_dir = next((p for p in possible_paths if p.exists()), None)
+        if data_dir is None:
+            print("Warning: No network data directory found")
+            print(f"Searched paths: {[str(p) for p in possible_paths]}")
+            return {}
+        
+        print(f"Loading network data from: {data_dir}")
         network_data = {}
         required_files = [
             'influence_nodes.csv',
@@ -1608,10 +1665,11 @@ def load_network_data():
         ]
         
         for filename in required_files:
-            file_path = os.path.join(data_dir, filename)
-            if os.path.exists(file_path):
+            file_path = data_dir / filename
+            if file_path.exists():
                 try:
                     network_data[filename.replace('.csv', '')] = pd.read_csv(file_path)
+                    print(f"Loaded {filename}")
                 except Exception as file_error:
                     print(f"Warning: Could not load {filename}: {file_error}")
                     network_data[filename.replace('.csv', '')] = pd.DataFrame()
@@ -1622,7 +1680,7 @@ def load_network_data():
         return network_data
     except Exception as e:
         print(f"Error loading network data: {e}")
-        return None
+        return {}
 
 with tab4:
     st.subheader("People - Network Analysis")
