@@ -1,7 +1,6 @@
-#!/usr/bin/env python3
 """
-PolicyPath Network Analysis
-Complete network analysis script that can be run from terminal.
+Network Analysis Functions for PolicyPath
+Contains network building, analysis, and visualization functions.
 """
 
 import pandas as pd
@@ -11,12 +10,7 @@ from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 import numpy as np
 import re
-import math
-from networkx.algorithms.community import greedy_modularity_communities
-from typing import Optional, List, Tuple, Dict, Any
-import argparse
-import sys
-import os
+from typing import Dict, List, Tuple, Optional
 
 
 # Constants
@@ -26,163 +20,6 @@ DIMENSION_COLORS = [
     "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf",
 ]
 KIND_MARKERS = {"item": "o", "term": "^"}  # circle, triangle
-
-
-def load_data():
-    """Load the main datasets."""
-    print("Loading data...")
-    df = pd.read_csv("../../data/processed/final_model_dataset.csv")
-    attr_df = pd.read_csv("../../data/processed/attribution_all_scored.csv")
-    print(f"Loaded {len(df)} articles and {len(attr_df)} attribution records")
-    return df, attr_df
-
-
-def prep_attr_df(df: pd.DataFrame) -> pd.DataFrame:
-    """Prepare attribution dataframe with proper data types."""
-    required = {"kind", "dimension", "value", "credit", "credit_share", "rating", "rating_pct"}
-    missing = required - set(df.columns)
-    if missing:
-        raise ValueError(f"attr_df missing required columns: {sorted(missing)}")
-    
-    out = df.copy()
-    out["kind"] = out["kind"].astype(str)
-    out["dimension"] = out["dimension"].astype(str)
-    out["value"] = out["value"].astype(str)
-    
-    for c in ("credit", "credit_share", "rating_pct"):
-        out[c] = pd.to_numeric(out[c], errors="coerce").fillna(0.0)
-    out["rating"] = pd.to_numeric(out["rating"], errors="coerce").fillna(0).astype(int)
-    
-    return out
-
-
-def filter_top_per_dimension(df: pd.DataFrame, top_k: int = 50, min_share: float = 0.0) -> pd.DataFrame:
-    """Filter top items per dimension by credit share."""
-    x = df.copy()
-    
-    # filter by per-dimension share (credit_share) — classic behavior
-    if min_share > 0:
-        x = x[x["credit_share"] >= min_share]
-    
-    if top_k and top_k > 0:
-        x = (
-            x.sort_values(["dimension", "credit_share"], ascending=[True, False])
-            .groupby("dimension", as_index=False)
-            .head(top_k)
-        )
-    
-    return x.reset_index(drop=True)
-
-
-def choose_labels_by_rank(G: nx.DiGraph, top_labels_per_dim: int = 10) -> Dict[str, str]:
-    """Choose labels for nodes based on per-dimension credit share ranking."""
-    by_dim = {}
-    for n, d in G.nodes(data=True):
-        if n == SINK_LABEL: 
-            continue
-        dim = d.get("dimension", "other")
-        by_dim.setdefault(dim, []).append((n, d.get("credit_share", 0.0)))
-    
-    labels = {}
-    for dim, pairs in by_dim.items():
-        pairs.sort(key=lambda t: t[1], reverse=True)
-        for n, _ in pairs[:top_labels_per_dim]:
-            labels[n] = n
-    return labels
-
-
-def build_graph_classic(attr_df: pd.DataFrame) -> nx.DiGraph:
-    """Build classic influence network graph from attribution data."""
-    print("Building influence network graph...")
-    df = prep_attr_df(attr_df)
-
-    # colors by dimension (fixed order)
-    dims = sorted(df["dimension"].unique())
-    dim_to_color = {d: DIMENSION_COLORS[i % len(DIMENSION_COLORS)] for i, d in enumerate(dims)}
-
-    # one node per (value,kind,dimension) with summed metrics
-    nodes_tbl = (
-        df.groupby(["value", "kind", "dimension"], as_index=False)
-          .agg({"credit": "sum", "credit_share": "sum", "rating": "max", "rating_pct": "max"})
-    )
-
-    G = nx.DiGraph()
-
-    # nodes: size = linear in credit_share (classic)
-    for _, r in nodes_tbl.iterrows():
-        node_id = r["value"]
-        color = dim_to_color.get(r["dimension"], "#7f7f7f")
-        size = max(80, float(r["credit_share"]) * 2200)
-        G.add_node(
-            node_id,
-            kind=r["kind"], dimension=r["dimension"], color=color, size=size,
-            credit=float(r["credit"]), credit_share=float(r["credit_share"]),
-            rating=int(r["rating"]), rating_pct=float(r["rating_pct"])
-        )
-
-    # sink node
-    if SINK_LABEL not in G:
-        G.add_node(SINK_LABEL, kind="sink", dimension="conversion", color="#222222", size=500)
-
-    # edges: weight = linear credit_share (classic)
-    edge_tbl = df.groupby("value", as_index=False)["credit_share"].sum().rename(columns={"credit_share": "edge_weight"})
-    for _, r in edge_tbl.iterrows():
-        w = float(r["edge_weight"])
-        if w > 0:
-            G.add_edge(r["value"], SINK_LABEL, weight=w)
-
-    print(f"Built graph with {G.number_of_nodes()} nodes and {G.number_of_edges()} edges")
-    return G
-
-
-def draw_static_classic(G: nx.DiGraph, figsize=(12, 8), top_labels_per_dim: int = 10, save_path=None):
-    """Draw static classic influence network."""
-    print("Drawing influence network...")
-    pos = nx.spring_layout(G, k=0.6, seed=42)  # classic, reproducible
-
-    plt.figure(figsize=figsize)
-
-    # edges: linear thickness
-    widths = [max(0.5, G[u][v].get("weight", 0.0) * 6) for u, v in G.edges()]
-    nx.draw_networkx_edges(G, pos, width=widths, alpha=0.25, arrows=True, arrowstyle="-|>", arrowsize=10)
-
-    # nodes by kind (marker), colors by dimension
-    for kind, marker in KIND_MARKERS.items():
-        nodes_k = [n for n, d in G.nodes(data=True) if d.get("kind") == kind]
-        sizes = [G.nodes[n].get("size", 120) for n in nodes_k]
-        colors = [G.nodes[n].get("color", "#7f7f7f") for n in nodes_k]
-        nx.draw_networkx_nodes(G, pos, nodelist=nodes_k, node_size=sizes, node_color=colors,
-                               node_shape=marker, linewidths=0.8, edgecolors="#333", alpha=0.95)
-
-    # sink
-    if SINK_LABEL in G:
-        nx.draw_networkx_nodes(G, pos, nodelist=[SINK_LABEL], node_size=700,
-                               node_color="#222222", node_shape="s",
-                               linewidths=0.8, edgecolors="#111111")
-
-    # labels: top-N per dimension by credit_share
-    labels = choose_labels_by_rank(G, top_labels_per_dim=top_labels_per_dim)
-    nx.draw_networkx_labels(G, pos, labels=labels, font_size=9)
-
-    plt.title("Influence Network: Actors & Terms Driving Conversion", fontsize=14, pad=10)
-    subtitle = "Color = dimension • Shape = kind (● item, ▲ term) • Size ≈ credit_share • Edge width ≈ credit_share"
-    plt.suptitle(subtitle, y=0.88, fontsize=9, color="#444")
-
-    kind_handles = [
-        Line2D([0], [0], marker='o', color='w', markerfacecolor='#777', markeredgecolor='#333', label='item', markersize=8),
-        Line2D([0], [0], marker='^', color='w', markerfacecolor='#777', markeredgecolor='#333', label='term', markersize=8),
-        Line2D([0], [0], marker='s', color='w', markerfacecolor='#222', markeredgecolor='#111', label='<CONV>', markersize=8),
-    ]
-    plt.legend(handles=kind_handles, loc='lower left', frameon=True, title='Kind')
-
-    plt.axis("off")
-    plt.tight_layout()
-    
-    if save_path:
-        plt.savefig(save_path, dpi=300, bbox_inches='tight')
-        print(f"Saved influence network plot to {save_path}")
-    else:
-        plt.show()
 
 
 def prepare_article_data(df: pd.DataFrame) -> pd.DataFrame:
@@ -227,14 +64,156 @@ def best_term_for_text(text: str, ranked_terms: List[Tuple[str, float]], pattern
     return None, 0.0
 
 
+def choose_labels_by_rank(G: nx.DiGraph, top_labels_per_dim: int = 10) -> Dict[str, str]:
+    """Choose labels for nodes based on per-dimension credit share ranking."""
+    by_dim = {}
+    for n, d in G.nodes(data=True):
+        if n == SINK_LABEL: 
+            continue
+        dim = d.get("dimension", "other")
+        by_dim.setdefault(dim, []).append((n, d.get("credit_share", 0.0)))
+    
+    labels = {}
+    for dim, pairs in by_dim.items():
+        pairs.sort(key=lambda t: t[1], reverse=True)
+        for n, _ in pairs[:top_labels_per_dim]:
+            labels[n] = n
+    return labels
+
+
+def prep_attr_df(df: pd.DataFrame) -> pd.DataFrame:
+    """Prepare attribution dataframe with proper data types."""
+    required = {"kind", "dimension", "value", "credit", "credit_share", "rating", "rating_pct"}
+    missing = required - set(df.columns)
+    if missing:
+        raise ValueError(f"attr_df missing required columns: {sorted(missing)}")
+    
+    out = df.copy()
+    out["kind"] = out["kind"].astype(str)
+    out["dimension"] = out["dimension"].astype(str)
+    out["value"] = out["value"].astype(str)
+    
+    for c in ("credit", "credit_share", "rating_pct"):
+        out[c] = pd.to_numeric(out[c], errors="coerce").fillna(0.0)
+    out["rating"] = pd.to_numeric(out["rating"], errors="coerce").fillna(0).astype(int)
+    
+    return out
+
+
+def filter_top_per_dimension(df: pd.DataFrame, top_k: int = 50, min_share: float = 0.0) -> pd.DataFrame:
+    """Filter top items per dimension by credit share."""
+    x = df.copy()
+    
+    # filter by per-dimension share (credit_share) — classic behavior
+    if min_share > 0:
+        x = x[x["credit_share"] >= min_share]
+    
+    if top_k and top_k > 0:
+        x = (
+            x.sort_values(["dimension", "credit_share"], ascending=[True, False])
+            .groupby("dimension", as_index=False)
+            .head(top_k)
+        )
+    
+    return x.reset_index(drop=True)
+
+
+def build_graph_classic(attr_df: pd.DataFrame) -> nx.DiGraph:
+    """Build classic influence network graph from attribution data."""
+    df = prep_attr_df(attr_df)
+
+    # colors by dimension (fixed order)
+    dims = sorted(df["dimension"].unique())
+    dim_to_color = {d: DIMENSION_COLORS[i % len(DIMENSION_COLORS)] for i, d in enumerate(dims)}
+
+    # one node per (value,kind,dimension) with summed metrics
+    nodes_tbl = (
+        df.groupby(["value", "kind", "dimension"], as_index=False)
+          .agg({"credit": "sum", "credit_share": "sum", "rating": "max", "rating_pct": "max"})
+    )
+
+    G = nx.DiGraph()
+
+    # nodes: size = linear in credit_share (classic)
+    for _, r in nodes_tbl.iterrows():
+        node_id = r["value"]
+        color = dim_to_color.get(r["dimension"], "#7f7f7f")
+        size = max(80, float(r["credit_share"]) * 2200)
+        G.add_node(
+            node_id,
+            kind=r["kind"], dimension=r["dimension"], color=color, size=size,
+            credit=float(r["credit"]), credit_share=float(r["credit_share"]),
+            rating=int(r["rating"]), rating_pct=float(r["rating_pct"])
+        )
+
+    # sink node
+    if SINK_LABEL not in G:
+        G.add_node(SINK_LABEL, kind="sink", dimension="conversion", color="#222222", size=500)
+
+    # edges: weight = linear credit_share (classic)
+    edge_tbl = df.groupby("value", as_index=False)["credit_share"].sum().rename(columns={"credit_share": "edge_weight"})
+    for _, r in edge_tbl.iterrows():
+        w = float(r["edge_weight"])
+        if w > 0:
+            G.add_edge(r["value"], SINK_LABEL, weight=w)
+
+    return G
+
+
+def draw_static_classic(G: nx.DiGraph, figsize=(12, 8), top_labels_per_dim: int = 10):
+    """Draw static classic influence network."""
+    pos = nx.spring_layout(G, k=0.6, seed=42)  # classic, reproducible
+
+    plt.figure(figsize=figsize)
+
+    # edges: linear thickness
+    widths = [max(0.5, G[u][v].get("weight", 0.0) * 6) for u, v in G.edges()]
+    nx.draw_networkx_edges(G, pos, width=widths, alpha=0.25, arrows=True, arrowstyle="-|>", arrowsize=10)
+
+    # nodes by kind (marker), colors by dimension
+    for kind, marker in KIND_MARKERS.items():
+        nodes_k = [n for n, d in G.nodes(data=True) if d.get("kind") == kind]
+        sizes = [G.nodes[n].get("size", 120) for n in nodes_k]
+        colors = [G.nodes[n].get("color", "#7f7f7f") for n in nodes_k]
+        nx.draw_networkx_nodes(G, pos, nodelist=nodes_k, node_size=sizes, node_color=colors,
+                               node_shape=marker, linewidths=0.8, edgecolors="#333", alpha=0.95)
+
+    # sink
+    if SINK_LABEL in G:
+        nx.draw_networkx_nodes(G, pos, nodelist=[SINK_LABEL], node_size=700,
+                               node_color="#222222", node_shape="s",
+                               linewidths=0.8, edgecolors="#111111")
+
+    # labels: top-N per dimension by credit_share
+    labels = choose_labels_by_rank(G, top_labels_per_dim=top_labels_per_dim)
+    nx.draw_networkx_labels(G, pos, labels=labels, font_size=9)
+
+    plt.title("Influence Network: Actors & Terms Driving Conversion", fontsize=14, pad=10)
+    subtitle = "Color = dimension • Shape = kind (● item, ▲ term) • Size ≈ credit_share • Edge width ≈ credit_share"
+    plt.suptitle(subtitle, y=0.88, fontsize=9, color="#444")
+
+    kind_handles = [
+        Line2D([0], [0], marker='o', color='w', markerfacecolor='#777', markeredgecolor='#333', label='item', markersize=8),
+        Line2D([0], [0], marker='^', color='w', markerfacecolor='#777', markeredgecolor='#333', label='term', markersize=8),
+        Line2D([0], [0], marker='s', color='w', markerfacecolor='#222', markeredgecolor='#111', label='<CONV>', markersize=8),
+    ]
+    plt.legend(handles=kind_handles, loc='lower left', frameon=True, title='Kind')
+
+    plt.axis("off")
+    plt.tight_layout()
+    plt.show()
+
+
 def build_publisher_term_edges(
     articles: pd.DataFrame,
     term_table: pd.DataFrame,
     term_limit: int = 500,
     min_term_weight: float = 0.0
 ) -> pd.DataFrame:
-    """Build edges between publishers and their most influential terms."""
-    print(f"Building publisher-term edges (limit: {term_limit})...")
+    """
+    Build edges between publishers and their most influential terms.
+    Returns edge table with columns: publisher, term, weight
+    """
     tt = term_table.head(term_limit).copy()
     ranked_terms = list(tt.itertuples(index=False, name=None))  # (term, weight)
     patterns = compile_term_patterns([t for t, _ in ranked_terms])
@@ -252,14 +231,11 @@ def build_publisher_term_edges(
         return pd.DataFrame(columns=["publisher", "term", "weight"])
 
     pub, term, w = zip(*[(p, t, v) for (p, t), v in edges.items()])
-    result = pd.DataFrame({"publisher": pub, "term": term, "weight": w})
-    print(f"Built {len(result)} publisher-term edges")
-    return result
+    return pd.DataFrame({"publisher": pub, "term": term, "weight": w})
 
 
 def build_bipartite_graph(edges: pd.DataFrame) -> nx.Graph:
     """Build an undirected bipartite graph between publishers and terms."""
-    print("Building bipartite graph...")
     G = nx.Graph()
     for _, r in edges.iterrows():
         p, t, w = r["publisher"], r["term"], float(r["weight"])
@@ -269,19 +245,15 @@ def build_bipartite_graph(edges: pd.DataFrame) -> nx.Graph:
             G.add_node(t, ntype="term")
         if w > 0:
             G.add_edge(p, t, weight=w)
-    
-    print(f"Built bipartite graph with {G.number_of_nodes()} nodes and {G.number_of_edges()} edges")
     return G
 
 
 def draw_publisher_term_network(
     G: nx.Graph,
     top_labels_per_type: int = 12,
-    figsize=(14, 9),
-    save_path=None
+    figsize=(14, 9)
 ):
     """Draw publisher-term content network."""
-    print("Drawing content network...")
     # size nodes by (weighted) degree
     def node_strength(n):
         return sum(G[n][nbr].get("weight", 0.0) for nbr in G.neighbors(n))
@@ -342,144 +314,195 @@ def draw_publisher_term_network(
 
     plt.axis("off")
     plt.tight_layout()
+    plt.show()
+
+
+def run_influence_network_analysis(attr_df: pd.DataFrame, top_k: int = 50, min_share: float = 0.0):
+    """Run complete influence network analysis."""
+    _attr = prep_attr_df(attr_df)
+    _attr_trim = filter_top_per_dimension(_attr, top_k=top_k, min_share=min_share)
     
-    if save_path:
-        plt.savefig(save_path, dpi=300, bbox_inches='tight')
-        print(f"Saved content network plot to {save_path}")
-    else:
-        plt.show()
-
-
-def compare_term_rankings(attr_df: pd.DataFrame):
-    """Compare term rankings between chunk-normalized and global-normalized approaches."""
-    print("Comparing term rankings...")
+    # Build & plot
+    G = build_graph_classic(_attr_trim)
+    draw_static_classic(G, figsize=(12, 8), top_labels_per_dim=10)
     
-    # Prepare terms data
-    _terms = attr_df[attr_df["kind"] == "term"].copy()
-    _terms["credit"] = pd.to_numeric(_terms["credit"], errors="coerce").fillna(0.0)
-    _terms["credit_share"] = pd.to_numeric(_terms["credit_share"], errors="coerce").fillna(0.0)
-    _terms["value"] = _terms["value"].astype(str)
+    return G
+
+
+def run_content_network_analysis(df: pd.DataFrame, attr_df: pd.DataFrame, 
+                                term_limit: int = 200, min_term_weight: float = 0.0,
+                                top_labels_per_type: int = 12):
+    """Run complete content network analysis."""
+    df_use = prepare_article_data(df)
+    term_scores = build_term_scores(attr_df)
     
-    # Add global credit share
-    total = _terms["credit"].sum()
-    _terms["credit_share_global"] = _terms["credit"] / total if total > 0 else 0.0
-
-    # Get top terms for each approach
-    top_chunk = (_terms.groupby("value", as_index=False)["credit_share"]
-                      .sum()
-                      .sort_values("credit_share", ascending=False)
-                      .head(20))
-    top_chunk.insert(0, "rank", range(1, len(top_chunk) + 1))
-    top_chunk = top_chunk.rename(columns={"rank": "rank_chunk", "credit_share": "credit_share_chunk"})
-
-    top_global = (_terms.groupby("value", as_index=False)["credit_share_global"]
-                       .sum()
-                       .sort_values("credit_share_global", ascending=False)
-                       .head(20))
-    top_global.insert(0, "rank", range(1, len(top_global) + 1))
-    top_global = top_global.rename(columns={"rank": "rank_global", "credit_share_global": "credit_share_global"})
-
-    # Merge to compare
-    compare = pd.merge(top_chunk, top_global, on="value", how="outer")
+    edges = build_publisher_term_edges(
+        articles=df_use,
+        term_table=term_scores,
+        term_limit=term_limit,
+        min_term_weight=min_term_weight
+    )
     
-    # Fill missing ranks
-    max_rank = 999
-    compare["rank_chunk"] = compare["rank_chunk"].fillna(max_rank).astype(int)
-    compare["rank_global"] = compare["rank_global"].fillna(max_rank).astype(int)
-    compare["credit_share_chunk"] = compare["credit_share_chunk"].fillna(0.0)
-    compare["credit_share_global"] = compare["credit_share_global"].fillna(0.0)
-
-    # Calculate deltas
-    compare["rank_delta"] = compare["rank_global"] - compare["rank_chunk"]
-    compare["share_delta"] = compare["credit_share_global"] - compare["credit_share_chunk"]
-
-    # Sort by global rank
-    compare = compare.sort_values(["rank_global", "rank_chunk"]).reset_index(drop=True)
-
-    return compare, top_chunk, top_global
-
-
-def main():
-    """Main function to run the complete analysis."""
-    parser = argparse.ArgumentParser(description='PolicyPath Network Analysis')
-    parser.add_argument('--influence-only', action='store_true', help='Run only influence network analysis')
-    parser.add_argument('--content-only', action='store_true', help='Run only content network analysis')
-    parser.add_argument('--save-plots', action='store_true', help='Save plots to files instead of displaying')
-    parser.add_argument('--output-dir', default='output', help='Output directory for saved plots')
-    parser.add_argument('--top-k', type=int, default=50, help='Top K items per dimension for influence network')
-    parser.add_argument('--term-limit', type=int, default=200, help='Term limit for content network')
+    G_content = build_bipartite_graph(edges)
+    draw_publisher_term_network(G_content, top_labels_per_type=top_labels_per_type, figsize=(14, 9))
     
-    args = parser.parse_args()
+    return G_content, edges
+
+
+# -------------------- Command Line Interface --------------------
+import argparse
+import os
+from pathlib import Path
+
+
+def load_datasets():
+    """Load the required datasets from their expected locations."""
+    # Define possible paths for the datasets
+    possible_paths = [
+        Path("data/processed"),
+        Path("../data/processed"),
+        Path("data"),
+        Path("../data"),
+        Path("../../data/processed"),
+        Path("../../../data/processed"),
+    ]
     
-    # Create output directory if saving plots
-    if args.save_plots:
-        os.makedirs(args.output_dir, exist_ok=True)
+    # Find the datasets
+    main_dataset_path = None
+    attribution_dataset_path = None
     
-    # Load data
-    df, attr_df = load_data()
-    
-    # Run influence network analysis
-    if not args.content_only:
-        print("\n" + "="*60)
-        print("INFLUENCE NETWORK ANALYSIS")
-        print("="*60)
+    for base_path in possible_paths:
+        main_path = base_path / "final_model_dataset.csv"
+        attr_path = base_path / "attribution_all_scored.csv"
         
-        _attr = prep_attr_df(attr_df)
-        _attr_trim = filter_top_per_dimension(_attr, top_k=args.top_k, min_share=0.0)
-        
-        G_influence = build_graph_classic(_attr_trim)
-        
-        influence_save_path = os.path.join(args.output_dir, "influence_network.png") if args.save_plots else None
-        draw_static_classic(G_influence, figsize=(12, 8), top_labels_per_dim=10, save_path=influence_save_path)
+        if main_path.exists():
+            main_dataset_path = main_path
+        if attr_path.exists():
+            attribution_dataset_path = attr_path
     
-    # Run content network analysis
-    if not args.influence_only:
-        print("\n" + "="*60)
-        print("CONTENT NETWORK ANALYSIS")
-        print("="*60)
-        
-        df_use = prepare_article_data(df)
-        term_scores = build_term_scores(attr_df)
-        
-        edges = build_publisher_term_edges(
-            articles=df_use,
-            term_table=term_scores,
-            term_limit=args.term_limit,
-            min_term_weight=0.0
+    if not main_dataset_path:
+        raise FileNotFoundError(
+            "Could not find final_model_dataset.csv. "
+            "Expected locations: data/processed/final_model_dataset.csv"
         )
-        
-        G_content = build_bipartite_graph(edges)
-        
-        content_save_path = os.path.join(args.output_dir, "content_network.png") if args.save_plots else None
-        draw_publisher_term_network(G_content, top_labels_per_type=12, figsize=(14, 9), save_path=content_save_path)
-        
-        # Show top associations
-        print("\nTop Publisher-Term Associations:")
-        print(edges.sort_values("weight", ascending=False)
-                   .head(20)
-                   .rename(columns={"publisher": "Publisher", "term": "Term", "weight": "AssocWeight"})
-                   .to_string(index=False))
     
-    # Run term ranking comparison
+    if not attribution_dataset_path:
+        raise FileNotFoundError(
+            "Could not find attribution_all_scored.csv. "
+            "Expected locations: data/processed/attribution_all_scored.csv"
+        )
+    
+    print(f"Loading main dataset from: {main_dataset_path}")
+    print(f"Loading attribution dataset from: {attribution_dataset_path}")
+    
+    # Load the datasets
+    try:
+        df_main = pd.read_csv(main_dataset_path, dtype_backend="pyarrow")
+        df_attr = pd.read_csv(attribution_dataset_path, dtype_backend="pyarrow")
+        
+        print(f"Loaded {len(df_main):,} articles and {len(df_attr):,} attribution records")
+        return df_main, df_attr
+        
+    except Exception as e:
+        print(f"Error loading datasets: {e}")
+        raise
+
+
+def run_term_comparison(df_attr):
+    """Run term ranking comparison analysis."""
     print("\n" + "="*60)
     print("TERM RANKING COMPARISON")
     print("="*60)
     
-    compare, top_chunk, top_global = compare_term_rankings(attr_df)
+    # Get term scores
+    term_scores = build_term_scores(df_attr)
     
-    print("\nTop 20 Terms — CHUNK-normalized:")
-    print(top_chunk.to_string(index=False))
+    print(f"\nTop 20 terms by credit share:")
+    print("-" * 40)
+    top_terms = term_scores.head(20)
+    for i, (_, row) in enumerate(top_terms.iterrows(), 1):
+        print(f"{i:2d}. {row['term']:<30} {row['term_weight']:.4f}")
     
-    print("\nTop 20 Terms — GLOBAL-normalized:")
-    print(top_global.to_string(index=False))
+    # Analyze by dimension
+    print(f"\nTop terms by dimension:")
+    print("-" * 40)
+    df_prep = prep_attr_df(df_attr)
+    term_df = df_prep[df_prep['kind'] == 'term'].copy()
     
-    print("\nComparison (union of Top 20s) — rank/weight changes:")
-    print(compare[["value", "rank_chunk", "rank_global", "rank_delta",
-                   "credit_share_chunk", "credit_share_global", "share_delta"]].to_string(index=False))
+    for dimension in sorted(term_df['dimension'].unique()):
+        dim_terms = term_df[term_df['dimension'] == dimension].nlargest(5, 'credit_share')
+        print(f"\n{dimension.upper()}:")
+        for _, row in dim_terms.iterrows():
+            print(f"  • {row['value']:<25} {row['credit_share']:.4f}")
+
+
+def main():
+    """Main function to run network analysis."""
+    parser = argparse.ArgumentParser(description="Run PolicyPath Network Analysis")
+    parser.add_argument("--influence-only", action="store_true", 
+                       help="Run only influence network analysis")
+    parser.add_argument("--content-only", action="store_true", 
+                       help="Run only content network analysis")
+    parser.add_argument("--save-plots", action="store_true", 
+                       help="Save plots as PNG files instead of displaying")
+    parser.add_argument("--output-dir", default="output", 
+                       help="Directory to save plots (default: output)")
+    parser.add_argument("--top-k", type=int, default=50, 
+                       help="Top K items per dimension for influence network (default: 50)")
+    parser.add_argument("--term-limit", type=int, default=200, 
+                       help="Term limit for content network (default: 200)")
     
-    print("\n" + "="*60)
-    print("ANALYSIS COMPLETE")
-    print("="*60)
+    args = parser.parse_args()
+    
+    print("PolicyPath Network Analysis")
+    print("=" * 50)
+    
+    try:
+        # Load datasets
+        df_main, df_attr = load_datasets()
+        
+        # Create output directory if saving plots
+        if args.save_plots:
+            output_dir = Path(args.output_dir)
+            output_dir.mkdir(exist_ok=True)
+            print(f"Output directory: {output_dir.absolute()}")
+        
+        # Run analyses based on arguments
+        if args.content_only:
+            print("\nRunning Content Network Analysis...")
+            run_content_network_analysis(
+                df_main, df_attr, 
+                term_limit=args.term_limit,
+                top_labels_per_type=12
+            )
+            
+        elif args.influence_only:
+            print("\nRunning Influence Network Analysis...")
+            run_influence_network_analysis(df_attr, top_k=args.top_k)
+            
+        else:
+            # Run both analyses
+            print("\nRunning Influence Network Analysis...")
+            run_influence_network_analysis(df_attr, top_k=args.top_k)
+            
+            print("\nRunning Content Network Analysis...")
+            run_content_network_analysis(
+                df_main, df_attr, 
+                term_limit=args.term_limit,
+                top_labels_per_type=12
+            )
+        
+        # Always run term comparison
+        run_term_comparison(df_attr)
+        
+        print("\n" + "="*60)
+        print("ANALYSIS COMPLETE")
+        print("="*60)
+        
+    except Exception as e:
+        print(f"\nError: {e}")
+        import sys
+        sys.exit(1)
 
 
 if __name__ == "__main__":
