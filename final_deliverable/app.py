@@ -10,6 +10,60 @@ st.set_page_config(
     layout="wide"
 )
 
+# Hide header link icons
+st.markdown("""
+<style>
+/* Hide Streamlit header link icons - comprehensive approach */
+.css-1d391kg,
+.css-1d391kg a,
+.css-1d391kg svg,
+.stApp .css-1d391kg,
+.stApp .css-1d391kg a,
+.stApp .css-1d391kg svg,
+[data-testid="stHeader"] .css-1d391kg,
+[data-testid="stHeader"] .css-1d391kg a,
+[data-testid="stHeader"] .css-1d391kg svg {
+    display: none !important;
+    visibility: hidden !important;
+}
+
+/* Alternative CSS class patterns */
+[class*="css-"][class*="1d391kg"],
+[class*="css-"][class*="1d391kg"] a,
+[class*="css-"][class*="1d391kg"] svg,
+.stApp [class*="css-"][class*="1d391kg"],
+.stApp [class*="css-"][class*="1d391kg"] a,
+.stApp [class*="css-"][class*="1d391kg"] svg {
+    display: none !important;
+    visibility: hidden !important;
+}
+
+/* Target header links more broadly */
+h1 a, h2 a, h3 a, h4 a, h5 a, h6 a,
+[data-testid="stMarkdownContainer"] h1 a,
+[data-testid="stMarkdownContainer"] h2 a,
+[data-testid="stMarkdownContainer"] h3 a,
+[data-testid="stMarkdownContainer"] h4 a,
+[data-testid="stMarkdownContainer"] h5 a,
+[data-testid="stMarkdownContainer"] h6 a {
+    display: none !important;
+    visibility: hidden !important;
+}
+
+/* Hide any SVG icons next to headers */
+h1 svg, h2 svg, h3 svg, h4 svg, h5 svg, h6 svg,
+[data-testid="stMarkdownContainer"] h1 svg,
+[data-testid="stMarkdownContainer"] h2 svg,
+[data-testid="stMarkdownContainer"] h3 svg,
+[data-testid="stMarkdownContainer"] h4 svg,
+[data-testid="stMarkdownContainer"] h5 svg,
+[data-testid="stMarkdownContainer"] h6 svg {
+    display: none !important;
+    visibility: hidden !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
 # -------------------- Imports --------------------
 import re
 from typing import Dict, Optional, Tuple, List, Set, Iterable
@@ -1413,7 +1467,7 @@ with tab2:
                                 """, unsafe_allow_html=True)
                             except Exception:
                                 pass
-                    st.markdown("### 📄 Sample Results")
+                    st.markdown("### Sample Results")
                     st.dataframe(hits, use_container_width=True, height=400)
                     export_data_button(hits, f"term_search_{term[:40]}", "csv")
                 else:
@@ -1422,287 +1476,499 @@ with tab2:
                 st.error(f"Error searching for term: {e}")
 
 with tab3:
-    st.subheader("People - Content Network Analysis")
-    st.markdown("Explore relationships between publications and high-impact terms through interactive network visualization.")
+    st.subheader("People - Network Analysis")
+    st.markdown("Explore influence networks and publisher-term relationships using pre-computed data.")
     
-    df_main, df_attr, COLUMNS = get_data()
+    # Load network data with caching
+    @st.cache_data
+    def load_network_data():
+        """Load all pre-computed network data files"""
+        try:
+            data_dir = "/Users/annaglass/capstone/capstone/data/processed"
+            
+            network_data = {
+                'influence_nodes': pd.read_csv(f"{data_dir}/influence_nodes.csv"),
+                'influence_edges': pd.read_csv(f"{data_dir}/influence_edges.csv"),
+                'publisher_term_edges': pd.read_csv(f"{data_dir}/publisher_term_edges.csv"),
+                'community_summary': pd.read_csv(f"{data_dir}/community_summary.csv"),
+                'term_comparison': pd.read_csv(f"{data_dir}/term_comparison.csv"),
+                'top_terms_chunk': pd.read_csv(f"{data_dir}/top_terms_chunk.csv"),
+                'top_terms_global': pd.read_csv(f"{data_dir}/top_terms_global.csv")
+            }
+            
+            return network_data
+        except Exception as e:
+            st.error(f"Error loading network data: {e}")
+            return None
     
-    if df_main.empty or df_attr.empty:
-        st.warning("Content network analysis requires both main dataset and attribution data.")
+    # Load network data
+    network_data = load_network_data()
+    
+    if network_data is None:
+        st.error("Failed to load network data. Please ensure the data files exist.")
     else:
-        # Content Network Controls
-        st.markdown("### Network Configuration")
-        
-        col1, col2, col3 = st.columns(3)
+        # Network type selection (similar to attribution tab)
+        col1, col2, col3 = st.columns([2, 1, 1])
         
         with col1:
-            top_publishers = st.slider("Top Publishers", 5, 50, 20, 1)
-            top_terms = st.slider("Top Terms", 5, 50, 20, 1)
+            network_type = st.selectbox(
+                "Select Network Type:",
+                ["Influence Network", "Publisher-Term Network", "Data Tables"],
+                help="Choose the type of network analysis to display"
+            )
         
         with col2:
-            min_term_weight = st.slider("Min Term Weight", 0.0, 1.0, 0.0, 0.01)
-            edge_percentile = st.slider("Edge Percentile Cutoff", 0.5, 0.95, 0.75, 0.05)
+            if network_type in ["Influence Network", "Publisher-Term Network"]:
+                top_n = st.slider("Top Items", 10, 100, 50, 10)
         
         with col3:
-            labels_per_type = st.slider("Labels per Type", 5, 20, 10, 1)
-            use_max_term_credit = st.checkbox("Use Max Term Credit First", value=True)
+            if network_type == "Publisher-Term Network":
+                top_pubs = st.slider("Top Publishers", 5, 50, 20, 5)
         
-        # Get whitelist terms from attribution data
-        if 'kind' in df_attr.columns and 'value' in df_attr.columns:
-            term_data = df_attr[df_attr['kind'] == 'term'].copy()
-            if not term_data.empty:
-                # Get top terms by credit share
-                top_term_data = term_data.nlargest(100, 'credit_share')
-                whitelist_terms = top_term_data['value'].tolist()
+        # Display selected network type
+        if network_type == "Influence Network":
+            st.markdown("### Influence Network Analysis")
+            
+            # Analysis controls
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                top_n = st.slider("Top Nodes to Display", 10, 100, 30, 10)
+            with col2:
+                min_credit = st.slider("Min Credit Share", 0.0, 0.1, 0.001, 0.001)
+            with col3:
+                show_edges = st.checkbox("Show Connections", value=True)
+            
+            # Filter and analyze data
+            filtered_nodes = network_data['influence_nodes'][
+                network_data['influence_nodes']['credit_share'] >= min_credit
+            ].nlargest(top_n, 'credit_share')
+            
+            # Create summary metrics
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("Total Nodes", len(filtered_nodes))
+            with col2:
+                st.metric("Avg Credit Share", f"{filtered_nodes['credit_share'].mean():.3f}")
+            with col3:
+                st.metric("Top Dimension", filtered_nodes['dimension'].mode().iloc[0] if not filtered_nodes.empty else "N/A")
+            with col4:
+                st.metric("Terms vs Items", f"{len(filtered_nodes[filtered_nodes['kind']=='term'])}/{len(filtered_nodes[filtered_nodes['kind']=='item'])}")
+            
+            # Visual at the top - Top Influence Chart
+            st.markdown("#### Top Influence Performers")
+            
+            # Create a horizontal bar chart of top performers
+            top_20 = filtered_nodes.head(20)
+            fig = go.Figure()
+            
+            # Add bars for terms and items with different colors
+            terms = top_20[top_20['kind'] == 'term']
+            items = top_20[top_20['kind'] == 'item']
+            
+            if not terms.empty:
+                fig.add_trace(go.Bar(
+                    y=terms['value'],
+                    x=terms['credit_share'],
+                    orientation='h',
+                    name='Terms',
+                    marker_color='#ff7f0e',
+                    text=terms['credit_share'].round(3),
+                    textposition='auto',
+                ))
+            
+            if not items.empty:
+                fig.add_trace(go.Bar(
+                    y=items['value'],
+                    x=items['credit_share'],
+                    orientation='h',
+                    name='Items',
+                    marker_color='#1f77b4',
+                    text=items['credit_share'].round(3),
+                    textposition='auto',
+                ))
+            
+            fig.update_layout(
+                title="Top Influence Performers by Credit Share",
+                xaxis_title="Credit Share",
+                yaxis_title="Terms/Items",
+                height=600,
+                barmode='group',
+                showlegend=True
+            )
+            
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # Show Network Visualization checkbox
+            show_network = st.checkbox("Show Network Visualization", value=True, key="influence_network")
+            
+            if show_network:
+                # Node Network Visualization
+                st.markdown("#### Network Relationships")
                 
-                st.markdown(f"**Using {len(whitelist_terms)} top terms from attribution data**")
+                try:
+                    from streamlit_agraph import agraph, Node, Edge, Config
                 
-                # Generic terms to filter out
-                generic_terms = st.multiselect(
-                    "Filter out generic terms",
-                    options=["healthcare", "policy", "health", "care", "system", "patient", "medical", "government", "public", "private"],
-                    default=["healthcare", "policy", "health", "care", "system"]
-                )
-                
-                # Run content network analysis
-                if st.button("Generate Content Network", type="primary"):
-                    with st.spinner("Building content network..."):
-                        try:
-                            # Build edges
-                            edges = build_content_network_edges(
-                                df=df_main,
-                                attr_df=df_attr,
-                                whitelist_terms=whitelist_terms,
-                                publisher_col="publication_name",
-                                min_term_weight=min_term_weight,
-                                use_max_term_credit_first=use_max_term_credit
-                            )
-                            
-                            if not edges.empty:
-                                # Filter edges
-                                edges_filtered = filter_content_edges(
-                                    edges,
-                                    top_publishers=top_publishers,
-                                    top_terms=top_terms,
-                                    generic_terms=generic_terms,
-                                    edge_percentile_cutoff=edge_percentile
-                                )
-                                
-                                if not edges_filtered.empty:
-                                    # Build graph
-                                    G = build_content_graph(edges_filtered)
-                                    
-                                    # Community detection
-                                    node2c = community_map_content(G)
-                                    
-                                    # Store network data in session state for dynamic filtering
-                                    st.session_state.network_data = {
-                                        'graph': G,
-                                        'node2c': node2c,
-                                        'edges_df': edges_filtered,
-                                        'original_edges': edges_filtered
-                                    }
-                                    
-                                    # Display interactive network
-                                    st.markdown("### 🔗 Interactive Network Visualization")
-                                    fig = create_interactive_network_visualization(G, node2c, edges_filtered)
-                                    if fig:
-                                        st.plotly_chart(fig, use_container_width=True, config={
-                                            'displayModeBar': True,
-                                            'displaylogo': False,
-                                            'modeBarButtonsToRemove': ['pan2d', 'lasso2d', 'select2d']
-                                        })
-                                    
-                                    # Dynamic filtering controls
-                                    st.markdown("### 🎛️ Dynamic Network Controls")
-                                    
-                                    col1, col2, col3 = st.columns(3)
-                                    
-                                    with col1:
-                                        # Filter by node strength
-                                        strength = {n: sum(G[n][nbr].get("weight", 0.0) for nbr in G.neighbors(n)) for n in G.nodes()}
-                                        max_strength = max(strength.values()) if strength else 1
-                                        min_strength_filter = st.slider(
-                                            "Min Node Strength", 
-                                            0.0, max_strength, 0.0, 
-                                            help="Filter nodes by minimum strength"
-                                        )
-                                    
-                                    with col2:
-                                        # Filter by community
-                                        communities = sorted(set(node2c.values()))
-                                        selected_communities = st.multiselect(
-                                            "Show Communities",
-                                            options=communities,
-                                            default=communities,
-                                            help="Select which communities to display"
-                                        )
-                                    
-                                    with col3:
-                                        # Filter by node type
-                                        show_publishers = st.checkbox("Show Publishers", value=True)
-                                        show_terms = st.checkbox("Show Terms", value=True)
-                                    
-                                    # Apply dynamic filters
-                                    if st.button("Apply Filters", type="secondary"):
-                                        # Filter nodes based on strength
-                                        filtered_nodes = [n for n, s in strength.items() if s >= min_strength_filter]
-                                        
-                                        # Filter by community
-                                        if selected_communities:
-                                            filtered_nodes = [n for n in filtered_nodes if node2c.get(n, -1) in selected_communities]
-                                        
-                                        # Filter by node type
-                                        node_type_filter = []
-                                        if show_publishers:
-                                            node_type_filter.extend([n for n, d in G.nodes(data=True) if d.get("ntype") == "publisher"])
-                                        if show_terms:
-                                            node_type_filter.extend([n for n, d in G.nodes(data=True) if d.get("ntype") == "term"])
-                                        
-                                        if node_type_filter:
-                                            filtered_nodes = [n for n in filtered_nodes if n in node_type_filter]
-                                        
-                                        # Create filtered subgraph
-                                        if filtered_nodes:
-                                            G_filtered = G.subgraph(filtered_nodes)
-                                            edges_filtered_sub = edges_filtered[
-                                                edges_filtered["publisher"].isin(filtered_nodes) & 
-                                                edges_filtered["term"].isin(filtered_nodes)
-                                            ]
-                                            
-                                            # Update session state
-                                            st.session_state.network_data['graph'] = G_filtered
-                                            st.session_state.network_data['edges_df'] = edges_filtered_sub
-                                            
-                                            # Recreate visualization
-                                            node2c_filtered = {n: node2c[n] for n in filtered_nodes if n in node2c}
-                                            fig_filtered = create_interactive_network_visualization(
-                                                G_filtered, node2c_filtered, edges_filtered_sub,
-                                                title=f"Filtered Network ({len(filtered_nodes)} nodes)"
-                                            )
-                                            
-                                            if fig_filtered:
-                                                st.plotly_chart(fig_filtered, use_container_width=True, config={
-                                                    'displayModeBar': True,
-                                                    'displaylogo': False,
-                                                    'modeBarButtonsToRemove': ['pan2d', 'lasso2d', 'select2d']
-                                                })
-                                            
-                                            # Update statistics for filtered network
-                                            G = G_filtered
-                                            edges_filtered = edges_filtered_sub
-                                            node2c = node2c_filtered
-                                    
-                                    # Network statistics dashboard
-                                    st.markdown("### 📊 Network Statistics")
-                                    metrics_df, comm_df, strength_data = create_network_statistics_dashboard(G, edges_filtered, node2c)
-                                    
-                                    if metrics_df is not None:
-                                        # Display metrics in columns
-                                        col1, col2, col3, col4 = st.columns(4)
-                                        metrics = metrics_df.set_index("Metric")["Value"]
-                                        
-                                        with col1:
-                                            st.metric("Nodes", int(metrics["Nodes"]))
-                                        with col2:
-                                            st.metric("Edges", int(metrics["Edges"]))
-                                        with col3:
-                                            st.metric("Communities", int(metrics["Communities"]))
-                                        with col4:
-                                            st.metric("Avg Degree", f"{metrics['Avg Degree']:.1f}")
-                                        
-                                        # Interactive charts
-                                        col1, col2 = st.columns(2)
-                                        
-                                        with col1:
-                                            # Top nodes by strength
-                                            if not strength_data.empty:
-                                                fig_strength = px.bar(
-                                                    strength_data.head(10),
-                                                    x="Strength",
-                                                    y="Node",
-                                                    color="Type",
-                                                    orientation="h",
-                                                    title="Top Nodes by Strength",
-                                                    color_discrete_map={"publisher": "#12715D", "term": "#4AB48E"}
-                                                )
-                                                fig_strength.update_layout(height=400)
-                                                st.plotly_chart(fig_strength, use_container_width=True)
-                                        
-                                        with col2:
-                                            # Community distribution
-                                            if not comm_df.empty:
-                                                fig_comm = px.pie(
-                                                    comm_df,
-                                                    values="Total Weight",
-                                                    names="Community",
-                                                    title="Community Weight Distribution"
-                                                )
-                                                fig_comm.update_layout(height=400)
-                                                st.plotly_chart(fig_comm, use_container_width=True)
-                                    
-                                    # Detailed analysis tabs
-                                    tab_analysis, tab_edges, tab_export = st.tabs(["📈 Analysis", "🔗 Edges", "📥 Export"])
-                                    
-                                    with tab_analysis:
-                                        # Community summary
-                                        comm_summary = summarize_content_communities(G, edges_filtered, node2c)
-                                        if not comm_summary.empty:
-                                            st.markdown("#### Community Analysis")
-                                            st.dataframe(comm_summary, use_container_width=True)
-                                        
-                                        # Node centrality analysis
-                                        if G.number_of_nodes() > 0:
-                                            st.markdown("#### Node Centrality Analysis")
-                                            
-                                            # Calculate centrality measures
-                                            centrality_data = []
-                                            for node in G.nodes():
-                                                centrality_data.append({
-                                                    "Node": node,
-                                                    "Type": G.nodes[node].get("ntype", "unknown"),
-                                                    "Community": node2c.get(node, -1),
-                                                    "Degree": G.degree(node),
-                                                    "Strength": strength.get(node, 0),
-                                                    "Betweenness": nx.betweenness_centrality(G).get(node, 0),
-                                                    "Closeness": nx.closeness_centrality(G).get(node, 0)
-                                                })
-                                            
-                                            centrality_df = pd.DataFrame(centrality_data)
-                                            centrality_df = centrality_df.sort_values("Strength", ascending=False)
-                                            
-                                            st.dataframe(centrality_df, use_container_width=True)
-                                    
-                                    with tab_edges:
-                                        st.markdown("#### Network Edges")
-                                        st.dataframe(edges_filtered.sort_values("weight", ascending=False), use_container_width=True)
-                                    
-                                    with tab_export:
-                                        st.markdown("#### Export Network Data")
-                                        col1, col2, col3 = st.columns(3)
-                                        
-                                        with col1:
-                                            export_data_button(edges_filtered, "content_network_edges", "csv")
-                                        with col2:
-                                            if 'comm_summary' in locals():
-                                                export_data_button(comm_summary, "content_network_communities", "csv")
-                                        with col3:
-                                            if 'centrality_df' in locals():
-                                                export_data_button(centrality_df, "network_centrality", "csv")
-                                    
-                                else:
-                                    st.warning("No edges remain after filtering. Try adjusting the parameters.")
-                            else:
-                                st.warning("No edges could be built from the data. Check term matching.")
-                                
-                        except Exception as e:
-                            st.error(f"Error generating content network: {e}")
-                            st.exception(e)
-            else:
-                st.warning("No term data found in attribution dataset.")
-        else:
-            st.warning("Attribution dataset missing required columns: 'kind' and 'value'.")
+                    # Create clean nodes for visualization
+                    nodes = []
+                    seen_ids = set()
+                    
+                    # Take top 15 for cleaner visualization
+                    viz_nodes = filtered_nodes.head(15)
+                    
+                    for _, row in viz_nodes.iterrows():
+                        node_id = f"{row['value']}_{row['kind']}_{row['dimension']}"
+                        if node_id in seen_ids:
+                            continue
+                        seen_ids.add(node_id)
+                        
+                        # Truncate long labels
+                        label = row['value'][:12] + "..." if len(row['value']) > 12 else row['value']
+                        
+                        nodes.append(Node(
+                            id=node_id,
+                            label=label,
+                            size=max(20, int(row['credit_share'] * 300)),
+                            color=row['color'],
+                            shape="circle" if row['kind'] == 'term' else "triangle",
+                            title=f"{row['value']}<br>Kind: {row['kind']}<br>Dimension: {row['dimension']}<br>Credit Share: {row['credit_share']:.3f}"
+                        ))
+                    
+                    # Create edges to conversion
+                    edges = []
+                    if show_edges:
+                        filtered_edges = network_data['influence_edges'][
+                            network_data['influence_edges']['source'].isin(viz_nodes['value'])
+                        ]
+                        
+                        # Add conversion node
+                        nodes.append(Node(
+                            id="CONV",
+                            label="CONV",
+                            size=40,
+                            color="#222222",
+                            shape="square",
+                            title="Conversion Target"
+                        ))
+                        
+                        node_id_mapping = {node.id.split('_')[0]: node.id for node in nodes if node.id != "CONV"}
+                        
+                        for _, row in filtered_edges.head(20).iterrows():
+                            source_id = node_id_mapping.get(row['source'])
+                            if source_id:
+                                edges.append(Edge(
+                                    source=source_id,
+                                    target="CONV",
+                                    width=max(2, int(row['weight'] * 8)),
+                                    color="#999999"
+                                ))
+                    
+                    # Clean configuration
+                    config = Config(
+                        width=800,
+                        height=600,
+                        directed=True,
+                        physics={
+                            "enabled": True,
+                            "stabilization": {"enabled": True, "iterations": 100},
+                            "barnesHut": {
+                                "gravitationalConstant": -8000,
+                                "centralGravity": 0.3,
+                                "springLength": 200,
+                                "springConstant": 0.04,
+                                "damping": 0.09
+                            }
+                        },
+                        hierarchical=False,
+                        nodeHighlightBehavior=True,
+                        highlightColor="#F7A7A6",
+                        collapsible=False,
+                        node={'labelProperty': 'label'},
+                        link={'labelProperty': 'label', 'renderLabel': False}
+                    )
+                    
+                    agraph(nodes=nodes, edges=edges, config=config)
+                    
+                except ImportError:
+                    st.warning("streamlit-agraph not available. Install with: pip install streamlit-agraph")
+            
+            # Top performers table
+            st.markdown("#### Top Influence Performers")
+            display_cols = ['value', 'kind', 'dimension', 'credit_share', 'credit', 'rating']
+            st.dataframe(
+                filtered_nodes[display_cols].head(20),
+                use_container_width=True,
+                hide_index=True
+            )
+            
+            # Dimension breakdown
+            st.markdown("#### Influence by Dimension")
+            dim_analysis = filtered_nodes.groupby('dimension').agg({
+                'credit_share': ['sum', 'mean', 'count'],
+                'credit': 'sum'
+            }).round(3)
+            dim_analysis.columns = ['Total Credit Share', 'Avg Credit Share', 'Node Count', 'Total Credit']
+            st.dataframe(dim_analysis, use_container_width=True)
+            
 
+        elif network_type == "Publisher-Term Network":
+            st.markdown("### Publisher-Term Association Analysis")
+            
+            # Analysis controls
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                top_pubs = st.slider("Top Publishers", 5, 50, 15, 5)
+            with col2:
+                top_terms = st.slider("Top Terms", 5, 50, 15, 5)
+            with col3:
+                min_weight = st.slider("Min Association Weight", 0.0, 1.0, 0.1, 0.01)
+            
+            # Filter data
+            top_pubs_list = network_data['publisher_term_edges'].groupby('publisher')['weight'].sum().nlargest(top_pubs).index
+            top_terms_list = network_data['publisher_term_edges'].groupby('term')['weight'].sum().nlargest(top_terms).index
+            
+            filtered_edges = network_data['publisher_term_edges'][
+                (network_data['publisher_term_edges']['publisher'].isin(top_pubs_list)) & 
+                (network_data['publisher_term_edges']['term'].isin(top_terms_list)) &
+                (network_data['publisher_term_edges']['weight'] >= min_weight)
+            ]
+            
+            # Summary metrics
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("Total Associations", len(filtered_edges))
+            with col2:
+                st.metric("Unique Publishers", filtered_edges['publisher'].nunique())
+            with col3:
+                st.metric("Unique Terms", filtered_edges['term'].nunique())
+            with col4:
+                st.metric("Avg Weight", f"{filtered_edges['weight'].mean():.3f}")
+            
+            # Visual at the top - Top Associations Chart
+            st.markdown("#### Top Publisher-Term Associations")
+            
+            # Create a horizontal bar chart of top associations
+            top_associations = filtered_edges.nlargest(15, 'weight')
+            fig = go.Figure()
+            
+            fig.add_trace(go.Bar(
+                y=[f"{row['publisher'][:20]}... - {row['term'][:20]}..." for _, row in top_associations.iterrows()],
+                x=top_associations['weight'],
+                orientation='h',
+                name='Associations',
+                marker_color='#2ca02c',
+                text=top_associations['weight'].round(3),
+                textposition='auto',
+            ))
+            
+            fig.update_layout(
+                title="Strongest Publisher-Term Associations",
+                xaxis_title="Association Weight",
+                yaxis_title="Publisher - Term",
+                height=600,
+                showlegend=False
+            )
+            
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # Show Network Visualization checkbox
+            show_network = st.checkbox("Show Network Visualization", value=True, key="publisher_term_network")
+            
+            if show_network:
+                # Node Network Visualization
+                st.markdown("#### Publisher-Term Network")
+                
+                try:
+                    from streamlit_agraph import agraph, Node, Edge, Config
+                    
+                    if not filtered_edges.empty:
+                        # Create clean nodes
+                        nodes = []
+                        seen_ids = set()
+                        
+                        # Take top 8 publishers and 8 terms for cleaner visualization
+                        top_8_pubs = top_pubs_list[:8]
+                        top_8_terms = top_terms_list[:8]
+                        
+                        # Publisher nodes
+                        for pub in top_8_pubs:
+                            pub_id = f"pub_{pub}"
+                            if pub_id not in seen_ids:
+                                seen_ids.add(pub_id)
+                                label = pub[:12] + "..." if len(pub) > 12 else pub
+                                nodes.append(Node(
+                                    id=pub_id,
+                                    label=label,
+                                    size=30,
+                                    color="#1f77b4",
+                                    shape="circle",
+                                    title=f"{pub}<br>Type: Publisher"
+                                ))
+                        
+                        # Term nodes
+                        for term in top_8_terms:
+                            term_id = f"term_{term}"
+                            if term_id not in seen_ids:
+                                seen_ids.add(term_id)
+                                label = term[:12] + "..." if len(term) > 12 else term
+                                nodes.append(Node(
+                                    id=term_id,
+                                    label=label,
+                                    size=25,
+                                    color="#ff7f0e",
+                                    shape="triangle",
+                                    title=f"{term}<br>Type: Term"
+                                ))
+                        
+                        # Create edges
+                        edges = []
+                        pub_id_mapping = {pub: f"pub_{pub}" for pub in top_8_pubs}
+                        term_id_mapping = {term: f"term_{term}" for term in top_8_terms}
+                        
+                        # Filter edges to only include our selected nodes
+                        viz_edges = filtered_edges[
+                            (filtered_edges['publisher'].isin(top_8_pubs)) & 
+                            (filtered_edges['term'].isin(top_8_terms))
+                        ]
+                        
+                        for _, row in viz_edges.head(15).iterrows():
+                            source_id = pub_id_mapping.get(row['publisher'])
+                            target_id = term_id_mapping.get(row['term'])
+                            
+                            if source_id and target_id:
+                                edges.append(Edge(
+                                    source=source_id,
+                                    target=target_id,
+                                    width=max(2, int(row['weight'] * 5)),
+                                    color="#999999"
+                                ))
+                        
+                        # Clean configuration
+                        config = Config(
+                            width=1200,
+                            height=500,
+                            directed=False,
+                            physics={
+                                "enabled": True,
+                                "stabilization": {"enabled": True, "iterations": 500},
+                                "forceAtlas2Based": {
+                                    "gravitationalConstant": -8000,
+                                    "centralGravity": 0.25,
+                                    "springLength": 180,
+                                    "springConstant": 0.05,
+                                    "damping": 0.2,
+                                    "avoidOverlap": 1
+                                }
+                            },
+                            hierarchical=False,
+                            nodeHighlightBehavior=True,
+                            highlightColor="#F7A7A6",
+                            collapsible=False,
+                            node={'labelProperty': 'label'},
+                            link={'labelProperty': 'label', 'renderLabel': False}
+                        )
+
+                        agraph(nodes=nodes, edges=edges, config=config)
+                    else:
+                        st.warning("No associations found with current filters.")
+                        
+                except ImportError:
+                    st.warning("streamlit-agraph not available. Install with: pip install streamlit-agraph")
+            
+            # Top associations table
+            st.markdown("#### Strongest Publisher-Term Associations")
+            st.dataframe(
+                filtered_edges.nlargest(20, 'weight')[['publisher', 'term', 'weight']],
+                use_container_width=True,
+                hide_index=True
+            )
+            
+            # Publisher analysis
+            st.markdown("#### Publisher Performance")
+            pub_analysis = filtered_edges.groupby('publisher').agg({
+                'weight': ['sum', 'mean', 'count'],
+                'term': 'nunique'
+            }).round(3)
+            pub_analysis.columns = ['Total Weight', 'Avg Weight', 'Association Count', 'Unique Terms']
+            st.dataframe(pub_analysis.sort_values('Total Weight', ascending=False), use_container_width=True)
+            
+            # Term analysis
+            st.markdown("#### Term Performance")
+            term_analysis = filtered_edges.groupby('term').agg({
+                'weight': ['sum', 'mean', 'count'],
+                'publisher': 'nunique'
+            }).round(3)
+            term_analysis.columns = ['Total Weight', 'Avg Weight', 'Association Count', 'Unique Publishers']
+            st.dataframe(term_analysis.sort_values('Total Weight', ascending=False), use_container_width=True)
+            
+            # Community summary
+            if not network_data['community_summary'].empty:
+                st.markdown("#### Network Communities")
+                st.dataframe(network_data['community_summary'], use_container_width=True)
+            
+        
+        elif network_type == "Data Tables":
+            st.markdown("### Network Data Tables")
+            
+            # Network metrics dashboard
+            st.markdown("#### Network Metrics Dashboard")
+            
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                st.metric(
+                    label="Total Influence Nodes",
+                    value=f"{len(network_data['influence_nodes']):,}"
+                )
+            
+            with col2:
+                st.metric(
+                    label="Publisher-Term Associations",
+                    value=f"{len(network_data['publisher_term_edges']):,}"
+                )
+            
+            with col3:
+                st.metric(
+                    label="Network Communities",
+                    value=f"{len(network_data['community_summary'])}"
+                )
+            
+            with col4:
+                st.metric(
+                    label="Unique Publishers",
+                    value=f"{network_data['publisher_term_edges']['publisher'].nunique():,}"
+                )
+            
+            # Data tables
+            st.markdown("#### Raw Data Tables")
+            
+            table_option = st.selectbox(
+                "Select table to view:",
+                ["Influence Nodes", "Influence Edges", "Publisher-Term Edges", 
+                 "Community Summary", "Term Comparison", "Top Terms (Chunk)", "Top Terms (Global)"]
+            )
+            
+            table_mapping = {
+                "Influence Nodes": network_data['influence_nodes'],
+                "Influence Edges": network_data['influence_edges'],
+                "Publisher-Term Edges": network_data['publisher_term_edges'],
+                "Community Summary": network_data['community_summary'],
+                "Term Comparison": network_data['term_comparison'],
+                "Top Terms (Chunk)": network_data['top_terms_chunk'],
+                "Top Terms (Global)": network_data['top_terms_global']
+            }
+            
+            selected_table = table_mapping[table_option]
+            st.dataframe(selected_table, use_container_width=True)
+            
+            # Download button
+            csv = selected_table.to_csv(index=False)
+            st.download_button(
+                label=f"Download {table_option} as CSV",
+                data=csv,
+                file_name=f"{table_option.lower().replace(' ', '_')}.csv",
+                mime="text/csv"
+            )
+ 
 # -------------------- Dataset Footnote --------------------
 if 'dataset_info' in st.session_state:
     st.markdown("---")
