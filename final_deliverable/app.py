@@ -258,11 +258,6 @@ def get_dataset() -> pd.DataFrame:
 
 # -------------------- Helpers --------------------
 
-def add_to_recent_searches(term: str):
-    if term and term not in st.session_state.recent_searches:
-        st.session_state.recent_searches.insert(0, term)
-        st.session_state.recent_searches = st.session_state.recent_searches[:10]
-
 def shorten(label: str, max_len: int = 28) -> str:
     s = str(label).strip()
     if len(s) <= max_len:
@@ -667,14 +662,6 @@ def summarize_content_communities(
     return (pd.DataFrame(rows)
               .sort_values(["Total Weight","Edges in Community"], ascending=False)
               .reset_index(drop=True))
-
-# -------------------- Session State --------------------
-def init_session_state():
-    if 'dark_mode' not in st.session_state: st.session_state.dark_mode = False
-    if 'recent_searches' not in st.session_state: st.session_state.recent_searches = []
-    if 'favorites' not in st.session_state: st.session_state.favorites = []
-
-init_session_state()
 
 # -------------------- Data Globals & Loader --------------------
 DATA_DIR = (ROOT / "data").resolve()
@@ -1440,14 +1427,6 @@ with tab3:
         lookup_type = st.radio("Search Type", ["Item Attribution", "Term Attribution"], horizontal=True)
     with col2:
         st.empty()  # Space for future elements
-
-    # Recent searches
-    if st.session_state.recent_searches:
-        with st.expander("Recent Searches"):
-            for s in st.session_state.recent_searches[:5]:
-                if st.button(f"{s}", key=f"recent_{s}"):
-                    st.session_state.current_search = s
-                    # Don't use st.rerun() here - let the search happen naturally
 
     if lookup_type == "Item Attribution":
         if not available_cols:
