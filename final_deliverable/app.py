@@ -831,12 +831,6 @@ with tab2:
     # Load data for metrics
     df_main, df_attr, COLUMNS = get_data()
     
-    # Debug information
-    st.write("### Debug Information")
-    st.write(f"Main dataset rows: {len(df_main)}")
-    st.write(f"Attribution dataset rows: {len(df_attr)}")
-    st.write(f"Available columns: {list(COLUMNS)[:10]}...")  # Show first 10 columns
-    
     # Check if we have any data
     if df_main.empty and df_attr.empty:
         st.error("⚠️ No data could be loaded. This might be due to:")
@@ -1298,10 +1292,6 @@ with tab3:
 
     df_main, df_attr, COLUMNS = get_data()
     available_cols = df_main.columns.tolist() if not df_main.empty else []
-    
-    # Debug information for attribution tab
-    if df_main.empty:
-        st.warning("⚠️ No main dataset loaded. Check the Pulse tab for debug information.")
     
     # Attribution Metrics Dashboard
     if not df_main.empty:
