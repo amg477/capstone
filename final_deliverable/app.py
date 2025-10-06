@@ -663,6 +663,12 @@ def summarize_content_communities(
               .sort_values(["Total Weight","Edges in Community"], ascending=False)
               .reset_index(drop=True))
 
+# -------------------- Session State --------------------
+def init_session_state():
+    pass  # No session state initialization needed
+
+init_session_state()
+
 # -------------------- Data Globals & Loader --------------------
 DATA_DIR = (ROOT / "data").resolve()
 ATTR_NAME = "attribution_all_scored.csv"
@@ -1452,7 +1458,6 @@ with tab3:
                         # Don't use st.rerun() here - let the clearing happen naturally
 
                 if search_term and sel_col in df_main:
-                    add_to_recent_searches(f"{sel_col}: {search_term}")
                     try:
                         s = df_main[sel_col].astype("string[pyarrow]", errors="ignore")
                         matches = s.fillna("").str.contains(search_term, case=False, na=False)
@@ -1514,7 +1519,6 @@ with tab3:
                 # Don't use st.rerun() here - let the clearing happen naturally
 
         if term and not df_main.empty:
-            add_to_recent_searches(f"Term: {term}")
             try:
                 # Limit search to prevent memory issues
                 search_df = df_main.head(5000)  # Limit to first 5k rows for performance
@@ -1763,8 +1767,112 @@ with tab4:
             
             st.plotly_chart(fig, use_container_width=True)
             
-            # Note: Network visualization disabled for memory optimization
-            st.info("💡 Network visualization is disabled to optimize memory usage on Streamlit Cloud. Use the data tables below for detailed analysis.")
+            # Show Network Visualization checkbox
+            show_network = st.checkbox("Show Network Visualization", value=False, key="influence_network")
+            
+            if show_network:
+                # Node Network Visualization
+                st.markdown("#### Network Relationships", help="Show the network relationships between terms and items. Zoom and hover over nodes for more information.")
+                
+                # Helpful tooltip for Influence Network
+                with st.expander("What to Look For", expanded=False):
+                    st.markdown("""
+                    - **Node Size**: Larger nodes = higher influence (credit share)
+                    - **Node Shape**: Circles = Terms, Triangles = Items
+                    - **Node Color**: Different colors represent different dimensions
+                    - **Connections**: Lines show influence flow toward conversion (black square)
+                    - **Thick Lines**: Stronger influence relationships
+                    - **Central Nodes**: Most influential terms/items are often centrally positioned
+                    """)
+                
+                try:
+                    from streamlit_agraph import agraph, Node, Edge, Config
+                
+                    # Create clean nodes for visualization - limit to top 10 for memory efficiency
+                    nodes = []
+                    seen_ids = set()
+                    
+                    # Take top 10 for cleaner visualization and memory efficiency
+                    viz_nodes = filtered_nodes.head(10)
+                    
+                    for _, row in viz_nodes.iterrows():
+                        node_id = f"{row['value']}_{row['kind']}_{row['dimension']}"
+                        if node_id in seen_ids:
+                            continue
+                        seen_ids.add(node_id)
+                        
+                        # Truncate long labels
+                        label = row['value'][:12] + "..." if len(row['value']) > 12 else row['value']
+                        
+                        nodes.append(Node(
+                            id=node_id,
+                            label=label,
+                            size=max(20, int(row['credit_share'] * 300)),
+                            color=row['color'] if 'color' in row else "#1f77b4",
+                            shape="circle" if row['kind'] == 'term' else "triangle",
+                            title=f"{row['value']}<br>Kind: {row['kind']}<br>Dimension: {row['dimension']}<br>Credit Share: {row['credit_share']:.3f}"
+                        ))
+                    
+                    # Create edges to conversion - limit to top 10 for memory efficiency
+                    edges = []
+                    if show_edges and not network_data['influence_edges'].empty:
+                        filtered_edges = network_data['influence_edges'][
+                            network_data['influence_edges']['source'].isin(viz_nodes['value'])
+                        ].head(10)  # Limit edges for memory efficiency
+                        
+                        # Add conversion node
+                        nodes.append(Node(
+                            id="CONV",
+                            label="CONV",
+                            size=40,
+                            color="#222222",
+                            shape="square",
+                            title="Conversion Target"
+                        ))
+                        
+                        node_id_mapping = {node.id.split('_')[0]: node.id for node in nodes if node.id != "CONV"}
+                        
+                        for _, row in filtered_edges.iterrows():
+                            source_id = node_id_mapping.get(row['source'])
+                            if source_id:
+                                edges.append(Edge(
+                                    source=source_id,
+                                    target="CONV",
+                                    width=max(2, int(row['weight'] * 8)),
+                                    color="#999999"
+                                ))
+                    
+                    # Clean configuration with memory-optimized settings
+                    config = Config(
+                        width="100%",
+                        height=400,  # Reduced height
+                        directed=True,
+                        physics={
+                            "enabled": True,
+                            "stabilization": {"enabled": True, "iterations": 50},  # Reduced iterations
+                            "barnesHut": {
+                                "gravitationalConstant": -4000,  # Reduced force
+                                "centralGravity": 0.2,
+                                "springLength": 100,  # Reduced spring length
+                                "springConstant": 0.02,
+                                "damping": 0.1
+                            }
+                        },
+                        hierarchical=False,
+                        nodeHighlightBehavior=True,
+                        highlightColor="#F7A7A6",
+                        collapsible=False,
+                        node={'labelProperty': 'label'},
+                        link={'labelProperty': 'label', 'renderLabel': False}
+                    )
+                    
+                    agraph(nodes=nodes, edges=edges, config=config)
+                    
+                except ImportError:
+                    st.warning("streamlit-agraph not available. Install with: pip install streamlit-agraph")
+                except Exception as e:
+                    st.error(f"Error creating network visualization: {e}")
+                    st.info("This might be due to memory constraints. Try reducing the number of nodes or check your data.")
             
             # Top performers table
             st.markdown("#### Top Influence Performers")
@@ -1850,8 +1958,124 @@ with tab4:
             
             st.plotly_chart(fig, use_container_width=True)
             
-            # Note: Network visualization disabled for memory optimization
-            st.info("💡 Network visualization is disabled to optimize memory usage on Streamlit Cloud. Use the data tables below for detailed analysis.")
+            # Show Network Visualization checkbox
+            show_network = st.checkbox("Show Network Visualization", value=False, key="publisher_term_network")
+            
+            if show_network:
+                # Node Network Visualization
+                st.markdown("#### Publisher-Term Network", help="Show the network relationships between publishers and terms. Zoom and hover over nodes for more information.")
+                
+                # Helpful tooltip for Publisher-Term Network
+                with st.expander("What to Look For", expanded=False):
+                    st.markdown("""
+                    - **Blue Circles**: Publishers (larger = more associations)
+                    - **Orange Triangles**: Terms (larger = more publisher coverage)
+                    - **Connections**: Lines show publisher-term associations
+                    - **Thick Lines**: Stronger associations (higher weight)
+                    - **Hub Publishers**: Publishers connected to many terms
+                    - **Popular Terms**: Terms connected to many publishers
+                    - **Clusters**: Groups of publishers focusing on similar terms
+                    """)
+                
+                try:
+                    from streamlit_agraph import agraph, Node, Edge, Config
+                    
+                    if not filtered_edges.empty:
+                        # Create clean nodes - limit to top 6 publishers and 6 terms for memory efficiency
+                        nodes = []
+                        seen_ids = set()
+                        
+                        # Take top 6 publishers and 6 terms for cleaner visualization
+                        top_6_pubs = top_pubs_list[:6]
+                        top_6_terms = top_terms_list[:6]
+                        
+                        # Publisher nodes
+                        for pub in top_6_pubs:
+                            pub_id = f"pub_{pub}"
+                            if pub_id not in seen_ids:
+                                seen_ids.add(pub_id)
+                                label = pub[:12] + "..." if len(pub) > 12 else pub
+                                nodes.append(Node(
+                                    id=pub_id,
+                                    label=label,
+                                    size=30,
+                                    color="#1f77b4",
+                                    shape="circle",
+                                    title=f"{pub}<br>Type: Publisher"
+                                ))
+                        
+                        # Term nodes
+                        for term in top_6_terms:
+                            term_id = f"term_{term}"
+                            if term_id not in seen_ids:
+                                seen_ids.add(term_id)
+                                label = term[:12] + "..." if len(term) > 12 else term
+                                nodes.append(Node(
+                                    id=term_id,
+                                    label=label,
+                                    size=25,
+                                    color="#ff7f0e",
+                                    shape="triangle",
+                                    title=f"{term}<br>Type: Term"
+                                ))
+                        
+                        # Create edges - limit to top 10 for memory efficiency
+                        edges = []
+                        pub_id_mapping = {pub: f"pub_{pub}" for pub in top_6_pubs}
+                        term_id_mapping = {term: f"term_{term}" for term in top_6_terms}
+                        
+                        # Filter edges to only include our selected nodes
+                        viz_edges = filtered_edges[
+                            (filtered_edges['publisher'].isin(top_6_pubs)) & 
+                            (filtered_edges['term'].isin(top_6_terms))
+                        ].head(10)  # Limit edges for memory efficiency
+                        
+                        for _, row in viz_edges.iterrows():
+                            source_id = pub_id_mapping.get(row['publisher'])
+                            target_id = term_id_mapping.get(row['term'])
+                            
+                            if source_id and target_id:
+                                edges.append(Edge(
+                                    source=source_id,
+                                    target=target_id,
+                                    width=max(2, int(row['weight'] * 5)),
+                                    color="#999999"
+                                ))
+                        
+                        # Clean configuration with memory-optimized settings
+                        config = Config(
+                            width="100%",
+                            height=400,  # Reduced height
+                            directed=False,
+                            physics={
+                                "enabled": True,
+                                "stabilization": {"enabled": True, "iterations": 100},  # Reduced iterations
+                                "forceAtlas2Based": {
+                                    "gravitationalConstant": -4000,  # Reduced force
+                                    "centralGravity": 0.15,
+                                    "springLength": 100,  # Reduced spring length
+                                    "springConstant": 0.03,
+                                    "damping": 0.15,
+                                    "avoidOverlap": 1
+                                }
+                            },
+                            hierarchical=False,
+                            nodeHighlightBehavior=True,
+                            highlightColor="#F7A7A6",
+                            collapsible=False,
+                            node={'labelProperty': 'label'},
+                            link={'labelProperty': 'label', 'renderLabel': False}
+                        )
+
+                        agraph(nodes=nodes, edges=edges, config=config)
+                    else:
+                        st.warning("No associations found with current filters.")
+                        
+                except ImportError:
+                    st.warning("streamlit-agraph not available. Install with: pip install streamlit-agraph")
+                except Exception as e:
+                    st.error(f"Error creating network visualization: {e}")
+                    st.info("This might be due to memory constraints. Try reducing the number of nodes or check your data.")
             
             # Top associations table
             st.markdown("#### Strongest Publisher-Term Associations")
