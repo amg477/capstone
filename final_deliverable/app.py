@@ -211,8 +211,8 @@ def load_combined_dataset() -> pd.DataFrame:
     print(f"Loading data from: {split_dir}")
     combined: List[pd.DataFrame] = []
     
-    # Try to load files 1-3 first (smaller subset for Streamlit Cloud)
-    for i in range(1, 4):  # Load only 3 files to reduce memory
+    # Try to load files 1-2 first (smaller subset for Streamlit Cloud)
+    for i in range(1, 3):  # Load only 2 files to reduce memory
         fp = split_dir / f"final_model_dataset_part_{i:03d}.csv"
         if fp.exists():
             try:
@@ -222,14 +222,18 @@ def load_combined_dataset() -> pd.DataFrame:
                 except Exception:
                     df = pd.read_csv(fp)
                 
-                # Keep top 90% by circulation (high-impact)
+                # Keep top 95% by circulation (high-impact) and limit sample size
                 if 'circulation_size' in df.columns:
                     df['circulation_size'] = pd.to_numeric(df['circulation_size'], errors='coerce')
-                    circulation_threshold = df['circulation_size'].quantile(0.1)
-                    combined.append(df[df['circulation_size'] >= circulation_threshold])
+                    circulation_threshold = df['circulation_size'].quantile(0.05)  # Top 95%
+                    df_filtered = df[df['circulation_size'] >= circulation_threshold]
+                    # Further limit to 15k rows per file
+                    if len(df_filtered) > 15000:
+                        df_filtered = df_filtered.nlargest(15000, 'circulation_size')
+                    combined.append(df_filtered)
                 else:
-                    # If no circulation_size, take a sample
-                    sample_size = min(10000, len(df))  # Limit to 10k rows max
+                    # If no circulation_size, take a smaller sample
+                    sample_size = min(5000, len(df))  # Limit to 5k rows max
                     combined.append(df.sample(n=sample_size))
                 print(f"Loaded {fp.name}: {len(df)} rows")
             except Exception as e:
@@ -248,7 +252,7 @@ def load_combined_dataset() -> pd.DataFrame:
     st.session_state.dataset_info = {'rows': len(final_df), 'files': files_count}
     return final_df
 
-@st.cache_data
+@st.cache_data(ttl=3600)  # Cache for 1 hour
 def get_dataset() -> pd.DataFrame:
     return load_combined_dataset()
 
@@ -701,7 +705,7 @@ def _find_first_existing(*names: str) -> Optional[Path]:
                 return p
     return None
 
-@st.cache_resource
+@st.cache_resource(ttl=3600)  # Cache for 1 hour
 def get_data() -> Tuple[pd.DataFrame, pd.DataFrame, Set[str]]:
     global df_main, df_attr, COLUMNS
     if df_main is None:
@@ -1039,17 +1043,16 @@ with tab2:
             circ_col = next((c for c in ["circulation","circulation_size","reach","impressions","audience"] if c in filtered_df.columns), None)
 
             if not filtered_df.empty and dim in filtered_df.columns:
-                # Importance-based sampling
-                sample_size = min(50000, len(filtered_df))
+                # Memory-efficient sampling for Streamlit Cloud
+                sample_size = min(10000, len(filtered_df))  # Reduced from 50k to 10k
                 if len(filtered_df) > sample_size:
-                    score = pd.Series(0.0, index=filtered_df.index)
-                    if "pub_credit_share" in filtered_df: score += filtered_df["pub_credit_share"].fillna(0) * 1000
-                    if "max_term_credit" in filtered_df: score += filtered_df["max_term_credit"].fillna(0) * 1000
+                    # Use stratified sampling for better representation
                     if "circulation_size" in filtered_df:
-                        circ = filtered_df["circulation_size"]
-                        norm = (circ - circ.min()) / (circ.max() - circ.min() + 1e-9)
-                        score += norm.fillna(0) * 100
-                    filtered_df = filtered_df.loc[score.nlargest(sample_size).index]
+                        # Sample based on circulation size (high-impact first)
+                        filtered_df = filtered_df.nlargest(sample_size, 'circulation_size')
+                    else:
+                        # Random sampling if no circulation data
+                        filtered_df = filtered_df.sample(n=sample_size, random_state=42)
 
                 agg_dict: Dict[str, str] = {filtered_df.columns[0]: "count"}
                 if infl_col and infl_col in filtered_df: agg_dict[infl_col] = "mean"
@@ -1545,7 +1548,7 @@ with tab3:
             add_to_recent_searches(f"Term: {term}")
             try:
                 # Limit search to prevent memory issues
-                search_df = df_main.head(10000)  # Limit to first 10k rows for performance
+                search_df = df_main.head(5000)  # Limit to first 5k rows for performance
                 
                 text_cols = [c for c in available_cols if any(k in c.lower() for k in ["headline", "body", "content", "text"])]
                 if not text_cols:
@@ -1624,9 +1627,9 @@ with tab3:
                 st.info("Try using a shorter or simpler search term.")
 
 # -------------------- Network Data Loading --------------------
-@st.cache_data
-def load_network_data():
-    """Load all pre-computed network data files"""
+@st.cache_data(ttl=1800)  # Cache for 30 minutes
+def load_network_data_file(filename: str):
+    """Load a single network data file on demand"""
     try:
         # Try multiple possible paths for the data files
         possible_paths = [
@@ -1641,46 +1644,47 @@ def load_network_data():
         
         data_dir = next((p for p in possible_paths if p.exists()), None)
         if data_dir is None:
-            print("Warning: No network data directory found")
-            print(f"Searched paths: {[str(p) for p in possible_paths]}")
-            return {}
+            print(f"Warning: No network data directory found for {filename}")
+            return pd.DataFrame()
         
-        print(f"Loading network data from: {data_dir}")
-        network_data = {}
-        required_files = [
-            'influence_nodes.csv',
-            'influence_edges.csv', 
-            'publisher_term_edges.csv',
-            'community_summary.csv',
-            'term_comparison.csv',
-            'top_terms_chunk.csv',
-            'top_terms_global.csv'
-        ]
-        
-        for filename in required_files:
-            file_path = data_dir / filename
-            if file_path.exists():
-                try:
-                    network_data[filename.replace('.csv', '')] = pd.read_csv(file_path)
-                    print(f"Loaded {filename}")
-                except Exception as file_error:
-                    print(f"Warning: Could not load {filename}: {file_error}")
-                    network_data[filename.replace('.csv', '')] = pd.DataFrame()
-            else:
-                print(f"Warning: {filename} not found at {file_path}")
-                network_data[filename.replace('.csv', '')] = pd.DataFrame()
-        
-        return network_data
+        file_path = data_dir / filename
+        if file_path.exists():
+            try:
+                # Limit file size for memory efficiency
+                df = pd.read_csv(file_path)
+                # Limit to reasonable size for Streamlit Cloud
+                if len(df) > 10000:
+                    df = df.head(10000)
+                print(f"Loaded {filename}: {len(df)} rows")
+                return df
+            except Exception as file_error:
+                print(f"Warning: Could not load {filename}: {file_error}")
+                return pd.DataFrame()
+        else:
+            print(f"Warning: {filename} not found at {file_path}")
+            return pd.DataFrame()
     except Exception as e:
-        print(f"Error loading network data: {e}")
-        return {}
+        print(f"Error loading {filename}: {e}")
+        return pd.DataFrame()
+
+def get_network_data():
+    """Get network data with lazy loading"""
+    return {
+        'influence_nodes': load_network_data_file('influence_nodes.csv'),
+        'influence_edges': load_network_data_file('influence_edges.csv'),
+        'publisher_term_edges': load_network_data_file('publisher_term_edges.csv'),
+        'community_summary': load_network_data_file('community_summary.csv'),
+        'term_comparison': load_network_data_file('term_comparison.csv'),
+        'top_terms_chunk': load_network_data_file('top_terms_chunk.csv'),
+        'top_terms_global': load_network_data_file('top_terms_global.csv')
+    }
 
 with tab4:
     st.subheader("People - Network Analysis")
     st.markdown("Explore influence networks and publisher-term relationships using pre-computed data.")
     
-    # Load network data
-    network_data = load_network_data()
+    # Load network data with lazy loading
+    network_data = get_network_data()
     
     if network_data is None:
         st.error("Failed to load network data. Please ensure the data files exist.")
@@ -1790,109 +1794,8 @@ with tab4:
             
             st.plotly_chart(fig, use_container_width=True)
             
-            # Show Network Visualization checkbox
-            show_network = st.checkbox("Show Network Visualization", value=False, key="influence_network")
-            
-            if show_network:
-                # Node Network Visualization
-                st.markdown("#### Network Relationships", help="Show the network relationships between terms and items. Zoom and hover over nodes for more information.")
-                
-                # Helpful tooltip for Influence Network
-                with st.expander("What to Look For", expanded=False):
-                    st.markdown("""
-                    - **Node Size**: Larger nodes = higher influence (credit share)
-                    - **Node Shape**: Circles = Terms, Triangles = Items
-                    - **Node Color**: Different colors represent different dimensions
-                    - **Connections**: Lines show influence flow toward conversion (black square)
-                    - **Thick Lines**: Stronger influence relationships
-                    - **Central Nodes**: Most influential terms/items are often centrally positioned
-                    """)
-                
-                try:
-                    from streamlit_agraph import agraph, Node, Edge, Config
-                
-                    # Create clean nodes for visualization
-                    nodes = []
-                    seen_ids = set()
-                    
-                    # Take top 15 for cleaner visualization
-                    viz_nodes = filtered_nodes.head(15)
-                    
-                    for _, row in viz_nodes.iterrows():
-                        node_id = f"{row['value']}_{row['kind']}_{row['dimension']}"
-                        if node_id in seen_ids:
-                            continue
-                        seen_ids.add(node_id)
-                        
-                        # Truncate long labels
-                        label = row['value'][:12] + "..." if len(row['value']) > 12 else row['value']
-                        
-                        nodes.append(Node(
-                            id=node_id,
-                            label=label,
-                            size=max(20, int(row['credit_share'] * 300)),
-                            color=row['color'],
-                            shape="circle" if row['kind'] == 'term' else "triangle",
-                            title=f"{row['value']}<br>Kind: {row['kind']}<br>Dimension: {row['dimension']}<br>Credit Share: {row['credit_share']:.3f}"
-                        ))
-                    
-                    # Create edges to conversion
-                    edges = []
-                    if show_edges:
-                        filtered_edges = network_data['influence_edges'][
-                            network_data['influence_edges']['source'].isin(viz_nodes['value'])
-                        ]
-                        
-                        # Add conversion node
-                        nodes.append(Node(
-                            id="CONV",
-                            label="CONV",
-                            size=40,
-                            color="#222222",
-                            shape="square",
-                            title="Conversion Target"
-                        ))
-                        
-                        node_id_mapping = {node.id.split('_')[0]: node.id for node in nodes if node.id != "CONV"}
-                        
-                        for _, row in filtered_edges.head(20).iterrows():
-                            source_id = node_id_mapping.get(row['source'])
-                            if source_id:
-                                edges.append(Edge(
-                                    source=source_id,
-                                    target="CONV",
-                                    width=max(2, int(row['weight'] * 8)),
-                                    color="#999999"
-                                ))
-                    
-                    # Clean configuration
-                    config = Config(
-                        width="100%",
-                        height=500,
-                        directed=True,
-                        physics={
-                            "enabled": True,
-                            "stabilization": {"enabled": True, "iterations": 100},
-                            "barnesHut": {
-                                "gravitationalConstant": -8000,
-                                "centralGravity": 0.3,
-                                "springLength": 200,
-                                "springConstant": 0.04,
-                                "damping": 0.09
-                            }
-                        },
-                        hierarchical=False,
-                        nodeHighlightBehavior=True,
-                        highlightColor="#F7A7A6",
-                        collapsible=False,
-                        node={'labelProperty': 'label'},
-                        link={'labelProperty': 'label', 'renderLabel': False}
-                    )
-                    
-                    agraph(nodes=nodes, edges=edges, config=config)
-                    
-                except ImportError:
-                    st.warning("streamlit-agraph not available. Install with: pip install streamlit-agraph")
+            # Note: Network visualization disabled for memory optimization
+            st.info("💡 Network visualization is disabled to optimize memory usage on Streamlit Cloud. Use the data tables below for detailed analysis.")
             
             # Top performers table
             st.markdown("#### Top Influence Performers")
@@ -1978,121 +1881,8 @@ with tab4:
             
             st.plotly_chart(fig, use_container_width=True)
             
-            # Show Network Visualization checkbox
-            show_network = st.checkbox("Show Network Visualization", value=False, key="publisher_term_network")
-            
-            if show_network:
-                # Node Network Visualization
-                st.markdown("#### Publisher-Term Network", help="Show the network relationships between terms and items. Zoom and hover over nodes for more information.")
-                
-                # Helpful tooltip for Publisher-Term Network
-                with st.expander("What to Look For", expanded=False):
-                    st.markdown("""
-                    - **Blue Circles**: Publishers (larger = more associations)
-                    - **Orange Triangles**: Terms (larger = more publisher coverage)
-                    - **Connections**: Lines show publisher-term associations
-                    - **Thick Lines**: Stronger associations (higher weight)
-                    - **Hub Publishers**: Publishers connected to many terms
-                    - **Popular Terms**: Terms connected to many publishers
-                    - **Clusters**: Groups of publishers focusing on similar terms
-                    """)
-                
-                try:
-                    from streamlit_agraph import agraph, Node, Edge, Config
-                    
-                    if not filtered_edges.empty:
-                        # Create clean nodes
-                        nodes = []
-                        seen_ids = set()
-                        
-                        # Take top 8 publishers and 8 terms for cleaner visualization
-                        top_8_pubs = top_pubs_list[:8]
-                        top_8_terms = top_terms_list[:8]
-                        
-                        # Publisher nodes
-                        for pub in top_8_pubs:
-                            pub_id = f"pub_{pub}"
-                            if pub_id not in seen_ids:
-                                seen_ids.add(pub_id)
-                                label = pub[:12] + "..." if len(pub) > 12 else pub
-                                nodes.append(Node(
-                                    id=pub_id,
-                                    label=label,
-                                    size=30,
-                                    color="#1f77b4",
-                                    shape="circle",
-                                    title=f"{pub}<br>Type: Publisher"
-                                ))
-                        
-                        # Term nodes
-                        for term in top_8_terms:
-                            term_id = f"term_{term}"
-                            if term_id not in seen_ids:
-                                seen_ids.add(term_id)
-                                label = term[:12] + "..." if len(term) > 12 else term
-                                nodes.append(Node(
-                                    id=term_id,
-                                    label=label,
-                                    size=25,
-                                    color="#ff7f0e",
-                                    shape="triangle",
-                                    title=f"{term}<br>Type: Term"
-                                ))
-                        
-                        # Create edges
-                        edges = []
-                        pub_id_mapping = {pub: f"pub_{pub}" for pub in top_8_pubs}
-                        term_id_mapping = {term: f"term_{term}" for term in top_8_terms}
-                        
-                        # Filter edges to only include our selected nodes
-                        viz_edges = filtered_edges[
-                            (filtered_edges['publisher'].isin(top_8_pubs)) & 
-                            (filtered_edges['term'].isin(top_8_terms))
-                        ]
-                        
-                        for _, row in viz_edges.head(15).iterrows():
-                            source_id = pub_id_mapping.get(row['publisher'])
-                            target_id = term_id_mapping.get(row['term'])
-                            
-                            if source_id and target_id:
-                                edges.append(Edge(
-                                    source=source_id,
-                                    target=target_id,
-                                    width=max(2, int(row['weight'] * 5)),
-                                    color="#999999"
-                                ))
-                        
-                        # Clean configuration
-                        config = Config(
-                            width="100%",
-                            height=500,
-                            directed=False,
-                            physics={
-                                "enabled": True,
-                                "stabilization": {"enabled": True, "iterations": 500},
-                                "forceAtlas2Based": {
-                                    "gravitationalConstant": -8000,
-                                    "centralGravity": 0.25,
-                                    "springLength": 180,
-                                    "springConstant": 0.05,
-                                    "damping": 0.2,
-                                    "avoidOverlap": 1
-                                }
-                            },
-                            hierarchical=False,
-                            nodeHighlightBehavior=True,
-                            highlightColor="#F7A7A6",
-                            collapsible=False,
-                            node={'labelProperty': 'label'},
-                            link={'labelProperty': 'label', 'renderLabel': False}
-                        )
-
-                        agraph(nodes=nodes, edges=edges, config=config)
-                    else:
-                        st.warning("No associations found with current filters.")
-                        
-                except ImportError:
-                    st.warning("streamlit-agraph not available. Install with: pip install streamlit-agraph")
+            # Note: Network visualization disabled for memory optimization
+            st.info("💡 Network visualization is disabled to optimize memory usage on Streamlit Cloud. Use the data tables below for detailed analysis.")
             
             # Top associations table
             st.markdown("#### Strongest Publisher-Term Associations")
