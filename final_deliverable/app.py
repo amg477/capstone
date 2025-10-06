@@ -672,7 +672,6 @@ init_session_state()
 # -------------------- Data Globals & Loader --------------------
 DATA_DIR = (ROOT / "data").resolve()
 ATTR_NAME = "attribution_all_scored.csv"
-LOGO_FALLBACK = ROOT / "final_deliverable" / "penta_logo.png"  # adjust if needed
 
 df_main: Optional[pd.DataFrame] = None
 df_attr: Optional[pd.DataFrame] = None
@@ -734,47 +733,20 @@ def get_data() -> Tuple[pd.DataFrame, pd.DataFrame, Set[str]]:
             df_main, df_attr, COLUMNS = pd.DataFrame(), pd.DataFrame(), set()
     return df_main, df_attr, COLUMNS
 
-# -------------------- Header / Logo --------------------
+# -------------------- Header --------------------
 def render_header():
-    logo_path = None
-    for p in [
-        ROOT / "final_deliverable" / "penta_logo.png",
-        ROOT / "data" / "penta_logo.png",  # optional extra fallback
-        LOGO_FALLBACK,
-    ]:
-        if p.exists():
-            logo_path = p
-            break
-
-    if logo_path and logo_path.exists():
-        with open(logo_path, "rb") as f:
-            logo_b64 = base64.b64encode(f.read()).decode("utf-8")
-        st.markdown(
-            f"""
-            <div class="header-bar">
-                <img src="data:image/png;base64,{logo_b64}" class="penta-logo" alt="Penta logo"/>
-                <div class="header-title">
-                    <h1>PolicyPath 🏛️</h1>
-                    <div class="header-subtitle">Your indispensable guide to healthcare policy influence</div>
-                </div>
-                <div class="header-spacer"></div>
+    st.markdown(
+        """
+        <div class="header-bar">
+            <div class="header-title">
+                <h1>PolicyPath 🏛️</h1>
+                <div class="header-subtitle">Your indispensable guide to healthcare policy influence</div>
             </div>
-            """,
-            unsafe_allow_html=True,
-        )
-    else:
-        st.markdown(
-            """
-            <div class="header-bar">
-                <div class="header-title">
-                    <h1>PolicyPath 🏛️</h1>
-                    <div class="header-subtitle">Your indispensable guide to healthcare policy influence</div>
-                </div>
-                <div class="header-spacer"></div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+            <div class="header-spacer"></div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 # -------------------- Main App --------------------
 def main():
@@ -1106,6 +1078,7 @@ with tab2:
                         avg_chart = alt.Chart(agg.sort_values("avg_influence", ascending=False).head(10)).mark_bar().encode(
                         y=alt.Y("dim:N", sort="-x", title=None),
                         x=alt.X("avg_influence:Q", title="Avg influence"),
+                        color=alt.value("#12715D")  # Penta primary color
                         )
                         avg_chart = avg_chart.properties(height=300, title="Average Influence by Category")
                         st.altair_chart(avg_chart.configure_view(strokeWidth=0).configure_title(
@@ -1463,7 +1436,6 @@ with tab3:
                         matches = s.fillna("").str.contains(search_term, case=False, na=False)
                         options = s[matches].dropna().drop_duplicates().head(20).tolist()
                         if options:
-                            st.success(f"Found {len(options)} matches for '{search_term}'")
                             selected_item = st.selectbox("Select item", options, key=f"select_{sel_col}")
                             if selected_item:
                                 item_rows = df_main[s.fillna("") == str(selected_item)].head(100)
@@ -1540,8 +1512,6 @@ with tab3:
                     hits = search_df[mask].head(100)
                     
                     if not hits.empty:
-                        st.success(f"Found {len(hits)} articles containing '{term}' (searched {len(search_df):,} articles)")
-                        
                         # Display metrics
                         c1, c2, c3 = st.columns(3)
                         with c1:
