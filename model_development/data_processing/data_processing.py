@@ -72,6 +72,8 @@ DROP_COLS = [
     "source_unique_id",
     "source_type_name",  # dupe of source_type
     "region",            # not clean; sub_region is more reliable
+    "article_id",
+    "load_date",
     "load_datetime",
     "engagement",
     "genre",
@@ -122,7 +124,7 @@ def _canonicalize_dtypes(df: pd.DataFrame) -> pd.DataFrame:
     # Integers → nullable Int32 (avoids int8/int16 drift across files)
     int_like = df.select_dtypes(include=["int64", "int32", "int16", "int8", "uint8", "uint16", "uint32"]).columns
     for c in int_like:
-        df[c] = pd.to_numeric(df[c], errors="coerce").astype("Int64")
+        df[c] = pd.to_numeric(df[c], errors="coerce").astype("Int32")
 
     # Floats → nullable Float32 (uniform)
     float_like = df.select_dtypes(include=["float64", "float32"]).columns
@@ -236,7 +238,7 @@ def combine_and_clean(excel_files: List[str], out_parquet: str) -> Tuple[str, in
         df = _canonicalize_dtypes(df)
 
         # --- Date column normalization ---
-        DATE_COL = "load_date"
+        DATE_COL = "published_datetime"
         if DATE_COL in df.columns:
             print(f"  Parsing {DATE_COL} as datetime ...")
             df[DATE_COL] = pd.to_datetime(df[DATE_COL], errors="coerce", utc=True)
