@@ -76,7 +76,7 @@ ROOT = Path("/Users/annaglass/capstone/capstone")
 DATA_PARQUET = ROOT / "data_storage" / "processed_data" / "sampled_data.parquet" 
 
 OUT_DIR  = ROOT / "data_storage" / "final_data"
-OUT_FILE = OUT_DIR / "final_dataset_attribution.parquet"
+OUT_FILE = OUT_DIR / "attribution_dataset.parquet"
 
 KEYWORDS = OUT_DIR / "top_1000_keywords.csv"
 BIGRAMS  = OUT_DIR / "top_1000_bigrams.csv"
