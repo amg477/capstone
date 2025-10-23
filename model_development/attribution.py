@@ -73,9 +73,9 @@ NLP = _load_spacy_model()
 # Paths & Core Columns
 # =============================================================================
 ROOT = Path("/Users/annaglass/capstone/capstone")
-DATA_PARQUET = ROOT / "data" / "processed" / "final_dataset_sampled.parquet"  # <-- sampled input
+DATA_PARQUET = ROOT / "data_storage" / "processed_data" / "sampled_data.parquet" 
 
-OUT_DIR  = ROOT / "data" / "processed"
+OUT_DIR  = ROOT / "data_storage" / "final_data"
 OUT_FILE = OUT_DIR / "final_dataset_attribution.parquet"
 
 KEYWORDS = OUT_DIR / "top_1000_keywords.csv"
@@ -94,7 +94,7 @@ OTHER_LABEL = "__OTHER__"
 # Dimensions
 # =============================================================================
 DIM_CATEGORICAL_ALL = (
-    "tag_name",              # skipped (path key)
+    "tag_name",             
     "source_feed_name",
     "feed_name",
     "author_name",
@@ -623,10 +623,11 @@ def main():
 
     # --- Save full dataset with attribution columns ---
     FULL_DATASET_FILE = OUT_DIR / "final_dataset_with_attribution.parquet"
-    df.to_parquet(FULL_DATASET_FILE, index=False)
-    print(f"[ok] saved full dataset with attribution columns -> {FULL_DATASET_FILE}")
-    print(f"[ok] dataset shape: {df.shape}")
-    print(f"[ok] dataset columns: {list(df.columns)}")
+    df_out = df.loc[df["is_conversion"] == True].copy()
+    df_out.to_parquet(FULL_DATASET_FILE, index=False)
+    print(f"[ok] saved conversion-only dataset -> {FULL_DATASET_FILE}")
+    print(f"[ok] conversion-only shape: {df_out.shape}")
+    print(f"[ok] dataset columns: {list(df_out.columns)}")
 
     # --- Tag-level PCA table ---
     TAG_PCA_FILE = OUT_DIR / "tagname_pca_ready.csv"
