@@ -21,8 +21,9 @@ import pandas as pd
 # Config (paths + defaults)
 # ---------------------------------------------------------------------
 ROOT = Path("/Users/annaglass/capstone/capstone")
-INPUT_PATH  = ROOT / "data" / "processed" / "processed_data.parquet"
-OUTPUT_PATH = ROOT / "data" / "processed" / "final_dataset_sampled.parquet"
+RAW_DIR       = ROOT / "data_storage" / "raw_data"
+INPUT_PATH  = ROOT / "data_storage" / "processed_data" / "processed_data.parquet"
+OUTPUT_PATH = ROOT / "data" / "processed" / "sampled_data.parquet"
 
 DEFAULT_TARGET_N = 100_000
 DEFAULT_SEED     = 2025
