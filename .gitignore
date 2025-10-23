@@ -11,3 +11,5 @@ __pycache__/
 
 # Environment files
 .env
+# Large data artifacts
+data_storage/**/*.parquet
