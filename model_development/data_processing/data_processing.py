@@ -38,23 +38,30 @@ from nltk.corpus import stopwords
 from nltk.stem import WordNetLemmatizer
 
 # ---------------- Configuration ----------------
-RAW_DIR = "../data/raw"
-PROCESSED_DIR = "../data/processed"
-FINAL_DIR = "../data/final"
+from pathlib import Path
 
-COMBINED_OUT = f"{PROCESSED_DIR}/combined_data.parquet"   # after Stage 1
-FINAL_OUT    = f"{PROCESSED_DIR}/processed_data.parquet"  # after Stage 2
+# Resolve project root robustly from this file's location:
+# .../capstone/capstone/model_development/data_processing/data_processing.py
+# parents[2] => .../capstone/capstone
+ROOT = Path(__file__).resolve().parents[2]
 
-EXCEL_FILES: List[str] = [
-    f"{RAW_DIR}/penta_raw_1.xlsx",
-    f"{RAW_DIR}/penta_raw_2.xlsx",
-    f"{RAW_DIR}/penta_raw_3.xlsx",
-    f"{RAW_DIR}/penta_raw_4.xlsx",
-    f"{RAW_DIR}/penta_raw_5.xlsx",
-    f"{RAW_DIR}/penta_raw_6.xlsx",
-    f"{RAW_DIR}/penta_raw_7.xlsx",
-    f"{RAW_DIR}/penta_raw_8.xlsx",
-    f"{RAW_DIR}/penta_raw_9.xlsx",
+RAW_DIR       = ROOT / "data_storage" / "raw_data"
+PROCESSED_DIR = ROOT / "data_storage" / "processed_data"
+FINAL_DIR     = ROOT / "data_storage" / "final_data"
+
+COMBINED_OUT = str(PROCESSED_DIR / "combined_data.parquet")   # after Stage 1
+FINAL_OUT    = str(PROCESSED_DIR / "processed_data.parquet")  # after Stage 2
+
+EXCEL_FILES = [
+    str(RAW_DIR / "penta_raw_1.xlsx"),
+    str(RAW_DIR / "penta_raw_2.xlsx"),
+    str(RAW_DIR / "penta_raw_3.xlsx"),
+    str(RAW_DIR / "penta_raw_4.xlsx"),
+    str(RAW_DIR / "penta_raw_5.xlsx"),
+    str(RAW_DIR / "penta_raw_6.xlsx"),
+    str(RAW_DIR / "penta_raw_7.xlsx"),
+    str(RAW_DIR / "penta_raw_8.xlsx"),
+    str(RAW_DIR / "penta_raw_9.xlsx"),
 ]
 
 # Drop iso_language_code only AFTER filtering to 'en'
