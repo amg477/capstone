@@ -73,6 +73,7 @@ DROP_COLS = [
     "source_type_name",  # dupe of source_type
     "region",            # not clean; sub_region is more reliable
     "load_datetime",
+    "load_date",
     "engagement",
     "genre",
     "iso_language_code",
@@ -231,7 +232,7 @@ def combine_and_clean(excel_files: List[str], out_parquet: str) -> Tuple[str, in
         df = _canonicalize_dtypes(df)
 
         # --- Date column normalization ---
-        DATE_COL = "load_date"
+        DATE_COL = "published_datetime"
         if DATE_COL in df.columns:
             print(f"  Parsing {DATE_COL} as datetime ...")
             df[DATE_COL] = pd.to_datetime(df[DATE_COL], errors="coerce", utc=True)
@@ -337,7 +338,7 @@ def process_text(in_parquet: str, out_parquet: str) -> Tuple[str, int]:
     ds = pds.dataset(in_parquet, format="parquet")
 
     # --- add near other config ---
-    DATE_COLS = {"load_date", "published_datetime"}  # any other date cols you want to keep
+    DATE_COLS = {"published_datetime"}  # any other date cols you want to keep
 
     # inside process_text(...), after ds = pds.dataset(...):
     ds_cols = set(ds.schema.names)
@@ -350,7 +351,13 @@ def process_text(in_parquet: str, out_parquet: str) -> Tuple[str, int]:
         "vipr_score",
     }
 
-    needed_cols = set(CAT_TEXT_COLS) | {HEADLINE_COL, BODY_COL} | NUMERIC_PASS_THRU | (DATE_COLS & ds_cols)
+    needed_cols = (
+    set(CAT_TEXT_COLS)
+    | {HEADLINE_COL, BODY_COL, "article_id"} 
+    | NUMERIC_PASS_THRU
+    | (DATE_COLS & ds_cols)
+    )
+
     present_cols = sorted([c for c in needed_cols if c in ds_cols])
 
     if BODY_COL not in present_cols:
@@ -367,6 +374,10 @@ def process_text(in_parquet: str, out_parquet: str) -> Tuple[str, int]:
     for batch in ds.to_batches(columns=present_cols, batch_size=STAGE2_BATCH_ROWS):
         batch_idx += 1
         pdf = batch.to_pandas(types_mapper=pd.ArrowDtype)
+
+        # Keep article_id as integer if present
+        if "article_id" in pdf.columns:
+            pdf["article_id"] = pd.to_numeric(pdf["article_id"], errors="coerce").astype("Int64")
 
         # Ensure headline column exists
         if HEADLINE_COL not in pdf.columns:
