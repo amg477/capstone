@@ -84,18 +84,13 @@ BODY_COL     = "article_body"
 
 # Categorical text columns to normalize (lowercase, depunctuate, spaces/dashes -> _)
 CAT_TEXT_COLS = [
-    "tag_name",
-    "source_feed_name",
-    "feed_name",
-    "author_name",
-    "source_type",
-    "sentiment_band",
-    "sub_region",
-    "country",
-    "channel",
-    "publisher_name",
-    "publication_name",
+    "tag_name", "source_feed_name", "feed_name", "author_name", "source_type",
+    "sentiment_band", "sub_region", "country", "channel",
+    "publisher_name", "publication_name",
 ]
+
+# Add pass-through IDs (no normalization)
+ID_PASS_THRU = {"article_id"}
 
 # Optional early row-filters
 FILTER_US_ONLY = True  # set False if you don't want US-only
@@ -342,7 +337,7 @@ def process_text(in_parquet: str, out_parquet: str) -> Tuple[str, int]:
     ds = pds.dataset(in_parquet, format="parquet")
 
     # --- add near other config ---
-    DATE_COLS = {"load_date"}  # any other date cols you want to keep
+    DATE_COLS = {"load_date", "published_datetime"}  # any other date cols you want to keep
 
     # inside process_text(...), after ds = pds.dataset(...):
     ds_cols = set(ds.schema.names)
