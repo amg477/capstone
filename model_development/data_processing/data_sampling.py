@@ -101,6 +101,8 @@ def main():
     OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
     print(f"[write] parquet -> {OUTPUT_PATH}")
     df_sampled.to_parquet(OUTPUT_PATH, index=False)
+    print("sampled has:", {"article_id": "article_id" in df_sampled.columns,
+                       "load_date": "load_date" in df_sampled.columns})
     print("[ok] done.")
 
 if __name__ == "__main__":
