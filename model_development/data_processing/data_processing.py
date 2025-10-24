@@ -340,6 +340,11 @@ def process_text(in_parquet: str, out_parquet: str) -> Tuple[str, int]:
 
     # Build dataset and select just the columns we need to touch
     ds = pds.dataset(in_parquet, format="parquet")
+
+    # --- add near other config ---
+    DATE_COLS = {"load_date"}  # any other date cols you want to keep
+
+    # inside process_text(...), after ds = pds.dataset(...):
     ds_cols = set(ds.schema.names)
 
     NUMERIC_PASS_THRU = {
@@ -350,7 +355,7 @@ def process_text(in_parquet: str, out_parquet: str) -> Tuple[str, int]:
         "vipr_score",
     }
 
-    needed_cols = set(CAT_TEXT_COLS) | {HEADLINE_COL, BODY_COL} | NUMERIC_PASS_THRU
+    needed_cols = set(CAT_TEXT_COLS) | {HEADLINE_COL, BODY_COL} | NUMERIC_PASS_THRU | (DATE_COLS & ds_cols)
     present_cols = sorted([c for c in needed_cols if c in ds_cols])
 
     if BODY_COL not in present_cols:
