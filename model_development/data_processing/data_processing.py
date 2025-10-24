@@ -86,7 +86,7 @@ BODY_COL     = "article_body"
 # Categorical text columns to normalize (lowercase, depunctuate, spaces/dashes -> _)
 CAT_TEXT_COLS = [
     "tag_name", "source_feed_name", "feed_name", "author_name", "source_type",
-    "sentiment_band", "sub_region", "country", "channel",
+    "sentiment_band", "sub_region", "country", "channel_name", "channel",
     "publisher_name", "publication_name",
 ]
 
