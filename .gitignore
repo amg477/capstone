@@ -13,4 +13,5 @@ __pycache__/
 .env
 # Large data artifacts
 data_storage/**/*.parquet
+!data_storage/final_data/final_dataset_with_attribution.parquet
 data_storage/raw_data/*.xlsx
