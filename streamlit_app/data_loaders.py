@@ -61,28 +61,6 @@ def load_influencer_table():
 
 
 @st.cache_data(show_spinner=False)
-def load_attribution_dataset():
-    """Load attribution dataset"""
-    try:
-        project_root = Path(__file__).parent.parent
-        path = project_root / "data_storage" / "final_data" / "attribution_dataset.parquet"
-        
-        if not path.exists():
-            alt_path = Path("data_storage") / "final_data" / "attribution_dataset.parquet"
-            if alt_path.exists():
-                path = alt_path
-            else:
-                st.error(f"File not found: {path}")
-                return None
-        
-        df = pd.read_parquet(path)
-        return df
-    except Exception as e:
-        st.error(f"Error loading attribution dataset: {e}")
-        return None
-
-
-@st.cache_data(show_spinner=False)
 def load_final_dataset():
     """Load final dataset with attribution"""
     try:

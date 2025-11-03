@@ -24,10 +24,9 @@ pip install -r requirements.txt
    You may need to restart the app after installing sentencepiece.
 
 2. Ensure the data files are in the correct location:
-   - `data_storage/final_data/influencer_table.csv`
-   - `data_storage/final_data/attribution_dataset.parquet`
+   - `data_storage/final_data/influencer_table.csv` (or `.parquet`)
    - `data_storage/final_data/final_dataset_with_attribution.parquet`
-   - `data_storage/final_data/persons_by_row.csv`
+   - `data_storage/final_data/persons_by_row.csv` (or `.parquet`)
 
 ## Running the App
 

@@ -66,7 +66,6 @@ except ImportError:
 # Import from modular files
 from data_loaders import (
     load_influencer_table,
-    load_attribution_dataset,
     load_final_dataset,
     load_persons_by_row
 )
@@ -285,9 +284,6 @@ def main():
     tab1, tab2 = st.tabs(["PolicyPath", "People"])
     
     with tab1:
-        # Load attribution data if available
-        attribution_df = load_attribution_dataset()
-        
         # Lazy load final_df if needed for filters (only if not already loaded)
         if final_df is None:
             final_df = load_final_dataset()
