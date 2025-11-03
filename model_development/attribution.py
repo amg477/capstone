@@ -1,33 +1,30 @@
 #!/usr/bin/env python3
 """
-Attribution Model – PERSON-based conversion final_deliverable/data/split/final_model_dataset_part_001.csv, reliability weighting, tag-level PCA table
-FAST/LAPTOP MODE: uses state caps, pruning, and single final write
+Attribution Model – PERSON-based conversion (uses precomputed people_by_row),
+strong non-person filtering (no name combining), reliability weighting, and
+tag-level PCA table.
+
+Conversions are judged off the CLEANED people_by_row only (no canonicalization).
 
 Inputs
 ------
-  /Users/annaglass/capstone/capstone/data/processed/final_dataset_sampled.parquet
+  /Users/annaglass/capstone/capstone/data_storage/processed_data/processed_with_people_emotion.parquet
 
 Outputs
 -------
-  data/processed/final_dataset_attribution.csv
-  data/processed/persons_detected.csv
-  data/processed/persons_by_row.csv
-  data/processed/tagname_pca_ready.csv
+  data_storage/final_data/attribution_dataset.parquet                  (dimension-level credits)
+  data_storage/final_data/final_dataset_with_attribution.parquet       (conversion-only rows; FINAL)
+  data_storage/final_data/tagname_pca_ready.csv
+  data_storage/final_data/persons_detected.csv                         (cleaned, no combining)
+  data_storage/final_data/persons_by_row.csv                           (cleaned per-row list)
 
 Env toggles (optional)
 ----------------------
-  SPACY_MODEL=en_core_web_trf | en_core_web_sm      # default: en_core_web_trf
-  PERSON_NPROC=1                                      # spaCy processes
-  SPACY_BATCH_SIZE=64                                 # transformer batch size
-  SPACY_MIN_TEXT_LEN=60                               # skip very short rows
-  SPACY_CHUNK_SIZE=10000                              # NER processing chunk size
-  SKIP_NER=0                                          # 1 to skip NER (smoke test)
-
-  MAX_STATES_PER_DIM=800                              # Markov state cap
-  MIN_STATE_COUNT=8                                   # prune rare states
-  FAST_MODE_THRESHOLD=600                             # always FAST beyond this
-  ENABLE_TERMS=0                                      # keep off for speed
-  MAX_KEY_TERMS=150
+  MAX_STATES_PER_DIM=800
+  MIN_STATE_COUNT=8
+  FAST_MODE_THRESHOLD=600
+  ENABLE_TERMS=0
+  MAX_KEY_TERMS=500
   TERMS_CHUNK_SIZE=150
 """
 
@@ -41,39 +38,11 @@ import pandas as pd
 from scipy.sparse import coo_matrix, csr_matrix, identity
 from scipy.sparse.linalg import spsolve
 
-# ---------------- spaCy (Transformer NER) ----------------
-import spacy
-
-def _load_spacy_model():
-    """
-    Prefer a transformer model (lowercase-tolerant).
-    Fallback to small model if transformer isn't installed.
-    """
-    name = os.getenv("SPACY_MODEL", "en_core_web_trf")
-    try:
-        return spacy.load(name, disable=["parser","tagger","lemmatizer","attribute_ruler"])
-    except Exception as e:
-        if name != "en_core_web_sm":
-            # fallback to small model
-            try:
-                print(f"[warn] Could not load '{name}'. Falling back to 'en_core_web_sm'. "
-                      f"Install with: python -m spacy download {name}")
-                return spacy.load("en_core_web_sm", disable=["parser","tagger","lemmatizer","attribute_ruler"])
-            except Exception as e2:
-                raise RuntimeError(
-                    "No spaCy model available. Install one of:\n"
-                    "  python -m spacy download en_core_web_trf\n"
-                    "  python -m spacy download en_core_web_sm"
-                ) from e2
-        raise
-
-NLP = _load_spacy_model()
-
 # =============================================================================
 # Paths & Core Columns
 # =============================================================================
 ROOT = Path("/Users/annaglass/capstone/capstone")
-DATA_PARQUET = ROOT / "data_storage" / "processed_data" / "sampled_data.parquet" 
+DATA_PARQUET = ROOT / "data_storage" / "processed_data" / "processed_with_people_emotion.parquet"
 
 OUT_DIR  = ROOT / "data_storage" / "final_data"
 OUT_FILE = OUT_DIR / "attribution_dataset.parquet"
@@ -83,6 +52,8 @@ BIGRAMS  = OUT_DIR / "top_1000_bigrams.csv"
 
 PERSONS_FILE        = OUT_DIR / "persons_detected.csv"
 PERSONS_BY_ROW_FILE = OUT_DIR / "persons_by_row.csv"
+FULL_DATASET_FILE   = OUT_DIR / "final_dataset_with_attribution.parquet"
+TAG_PCA_FILE        = OUT_DIR / "tagname_pca_ready.csv"
 
 PATH_KEY   = "tag_name"
 TIME_COL   = "seq_index"
@@ -94,7 +65,7 @@ OTHER_LABEL = "__OTHER__"
 # Dimensions
 # =============================================================================
 DIM_CATEGORICAL_ALL = (
-    "tag_name",             
+    "tag_name",
     "source_feed_name",
     "feed_name",
     "author_name",
@@ -104,7 +75,7 @@ DIM_CATEGORICAL_ALL = (
     "sentiment_band",
     "channel_name"
 )
-DIM_NUMERIC_ALL = ("circulation_size", "sentiment_score")  # binned
+DIM_NUMERIC_ALL = ("circulation_size", "sentiment_score")  # binned → 1..5 ints
 
 # =============================================================================
 # Speed / Memory knobs
@@ -118,12 +89,6 @@ MAX_KEY_TERMS        = int(os.getenv("MAX_KEY_TERMS", "500"))
 TERMS_CHUNK_SIZE     = int(os.getenv("TERMS_CHUNK_SIZE", "150"))
 FORCE_FAST_FOR_TERMS = True
 PRINT_EVERY          = 1
-
-SPACY_BATCH_SIZE    = int(os.getenv("SPACY_BATCH_SIZE", "64"))
-SPACY_MIN_TEXT_LEN  = int(os.getenv("SPACY_MIN_TEXT_LEN", "60"))
-SPACY_NPROC         = max(1, int(os.getenv("PERSON_NPROC", "1")))
-SPACY_CHUNK_SIZE    = int(os.getenv("SPACY_CHUNK_SIZE", "10000"))  # Process NER in chunks
-SKIP_NER            = os.getenv("SKIP_NER", "0") == "1"
 
 # =============================================================================
 # Reliability boost
@@ -141,13 +106,19 @@ def _to_numeric(series: pd.Series) -> pd.Series:
     return pd.to_numeric(series, errors="coerce")
 
 def _downcast_inplace(df: pd.DataFrame) -> None:
+    """
+    Conservative memory downcast:
+      - numeric -> smaller numeric
+      - object -> category, EXCEPT columns that must remain free text
+    """
+    DO_NOT_CATEGORY = {"headline","article_body","people_by_row","emotion_body"}
     for c in df.columns:
         if pd.api.types.is_integer_dtype(df[c]):
             df[c] = pd.to_numeric(df[c], downcast="integer")
         elif pd.api.types.is_float_dtype(df[c]):
             df[c] = pd.to_numeric(df[c], downcast="float")
         elif pd.api.types.is_object_dtype(df[c]):
-            if c not in ("headline","article_body"):
+            if c not in DO_NOT_CATEGORY:
                 try:
                     nunique = df[c].nunique(dropna=True)
                     if nunique and nunique < 0.8 * len(df):
@@ -162,6 +133,14 @@ def add_quantile_bins(df: pd.DataFrame, col: str, bins: int = 5) -> str:
     new_col = f"{col}_bin"
     df[new_col] = pd.qcut(ranks, bins, labels=labels, duplicates="drop").astype("string")
     return new_col
+
+def simplify_bin_to_int(df: pd.DataFrame, bin_col: str) -> None:
+    """
+    Convert label bins like 'CIRCULATION_SIZE_Q3' / 'SENTIMENT_SCORE_Q5' into plain integers 1..5 in-place.
+    """
+    if bin_col in df.columns:
+        nums = df[bin_col].astype("string").str.extract(r"(\d+)$", expand=False)
+        df[bin_col] = pd.to_numeric(nums, errors="coerce").astype("Int64")
 
 def add_ratings(tbl: pd.DataFrame, group_col: str) -> pd.DataFrame:
     if tbl.empty:
@@ -194,95 +173,154 @@ def _row_weight_with_reliability(r: pd.Series) -> float:
     return base * mult
 
 # =============================================================================
-# PERSON-based conversion (headline + article_body) with prefilter
+# People cleaning (NO combining) + exports
 # =============================================================================
-TEXT_COLS = ["headline", "article_body"]
-_CAP_HINT = re.compile(r"\b([A-Za-z][a-z]{2,})(?:\s+[A-Za-z][a-z]{2,})?\b")
+EXCLUDE_LOWER = {
+    # diseases / common junk
+    "covid","covid-19","covid19","sars-cov-2","h1n1","influenza","influenza a","and","&",
+    # generic non-persons
+    "meeting","conference","summit","session","panel","committee","hearing","event","gala","forum",
+    "ceremony","group","team","class","program","organization","party","association",
+    # Anna's examples (lowercased)
+    "appili","appili therapeutics signs","distribution","apli","adtx","appili therapeutics",
+    "appili share","appili shares","appili shareholder","buyer","closing","llp","bird fu",
+    "aspek promotif dan","twins","twin birth weight","isabella, valentine’s day","influenza a(h5n1",
+    "haemophilus influenzae","top story","damage","discusses breakthrough","fda roundup","antifungal",
+    "clsi m27-a3","vaccine enabling kit","caspofungin","anchorage mega","egr6","bigdye","supplementary fig.",
+    "y132f","hospital","ethics","c. auris","tbiaa","homemaker mode","pennymuster.com",
+    "everyone, moutaz kotob, park ave, ste 1500","instagram","twitter","facebook","google","x",
+    "sprouted mat","r- oceanside",
+}
 
-def _looks_like_person_text(t: str) -> bool:
-    if not t or len(t) < SPACY_MIN_TEXT_LEN:
-        return False
-    # Lowercase-friendly: allow name-like bigrams even if not capitalized
-    # (Transformer models are robust, but prefilter still saves cycles)
-    return bool(_CAP_HINT.search(t))
+SOFT_EXCLUDES = (
+    # orgs/places/things commonly embedded in tokens
+    "university","college","institute","hospital","medical center","center","centre","committee",
+    "department","ministry","laboratory","lab","foundation","association","academy","watch","watcher",
+    "pharmacy","school","program","project","trial","policy","laboratories",
+    "airport","county","province","prefecture","city","town","district","state","territory",
+    "franchisees","opportunities","surveillance","sequencing","omics","genome","genomic",
+    "®","™","©","http://","https://",".com",".org",".gov",".edu",".net"
+)
+
+TITLE_RE = re.compile(r'^(dr\.?|mr\.?|mrs\.?|ms\.?|prof\.?|president|pres\.?|senator|sen\.?|rep\.?|representative|gov\.?|governor)\s+', re.I)
+SUFFIX_RE = re.compile(r'\s+(jr\.?|sr\.?|phd|md|rn|esq\.?)$', re.I)
+PUNCT_INNER = re.compile(r"[^\w\s\-\.’']")
+SPLITTER = re.compile(r"[,\|;/]+")
+
+def _looks_like_url_or_code(s: str) -> bool:
+    s2 = s.strip().lower()
+    return s2.startswith(("http://","https://")) or any(t in s2 for t in (".com",".org",".gov",".edu",".net","js.id","®"))
+
+def _name_core(s: str) -> str:
+    """
+    Reduce a raw token to 'First Last' (or single token). Safe for empties.
+    """
+    if not s or not str(s).strip():
+        return ""
+    s = str(s)
+    s = TITLE_RE.sub("", s).strip()
+    s = SUFFIX_RE.sub("", s).strip()
+    s = PUNCT_INNER.sub(" ", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    if not s:
+        return ""
+    # remove isolated middle initials (A.) → A
+    s = re.sub(r"\b([A-Za-z])\.\b", r"\1", s)
+    parts = s.split()
+    if not parts:
+        return ""
+    # keep only alphabetic-ish tokens or hyphenated names
+    parts = [p for p in parts if re.fullmatch(r"[A-Za-z][A-Za-z\-’.']*", p)]
+    if not parts:
+        return ""
+    if len(parts) >= 2:
+        return f"{parts[0]} {parts[-1]}"
+    return parts[0]
+
+def _is_non_person_token(tok: str) -> bool:
+    if not tok or not str(tok).strip():
+        return True
+    t = tok.strip()
+    t_low = t.lower()
+
+    if _looks_like_url_or_code(t):
+        return True
+    if t_low in EXCLUDE_LOWER:
+        return True
+    if any(key in t_low for key in SOFT_EXCLUDES):
+        return True
+    if len(t) >= 3 and t.upper() == t and not re.search(r"[a-z]", t):  # ACRONYMS
+        return True
+    if re.match(r"^[•‐\-—–↑↓→←±✓✕✖️🗓˜]+", t):  # bullets/arrows
+        return True
+    if sum(c.isdigit() for c in t) >= 2:
+        return True
+    return False
+
+def _row_clean_names(cell: str) -> list[str]:
+    """
+    Split -> drop non-people -> normalize to 'First Last' or single token.
+    Deduplicate while preserving order. NO combining beyond core reduction.
+    """
+    if pd.isna(cell) or not str(cell).strip():
+        return []
+    parts = [p.strip() for p in SPLITTER.split(str(cell)) if p.strip()]
+    outs, seen = [], set()
+    for p in parts:
+        if _is_non_person_token(p):
+            continue
+        core = _name_core(p)
+        if not core:
+            continue
+        # drop single tokens that are common non-person words
+        if len(core.split()) == 1 and core.lower() in EXCLUDE_LOWER:
+            continue
+        if core not in seen:
+            seen.add(core)
+            outs.append(core)
+    return outs
 
 def detect_persons_and_flag_conversion(df: pd.DataFrame) -> pd.DataFrame:
-    print(f"[conv] NER on: {TEXT_COLS} | model={NLP.meta.get('name','?')} | n_process={SPACY_NPROC} | batch={SPACY_BATCH_SIZE}")
+    """
+    Clean 'people_by_row' (no canonicalization/combining).
+    Set has_person / is_conversion directly from cleaned list.
+    Write persons CSVs.
+    """
+    if "people_by_row" not in df.columns:
+        raise ValueError("people_by_row column is required but not found in the input dataset.")
 
-    # Build combined text once
-    heads = df["headline"].astype(str).fillna("")
-    bodys = df["article_body"].astype(str).fillna("")
-    texts = (heads + " " + bodys).str.strip().tolist()
+    cleaned_lists = df["people_by_row"].apply(_row_clean_names)
+    df["people_by_row"] = cleaned_lists.apply(lambda lst: ", ".join(lst)).astype("string")
+    df["has_person"] = cleaned_lists.apply(lambda x: len(x) > 0)
+    df["is_conversion"] = df["has_person"]
 
-    cand_idx = [i for i, t in enumerate(texts) if _looks_like_person_text(t)]
-    print(f"[conv] rows={len(texts):,} | NER candidates={len(cand_idx):,} ({len(cand_idx)/max(1,len(texts)):.1%})")
-
-    has_person = np.zeros(len(df), dtype=bool)
-    person_lists: List[List[str]] = [[] for _ in range(len(df))]
-
-    if SKIP_NER or len(cand_idx) == 0:
-        df["has_person"] = has_person
-        df["is_conversion"] = has_person
-    else:
-        # Process in chunks to avoid memory issues and provide progress updates
-        chunk_size = SPACY_CHUNK_SIZE  # Process documents in configurable chunks
-        total_chunks = (len(cand_idx) + chunk_size - 1) // chunk_size
-        
-        print(f"[conv] Processing {len(cand_idx):,} candidates in {total_chunks} chunks of {chunk_size:,}")
-        
-        for chunk_num in range(total_chunks):
-            start_idx = chunk_num * chunk_size
-            end_idx = min(start_idx + chunk_size, len(cand_idx))
-            chunk_cand_idx = cand_idx[start_idx:end_idx]
-            
-            print(f"[conv] Processing chunk {chunk_num + 1}/{total_chunks} (rows {start_idx:,}-{end_idx:,})")
-            
-            # Process this chunk
-            chunk_texts = [texts[i] for i in chunk_cand_idx]
-            docs = NLP.pipe(chunk_texts, batch_size=SPACY_BATCH_SIZE, n_process=SPACY_NPROC)
-            
-            for i, doc in zip(chunk_cand_idx, docs):
-                if doc and doc.ents:
-                    persons = [ent.text.strip() for ent in doc.ents if ent.label_ == "PERSON" and ent.text.strip()]
-                    if persons:
-                        person_lists[i] = persons
-                        has_person[i] = True
-            
-            # Force garbage collection after each chunk
-            gc.collect()
-            print(f"[conv] Completed chunk {chunk_num + 1}/{total_chunks}")
-        
-        df["has_person"] = has_person
-        df["is_conversion"] = has_person
-
-    # Aggregate unique persons + counts
-    flat = [p for plist in person_lists for p in plist]
+    # Exports based on cleaned lists
+    flat = [p for lst in cleaned_lists for p in lst]
     if flat:
         agg = (pd.Series(flat, dtype="string")
-                 .value_counts()
-                 .rename_axis("person")
-                 .reset_index(name="count"))
+               .value_counts()
+               .rename_axis("person")
+               .reset_index(name="count"))
     else:
         agg = pd.DataFrame(columns=["person","count"])
-
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     agg.to_csv(PERSONS_FILE, index=False)
 
     persons_by_row = pd.DataFrame({
         "row_index": np.arange(len(df)),
-        "tag_name": df["tag_name"].astype("string"),
-        "persons": [", ".join(pl) if pl else "" for pl in person_lists],
-        "has_person": has_person.astype(int),
+        "tag_name": df["tag_name"].astype("string") if "tag_name" in df.columns else pd.Series([""]*len(df), dtype="string"),
+        "persons": df["people_by_row"],
+        "has_person": df["has_person"].astype(int)
     })
     persons_by_row.to_csv(PERSONS_BY_ROW_FILE, index=False)
 
-    print(f"[conv] PERSON rows = {int(has_person.sum())} / {len(df)}")
+    print(f"[conv] PERSON rows (cleaned) = {int(df['has_person'].sum())} / {len(df)}")
     print(f"[conv] Saved unique persons -> {PERSONS_FILE}")
     print(f"[conv] Saved per-row persons -> {PERSONS_BY_ROW_FILE}")
     return df
 
 # =============================================================================
-# Markov – ALWAYS FAST for medium/large; exact only when trivially small
+# Markov core
 # =============================================================================
 def _row_normalized_transition(paths: List[List[str]], weights: np.ndarray, states: List[str]) -> csr_matrix:
     idx = {s: i for i, s in enumerate(states)}
@@ -361,7 +399,6 @@ def markov_from_paths(paths: List[List[str]], weights: np.ndarray,
         paths = new_paths
         states = sorted(list(keep - {OTHER_LABEL})) + [OTHER_LABEL]
 
-    # Build transition once
     states = sorted([s for s in set(states) if s != CONV])
     if not states:
         return pd.DataFrame(columns=["state","credit","credit_share"])
@@ -383,10 +420,7 @@ def markov_from_paths(paths: List[List[str]], weights: np.ndarray,
     A_csc = (I_csr - Q).tocsc()
     rhs_dense = np.asarray(P0.T.toarray()).ravel()
     y = spsolve(A_csc.T, rhs_dense)          # visit prob
-    # baseline conv prob (not currently used, but kept for parity)
-    _ = float((csr_matrix(y.reshape(1, -1)) @ R).toarray()[0, 0])
 
-    # Always FAST unless trivially tiny
     if force_fast or (len(states) >= FAST_MODE_THRESHOLD):
         r_col = np.asarray(R.toarray()).ravel() if R.shape[1] == 1 else np.asarray(R[:,0].toarray()).ravel()
         credits = np.maximum(0.0, y * r_col)
@@ -397,19 +431,19 @@ def markov_from_paths(paths: List[List[str]], weights: np.ndarray,
               .sort_values("credit", ascending=False, ignore_index=True)
         )
 
-    # exact path for tiny problems only (rare in practice with sampled data)
+    # Exact path (rare; tiny problems)
     credits = np.zeros(len(states), dtype=float)
+    baseline = float((csr_matrix(y.reshape(1, -1)) @ R).toarray()[0, 0])
     for i in range(Q.shape[0]):
-        Q2 = Q.copy()
-        R2 = R.copy()
+        Q2 = Q.copy(); R2 = R.copy()
         if Q2.indptr[i] != Q2.indptr[i+1]:
             Q2.data[Q2.indptr[i]:Q2.indptr[i+1]] = 0.0
         if R2.indptr[i] != R2.indptr[i+1]:
             R2.data[R2.indptr[i]:R2.indptr[i+1]] = 0.0
-        A2 = (I_csr - Q2).tocsc()
+        A2 = (identity(Q2.shape[0], format="csr") - Q2).tocsc()
         y2 = spsolve(A2.T, rhs_dense)
         conv2 = float((csr_matrix(y2.reshape(1, -1)) @ R2).toarray()[0, 0])
-        credits[i] = max(0.0, _ - conv2)
+        credits[i] = max(0.0, baseline - conv2)
 
     total = credits.sum()
     share = credits / total if total > 0 else np.zeros_like(credits)
@@ -434,7 +468,7 @@ def build_paths(df: pd.DataFrame, state_col: str) -> Tuple[List[List[str]], np.n
         seq, last, wsum = [], None, 0.0
         vals = g[state_col].astype("string").to_numpy()
         convs = g["is_conversion"].to_numpy()
-        # faster than apply for many rows: compute row weights as vector
+
         base = pd.to_numeric(g[WEIGHT_COL], errors="coerce").to_numpy(float)
         stype = g["source_type"].astype("string").to_numpy()
         mult = np.where(np.isin(stype, list(RELIABLE_TYPES)), 1.0 + RELIABLE_WEIGHT_BOOST, 1.0)
@@ -462,18 +496,18 @@ def build_paths_terms(df: pd.DataFrame, terms: Sequence[str]) -> Tuple[List[List
         for t, rgx in term_re:
             if rgx.search(txt):
                 h = f"TERM::{t}"
-                if not hits or hits[-1] != h:
+                if not hits or h != hits[-1]:
                     hits.append(h)
         return hits
 
     paths: List[List[str]] = []
     weights = []
-    # weights vector as above
     for _, g in dff.groupby(PATH_KEY, sort=False):
         seq, wsum = [], 0.0
         heads = g["headline"].astype(str).to_numpy()
         bodys = g["article_body"].astype(str).to_numpy()
         convs = g["is_conversion"].to_numpy()
+
         base = pd.to_numeric(g[WEIGHT_COL], errors="coerce").to_numpy(float)
         stype = g["source_type"].astype("string").to_numpy()
         mult = np.where(np.isin(stype, list(RELIABLE_TYPES)), 1.0 + RELIABLE_WEIGHT_BOOST, 1.0)
@@ -525,34 +559,40 @@ def main():
         OUT_FILE.unlink()
 
     print("[load] data (parquet)…")
-    # Load ALL columns from the input file
     df = pd.read_parquet(DATA_PARQUET)
     print(f"[load] Loaded {len(df):,} rows × {len(df.columns)} columns")
     print(f"[load] Columns: {list(df.columns)}")
 
-    required = {"headline","article_body","tag_name","vipr_weight","source_type"}
+    # Required columns
+    required = {"headline","article_body","tag_name","vipr_weight","source_type","people_by_row"}
     missing = required - set(df.columns)
     if missing:
-        raise ValueError(f"Missing required columns: {missing}")
+        raise ValueError(f"Missing required columns: {missing} in {DATA_PARQUET}")
 
-    # numerics & downcast
+    # Ensure emotion column persists and is string (do NOT drop later)
+    if "emotion_body" in df.columns:
+        df["emotion_body"] = df["emotion_body"].astype("string")
+
+    # Numerics & downcast (preserve raw text/name/emotion columns)
     for c in ["vipr_weight","vipr_score","circulation_size","hit_strength","sentiment_score",
               "headline_token_count","body_token_count","token_count"]:
         if c in df.columns:
             df[c] = _to_numeric(df[c])
     _downcast_inplace(df)
 
-    # per-tag order index
+    # Per-tag order index
     df[TIME_COL] = df.groupby(PATH_KEY).cumcount().astype(int)
 
-    # PERSON conversion
+    # Clean names (NO combining) + set conversions from cleaned list
     df = detect_persons_and_flag_conversion(df)
 
-    # Numeric bins
+    # Numeric bins → create then normalize to 1..5 ints
     dims_num_present = [c for c in DIM_NUMERIC_ALL if c in df.columns]
     binned_cols = [add_quantile_bins(df, c) for c in dims_num_present]
+    for bc in binned_cols:
+        simplify_bin_to_int(df, bc)
 
-    # Dimensions to score
+    # Dimensions to score (exclude PATH_KEY itself)
     dimensions = [d for d in DIM_CATEGORICAL_ALL if d in df.columns and d != PATH_KEY] + binned_cols
 
     # ---- Collect all results then single write ----
@@ -618,20 +658,32 @@ def main():
         final_df = pd.concat(results, ignore_index=True)
         OUT_DIR.mkdir(parents=True, exist_ok=True)
         final_df.to_parquet(OUT_FILE, index=False)
-        del final_df
     else:
         pd.DataFrame(columns=["kind","dimension","value","credit","credit_share","rating","rating_pct"]).to_parquet(OUT_FILE, index=False)
 
-    # --- Save full dataset with attribution columns ---
-    FULL_DATASET_FILE = OUT_DIR / "final_dataset_with_attribution.parquet"
+    # --- Save conversion-only FINAL dataset ---
     df_out = df.loc[df["is_conversion"] == True].copy()
+
+    # Keep text-ish columns as strings
+    for col in ["people_by_row","emotion_body"]:
+        if col in df_out.columns:
+            df_out[col] = df_out[col].astype("string")
+
+    # Ensure *_bin columns are integers 1..5
+    for c in df_out.columns:
+        if c.endswith("_bin"):
+            simplify_bin_to_int(df_out, c)
+
+    # Drop requested columns from the absolute FINAL dataset
+    FINAL_DROPS = ["article_body_raw","headline_raw","has_person","is_conversion"]
+    df_out.drop(columns=[c for c in FINAL_DROPS if c in df_out.columns], inplace=True, errors="ignore")
+
     df_out.to_parquet(FULL_DATASET_FILE, index=False)
     print(f"[ok] saved conversion-only dataset -> {FULL_DATASET_FILE}")
     print(f"[ok] conversion-only shape: {df_out.shape}")
     print(f"[ok] dataset columns: {list(df_out.columns)}")
 
-    # --- Tag-level PCA table ---
-    TAG_PCA_FILE = OUT_DIR / "tagname_pca_ready.csv"
+    # --- Tag-level PCA table (from ALL rows) ---
     write_tagname_summary(df, TAG_PCA_FILE)
     print(f"[ok] saved tag-level PCA table -> {TAG_PCA_FILE}")
     print(f"[ok] saved attribution analysis -> {OUT_FILE}")
