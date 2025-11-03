@@ -16,32 +16,51 @@ except ImportError:
     EMOTION_AVAILABLE = False
 
 
-@st.cache_data
+@st.cache_data(show_spinner=False)
 def load_influencer_table():
-    """Load influencer table from CSV"""
+    """Load influencer table - prefer parquet, fallback to CSV"""
     try:
         # Get project root (assuming app.py is in streamlit_app/)
         project_root = Path(__file__).parent.parent
-        path = project_root / "data_storage" / "final_data" / "influencer_table.csv"
         
-        # Try absolute path first, then relative
+        # Try parquet first (much faster)
+        path = project_root / "data_storage" / "final_data" / "influencer_table.parquet"
         if not path.exists():
-            # Try relative to current working directory as fallback
-            alt_path = Path("data_storage") / "final_data" / "influencer_table.csv"
+            alt_path = Path("data_storage") / "final_data" / "influencer_table.parquet"
             if alt_path.exists():
                 path = alt_path
             else:
-                st.error(f"File not found: {path}")
-                return None
+                # Fallback to CSV
+                path = project_root / "data_storage" / "final_data" / "influencer_table.csv"
+                if not path.exists():
+                    alt_path = Path("data_storage") / "final_data" / "influencer_table.csv"
+                    if alt_path.exists():
+                        path = alt_path
+                    else:
+                        st.error(f"File not found: {path}")
+                        return None
         
-        df = pd.read_csv(path)
+        # Load based on file extension
+        if path.suffix == '.parquet':
+            df = pd.read_parquet(path)
+        else:
+            df = pd.read_csv(path, low_memory=False)
+        
+        # Optimize data types to reduce memory
+        if 'circulation_size' in df.columns:
+            df['circulation_size'] = pd.to_numeric(df['circulation_size'], errors='coerce', downcast='float')
+        if 'sentiment_score' in df.columns:
+            df['sentiment_score'] = pd.to_numeric(df['sentiment_score'], errors='coerce', downcast='float')
+        if 'mention_count' in df.columns:
+            df['mention_count'] = pd.to_numeric(df['mention_count'], errors='coerce', downcast='integer')
+        
         return df
     except Exception as e:
         st.error(f"Error loading influencer table: {e}")
         return None
 
 
-@st.cache_data
+@st.cache_data(show_spinner=False)
 def load_attribution_dataset():
     """Load attribution dataset"""
     try:
@@ -63,7 +82,7 @@ def load_attribution_dataset():
         return None
 
 
-@st.cache_data
+@st.cache_data(show_spinner=False)
 def load_final_dataset():
     """Load final dataset with attribution"""
     try:
@@ -77,28 +96,56 @@ def load_final_dataset():
             else:
                 return None
         
+        # Only load essential columns initially to speed up loading
+        # User can specify columns if needed, but for now load all
         df = pd.read_parquet(path)
+        
+        # Optimize data types
+        if 'circulation_size' in df.columns:
+            df['circulation_size'] = pd.to_numeric(df['circulation_size'], errors='coerce', downcast='float')
+        if 'sentiment_score' in df.columns:
+            df['sentiment_score'] = pd.to_numeric(df['sentiment_score'], errors='coerce', downcast='float')
+        if 'row_index' in df.columns:
+            df['row_index'] = pd.to_numeric(df['row_index'], errors='coerce', downcast='integer')
+        
         return df
     except Exception as e:
         st.warning(f"Could not load final dataset: {e}")
         return None
 
 
-@st.cache_data
+@st.cache_data(show_spinner=False)
 def load_persons_by_row():
-    """Load persons by row data"""
+    """Load persons by row data - prefer parquet, fallback to CSV"""
     try:
         project_root = Path(__file__).parent.parent
-        path = project_root / "data_storage" / "final_data" / "persons_by_row.csv"
         
+        # Try parquet first (much faster)
+        path = project_root / "data_storage" / "final_data" / "persons_by_row.parquet"
         if not path.exists():
-            alt_path = Path("data_storage") / "final_data" / "persons_by_row.csv"
+            alt_path = Path("data_storage") / "final_data" / "persons_by_row.parquet"
             if alt_path.exists():
                 path = alt_path
             else:
-                return None
+                # Fallback to CSV
+                path = project_root / "data_storage" / "final_data" / "persons_by_row.csv"
+                if not path.exists():
+                    alt_path = Path("data_storage") / "final_data" / "persons_by_row.csv"
+                    if alt_path.exists():
+                        path = alt_path
+                    else:
+                        return None
         
-        df = pd.read_csv(path)
+        # Load based on file extension
+        if path.suffix == '.parquet':
+            df = pd.read_parquet(path)
+        else:
+            df = pd.read_csv(path, low_memory=False)
+        
+        # Optimize data types
+        if 'row_index' in df.columns:
+            df['row_index'] = pd.to_numeric(df['row_index'], errors='coerce', downcast='integer')
+        
         return df
     except Exception as e:
         st.warning(f"Could not load persons by row: {e}")
