@@ -1,0 +1,448 @@
+/* ===============================
+   PolicyPath • Penta-branded Styles
+   ===============================
+
+   Fonts:
+   - Headings: Fraunces (brand-y serif)
+   - Body/UI:  Poppins (clean sans)
+*/
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:wght@700;800&family=Poppins:wght@400;500;600;700&display=swap');
+
+/* ---------- Header Bar ---------- */
+.header-bar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: .5rem;     /* tightened */
+  margin-top: .25rem;       /* tightened */
+  padding: .25rem 0;        /* tightened */
+  border-bottom: 1px solid var(--penta-light);
+}
+/* .penta-logo { height: 84px; width: auto; } /* reduced height */
+.header-title h1 {
+  margin: 0;
+  color: var(--penta-dark);
+  font-weight: 800;
+  letter-spacing: -0.015em;
+  font-family: Poppins !important;
+}
+.header-subtitle {
+  color: var(--penta-primary);
+  font-size: 1rem;
+  font-weight: 600;
+  margin-top: .2rem;
+}
+.header-spacer { margin-left: auto; }
+
+/* ---------- Brand Tokens ---------- */
+:root {
+  /* CORE (Penta) */
+  --penta-primary: #12715D;   /* Penta green */
+  --penta-dark:    #142536;   /* Ink/Navy text */
+  --penta-slate:   #475569;   /* Muted text / borders */
+  --penta-cream:   #F6F7F8;   /* App background */
+  --penta-white:   #ffffff;
+
+  /* ACCENTS */
+  --penta-accent:  #4AB48E;   /* light green accent */
+  --penta-gold:    #D4A115;   /* secondary accent */
+  --penta-red:     #D94841;   /* error */
+  --penta-green:   #2A9D8F;   /* success */
+
+  /* Subtle line/border color */
+  --penta-light: rgba(20,37,54,.10);
+
+  /* UI */
+  --radius-sm: 10px;
+  --radius-md: 16px;
+  --radius-lg: 22px;
+  --focus-ring: 0 0 0 3px rgba(18,113,93,.25);
+}
+
+/* Kill the big top padding Streamlit adds */
+section.main > div.block-container {
+  padding-top: .35rem !important;   /* was ~2–3rem */
+  padding-bottom: .9rem !important;
+  max-width: 100% !important;
+  margin: 0 !important;
+  padding-left: 1rem !important;
+  padding-right: 1rem !important;
+}
+
+/* Ensure full width for main container */
+.stApp > div {
+  max-width: 100% !important;
+}
+
+/* Ensure full width for the app view container */
+[data-testid="stAppViewContainer"] {
+  max-width: 90% !important;
+  padding-left: 1 !important;
+  padding-right: 1!important;
+}
+
+section.main {
+  max-width: 90% !important;
+}
+
+/* Force full width for all block containers */
+.block-container {
+  max-width: 90% !important;
+  padding-left: 1rem !important;
+  padding-right: 1rem !important;
+}
+
+/* Remove extra space before the tablist */
+[data-testid="stTabs"] { 
+  margin-top: .25rem !important;
+}
+[data-testid="stTabs"] > div[role="tablist"] {
+  margin-top: 0 !important;
+} 
+
+/* ---------- Base ---------- */
+html, body, .stApp {
+  background: var(--penta-cream) !important;
+  color: var(--penta-dark);
+  font-family: Poppins !important;
+  letter-spacing: .01em;
+}
+
+/* Remove excessive top whitespace from Streamlit containers */
+[data-testid="stAppViewContainer"] > .main {
+  padding-top: 0rem !important;
+  padding-bottom: 1rem !important;
+}
+
+/* Collapse Streamlit’s system header bar completely */
+header[data-testid="stHeader"] {
+  height: 0 !important;
+  min-height: 0 !important;
+  padding: 0 !important;
+  margin: 0 !important;
+}
+
+/* ---------- Header (fallback visual if Streamlit shows it) ---------- */
+[data-testid="stHeader"] {
+  background: linear-gradient(180deg, var(--penta-white), rgba(255,255,255,0)) !important;
+  border-bottom: 1px solid var(--penta-light);
+  backdrop-filter: saturate(1.2) blur(6px);
+}
+
+[data-testid="stToolbar"] { display: none !important; } /* hides the ☰ hamburger */
+
+/* ---------- Plotly Toolbar Hide ---------- */
+.plotly .modebar,
+.plotly .modebar-container,
+.js-plotly-plot .plotly .modebar,
+.js-plotly-plot .plotly .modebar-container,
+.modebar,
+.modebar-container,
+.plotly .modebar-group,
+.plotly .modebar-btn,
+.plotly .modebar-btn--logo,
+[data-testid="stPlotlyChart"] .modebar,
+[data-testid="stPlotlyChart"] .modebar-container,
+[data-testid="stPlotlyChart"] .plotly .modebar {
+  display: none !important;
+}
+
+/* ---------- Headings ---------- */
+h1, h2, h3 {
+  color: var(--penta-dark) !important;
+  line-height: 1.15;
+  letter-spacing: .005em;
+  font-family: Poppins !important;
+}
+h1 { font-weight: 800; }
+h2 { font-weight: 700; }
+h3 { font-weight: 650; }
+
+/* Decorative left bar on major sections */
+.pp-section h2 {
+  position: relative;
+  padding-left: .9rem;
+}
+.pp-section h2::before {
+  content: "";
+  position: absolute;
+  left: 0; top: .2rem;
+  width: 4px; height: 1.25em;
+  border-radius: 2px;
+  background: linear-gradient(180deg, var(--penta-primary), var(--penta-gold));
+}
+
+/* ---------- Sidebar ---------- */
+[data-testid="stSidebar"] {
+  background: var(--penta-white) !important;
+  border-right: 1px solid var(--penta-light);
+}
+[data-testid="stSidebar"] .block-container {
+  padding: 1.0rem .75rem 1.5rem;
+}
+[data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3, [data-testid="stSidebar"] label {
+  color: var(--penta-dark) !important;
+}
+
+/* ---------- Tabs ---------- */
+[data-testid="stTabs"] > div[role="tablist"] {
+  border-bottom: 1px solid var(--penta-light);
+}
+[data-testid="stTabs"] button[role="tab"] {
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  padding: .55rem .9rem;            /* compact */
+  font-weight: 600;
+  color: var(--penta-slate);
+  transition: color .15s ease, background .15s ease;
+}
+[data-testid="stTabs"] button[role="tab"][aria-selected="true"] {
+  color: var(--penta-dark);
+  background: var(--penta-white);
+}
+[data-testid="stTabs"] button[role="tab"]:hover {
+  color: var(--penta-dark);
+}
+
+/* ---------- Buttons ---------- */
+.stButton > button, .stDownloadButton > button {
+  background: var(--penta-primary) !important;
+  color: #fff !important;
+  border: none !important;
+  border-radius: var(--radius-md) !important;
+  padding: .55rem .95rem !important;
+  font-weight: 700 !important;
+  transition: transform .06s ease, box-shadow .2s ease, filter .2s ease;
+}
+.stButton > button:hover, .stDownloadButton > button:hover {
+  filter: brightness(1.03);
+}
+.stButton > button:active, .stDownloadButton > button:active {
+  transform: translateY(1px);
+}
+.stButton > button:focus-visible, .stDownloadButton > button:focus-visible {
+  outline: none !important;
+}
+
+/* Secondary button variant */
+button.katex-html + button, .pp-btn-secondary {
+  background: var(--penta-white) !important;
+  color: var(--penta-dark) !important;
+  border: 1px solid var(--penta-light) !important;
+}
+
+/* ---------- Metrics & Cards ---------- */
+[data-testid="stMetric"] {
+  border-radius: 10px;
+  background: var(--penta-white);
+  padding: .5rem .25rem;
+  border: 1px solid var(--penta-light);
+  text-align: left;
+}
+[data-testid="stMetric"] [data-testid="stMetricValue"] {
+  color: var(--penta-primary);
+  font-weight: 800;
+  font-size: 24px;
+}
+[data-testid="stMetric"] [data-testid="stMetricLabel"] {
+  color: var(--penta-slate);
+  font-size: 13px;
+}
+[data-testid="stMetricDelta"] svg { transform: scale(1.05); }
+
+.pp-card {
+  background: var(--penta-white);
+  border: 1px solid var(--penta-light);
+  border-radius: 10px;
+  padding: 14px;
+  margin: 6px 0;
+}
+
+.pp-callout {
+  border-left: 6px solid var(--penta-primary);
+  background: linear-gradient(90deg, rgba(18,113,93,.06), transparent);
+  padding: .85rem 1rem;
+  border-radius: 10px;
+}
+
+/* ---------- Tables ---------- */
+[data-testid="stDataFrame"] {
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--penta-light);
+}
+[data-testid="stDataFrame"] .row_heading, 
+[data-testid="stDataFrame"] .blank { background: var(--penta-cream); }
+[data-testid="stDataFrame"] .stDataFrame tbody tr:hover {
+  background: rgba(18,113,93,.06);
+}
+
+/* ---------- Charts ---------- */
+.element-container:has([data-testid="stVegaLiteChart"]),
+.element-container:has([data-testid="stPlotlyChart"]) {
+  background: var(--penta-white);
+  border: 1px solid var(--penta-primary);
+  border-radius: 12px;
+  padding: 1rem;
+  margin: 8px 0;
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.element-container:has([data-testid="stVegaLiteChart"]):hover,
+.element-container:has([data-testid="stPlotlyChart"]):hover {
+  border-color: var(--penta-accent);
+}
+
+/* Chart titles styling */
+.element-container:has([data-testid="stPlotlyChart"]) .js-plotly-plot .plotly .gtitle {
+  font-family: Poppins !important;
+  font-weight: 700 !important;
+  color: var(--penta-dark) !important;
+}
+
+/* Chart container spacing */
+[data-testid="stPlotlyChart"] {
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+/* ---------- Alerts ---------- */
+.stAlert {
+  border-radius: 10px;
+  border: 1px solid var(--penta-light);
+  margin: .5rem 0;
+}
+.stAlert [data-testid="stMarkdownContainer"] p {
+  margin: .25rem 0;
+}
+
+/* ---------- Expanders ---------- */
+[data-testid="stExpander"] {
+  border: 1px solid var(--penta-light) !important;
+  border-radius: 10px !important;
+  margin: .5rem 0 !important;
+}
+[data-testid="stExpander"] > div {
+  border-radius: 10px !important;
+}
+[data-testid="stExpander"] [data-testid="stExpanderToggleIcon"] {
+  color: var(--penta-primary) !important;
+}
+
+/* ---------- Markdown ---------- */
+[data-testid="stMarkdownContainer"] p {
+  line-height: 1.55;
+  color: var(--penta-dark);
+  font-family: Poppins !important;
+}
+
+/* ---------- Left Alignment ---------- */
+/* Left align section headers */
+.section-header {
+  text-align: left !important;
+}
+
+/* Left align columns container (metrics row) */
+.element-container:has([data-testid="column-container"]),
+.element-container:has(.row-widget),
+div[data-testid="column-container"],
+.row-widget.stHorizontalBlock {
+  display: flex !important;
+  justify-content: flex-start !important;
+  max-width: 100% !important;
+  margin: 0 !important;
+}
+
+/* Left align the metrics row specifically */
+.element-container:has([data-testid="stMetric"]) {
+  max-width: 100% !important;
+  margin: 0 !important;
+}
+.element-container:has([data-testid="stMetric"]) > div {
+  display: flex !important;
+  justify-content: flex-start !important;
+}
+
+/* Left align tabs */
+[data-testid="stTabs"] {
+  max-width: 100% !important;
+  margin: 0 !important;
+}
+[data-testid="stTabs"] > div[role="tablist"] {
+  display: flex !important;
+  justify-content: flex-start !important;
+  gap: 0.5rem !important;
+}
+[data-testid="stMarkdownContainer"] a {
+  color: var(--penta-primary);
+  text-decoration: none;
+  border-bottom: 1px solid rgba(18,113,93,.35);
+}
+[data-testid="stMarkdownContainer"] a:hover {
+  color: var(--penta-dark);
+  border-bottom-color: var(--penta-dark);
+}
+
+/* ---------- Hide Header Link Icons ---------- */
+.css-1d391kg,
+.css-1d391kg a,
+.css-1d391kg svg,
+.stApp .css-1d391kg,
+.stApp .css-1d391kg a,
+.stApp .css-1d391kg svg,
+[data-testid="stHeader"] .css-1d391kg,
+[data-testid="stHeader"] .css-1d391kg a,
+[data-testid="stHeader"] .css-1d391kg svg,
+[class*="css-"][class*="1d391kg"],
+[class*="css-"][class*="1d391kg"] a,
+[class*="css-"][class*="1d391kg"] svg,
+.stApp [class*="css-"][class*="1d391kg"],
+.stApp [class*="css-"][class*="1d391kg"] a,
+.stApp [class*="css-"][class*="1d391kg"] svg,
+h1 a, h2 a, h3 a, h4 a, h5 a, h6 a,
+[data-testid="stMarkdownContainer"] h1 a,
+[data-testid="stMarkdownContainer"] h2 a,
+[data-testid="stMarkdownContainer"] h3 a,
+[data-testid="stMarkdownContainer"] h4 a,
+[data-testid="stMarkdownContainer"] h5 a,
+[data-testid="stMarkdownContainer"] h6 a,
+h1 svg, h2 svg, h3 svg, h4 svg, h5 svg, h6 svg,
+[data-testid="stMarkdownContainer"] h1 svg,
+[data-testid="stMarkdownContainer"] h2 svg,
+[data-testid="stMarkdownContainer"] h3 svg,
+[data-testid="stMarkdownContainer"] h4 svg,
+[data-testid="stMarkdownContainer"] h5 svg,
+[data-testid="stMarkdownContainer"] h6 svg,
+.css-1d391kg a[href*="#"],
+.css-1d391kg svg,
+.stApp .css-1d391kg a[href*="#"],
+.stApp .css-1d391kg svg {
+  display: none !important;
+  visibility: hidden !important;
+}
+
+/* ---------- Footer ---------- */
+footer, #MainMenu { visibility: hidden; }
+
+/* ---------- Dark Mode ---------- */
+body[data-theme="dark"] {
+  --penta-cream:#0d1420;
+  --penta-white:#0f1825;
+  --penta-dark:#e8edf3;
+  --penta-slate:#a0aec0;
+
+  background: var(--penta-cream) !important;
+  color: var(--penta-dark) !important;
+}
+body[data-theme="dark"] [data-testid="stSidebar"],
+body[data-theme="dark"] .pp-card,
+body[data-theme="dark"] [data-testid="stDataFrame"],
+body[data-theme="dark"] .element-container:has([data-testid="stVegaLiteChart"]),
+body[data-theme="dark"] .element-container:has([data-testid="stPlotlyChart"]),
+body[data-theme="dark"] [data-testid="stMetric"] {
+  background: var(--penta-white) !important;
+  border-color: rgba(223,231,239,.10) !important;
+}
+body[data-theme="dark"] [data-testid="stMarkdownContainer"] a {
+  color: var(--penta-accent);
+  border-bottom-color: rgba(74,180,142,.35);
+}

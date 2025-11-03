@@ -1,7 +1,7 @@
 tag_name,n_rows,n_conv,conv_rate,avg_vipr_weight,avg_circulation_size,avg_sentiment_score,avg_headline_token_count,avg_body_token_count,avg_token_count,avg_abs_sentiment
-health_campaign,3916,3414,0.8718079673135853,,,,,,,
+health_campaign,3916,3512,0.8968335035750766,,,,,,,
 last_smoke_campaign,2,2,1.0,,,,,,,
 nhs_reform,13,12,0.9230769230769231,,,,,,,
-public_health,93798,83090,0.8858397833642508,,,,,,,
-state_healthcare_funding,159,116,0.7295597484276729,,,,,,,
-world_health_leadership,2112,1713,0.8110795454545454,,,,,,,
+public_health,93798,85601,0.9126100769739227,,,,,,,
+state_healthcare_funding,159,133,0.8364779874213837,,,,,,,
+world_health_leadership,2112,1808,0.8560606060606061,,,,,,,
