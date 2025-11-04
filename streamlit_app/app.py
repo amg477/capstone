@@ -330,55 +330,30 @@ def main():
                         st.plotly_chart(fig_circ, use_container_width=True)
                     else:
                         st.info("No cluster/circulation data available")
-
                 # Emotion chart (uses your charts.create_emotion_chart)
                 st.markdown('<div class="section-header" style="font-size:1.25rem;font-weight:700;color:#142536;margin-top:1rem;">Top Individuals by Emotion</div>', unsafe_allow_html=True)
                 n_top = st.slider("Number of top individuals to show", 10, 50, 20, key="emotion_slider_tab1")
 
-                # Guard/cap final/person tables to avoid OOM
+                # Use consistent variable names
                 final_df_for_emotions = final_df_sample
                 persons_by_row_for_emotions = persons_by_row_df
-                # If extremely large, keep as-is but chart function already aggregates
 
-                if final_df_for_emotions is None or persons_by_row_for_emions is None:  # typo guard
-                    pass
-                try:
-                    if final_df_for_emotions is None or persons_by_row_for_emotions is None:
-                        st.info("Emotion analysis requires final dataset and persons_by_row.")
-                    elif 'emotion_body' not in final_df_for_emotions.columns:
-                        st.info("Emotion data not available in final dataset.")
+                if final_df_for_emotions is None or persons_by_row_for_emotions is None:
+                    st.info("Emotion analysis requires final dataset and persons_by_row.")
+                elif 'emotion_body' not in final_df_for_emotions.columns:
+                    st.info("Emotion data not available in final dataset.")
+                else:
+                    emotion_chart = create_emotion_chart(
+                        influencer_view,
+                        final_df=final_df_for_emotions,
+                        persons_by_row_df=persons_by_row_for_emotions,
+                        n=n_top,
+                        selected_persons=selected_persons if selected_persons else None
+                    )
+                    if emotion_chart:
+                        st.plotly_chart(emotion_chart, use_container_width=True)
                     else:
-                        emotion_chart = create_emotion_chart(
-                            influencer_view,
-                            final_df=final_df_for_emotions,
-                            persons_by_row_df=persons_by_row_for_emotions,
-                            n=n_top,
-                            selected_persons=selected_persons if selected_persons else None
-                        )
-                        if emotion_chart:
-                            st.plotly_chart(emotion_chart, use_container_width=True)
-                        else:
-                            st.info("Emotion data not available for the current selection.")
-                except NameError:
-                    # fix earlier typo variable
-                    persons_by_row_for_emotions = persons_by_row_df
-                    if final_df_for_emotions is None or persons_by_row_for_emotions is None:
-                        st.info("Emotion analysis requires final dataset and persons_by_row.")
-                    elif 'emotion_body' not in final_df_for_emotions.columns:
-                        st.info("Emotion data not available in final dataset.")
-                    else:
-                        emotion_chart = create_emotion_chart(
-                            influencer_view,
-                            final_df=final_df_for_emotions,
-                            persons_by_row_df=persons_by_row_for_emotions,
-                            n=n_top,
-                            selected_persons=selected_persons if selected_persons else None
-                        )
-                        if emotion_chart:
-                            st.plotly_chart(emotion_chart, use_container_width=True)
-                        else:
-                            st.info("Emotion data not available for the current selection.")
-
+                        st.info("Emotion data not available for the current selection.")
     # --------------------------------------
     # Tab 2: People — individual exploration
     # --------------------------------------
