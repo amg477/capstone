@@ -6,7 +6,18 @@ Handles loading of datasets, models, and cached resources
 import streamlit as st
 import pandas as pd
 from pathlib import Path
-from transformers import pipeline, AutoTokenizer, AutoModelForSeq2SeqLM, T5Tokenizer, T5ForConditionalGeneration
+# Lazy import transformers to avoid slow startup - only import when needed
+try:
+    from transformers import pipeline, AutoTokenizer, AutoModelForSeq2SeqLM, T5Tokenizer, T5ForConditionalGeneration
+    TRANSFORMERS_AVAILABLE = True
+except ImportError:
+    TRANSFORMERS_AVAILABLE = False
+    # Define dummy classes to prevent errors
+    pipeline = None
+    AutoTokenizer = None
+    AutoModelForSeq2SeqLM = None
+    T5Tokenizer = None
+    T5ForConditionalGeneration = None
 
 # Global flag for emotion model availability
 try:
@@ -16,7 +27,7 @@ except ImportError:
     EMOTION_AVAILABLE = False
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner=False, ttl=3600)
 def load_influencer_table():
     """Load influencer table - prefer parquet, fallback to CSV"""
     try:
@@ -37,14 +48,25 @@ def load_influencer_table():
                     if alt_path.exists():
                         path = alt_path
                     else:
-                        st.error(f"File not found: {path}")
+                        # Return None gracefully instead of showing error here
+                        # Let the calling function handle the error message
                         return None
         
-        # Load based on file extension
-        if path.suffix == '.parquet':
-            df = pd.read_parquet(path)
-        else:
-            df = pd.read_csv(path, low_memory=False)
+        # Load based on file extension with timeout protection
+        try:
+            if path.suffix == '.parquet':
+                df = pd.read_parquet(path)
+            else:
+                df = pd.read_csv(path, low_memory=False)
+        except Exception as load_error:
+            # If loading fails, return None gracefully
+            import logging
+            logging.warning(f"Error loading file {path}: {load_error}")
+            return None
+        
+        # Return empty DataFrame if loading failed
+        if df is None or df.empty:
+            return None
         
         # Optimize data types to reduce memory
         if 'circulation_size' in df.columns:
@@ -55,8 +77,13 @@ def load_influencer_table():
             df['mention_count'] = pd.to_numeric(df['mention_count'], errors='coerce', downcast='integer')
         
         return df
+    except FileNotFoundError:
+        # File doesn't exist - return None gracefully
+        return None
     except Exception as e:
-        st.error(f"Error loading influencer table: {e}")
+        # Log error but don't show it here - let calling function handle it
+        import logging
+        logging.warning(f"Error loading influencer table: {e}")
         return None
 
 
@@ -133,7 +160,7 @@ def load_persons_by_row():
 @st.cache_resource
 def load_emotion_model():
     """Load the emotion detection model from Hugging Face"""
-    if not EMOTION_AVAILABLE:
+    if not EMOTION_AVAILABLE or not TRANSFORMERS_AVAILABLE:
         return None
     
     model_name = "mrm8488/t5-base-finetuned-emotion"

@@ -253,11 +253,26 @@ st.markdown("""
 
 # Main app
 def main():
+    # Render header immediately to prevent timeout
     st.markdown('<div class="main-header">PolicyPath 🏛️</div>', unsafe_allow_html=True)
     st.markdown("""Your indispensable guide to healthcare policy influence""")
 
-    # Load essential data upfront (cached, so first load only)
-    influencer_df = load_influencer_table()
+    # Show placeholder while loading
+    placeholder = st.empty()
+    
+    # Try to load data, but don't block if it fails
+    influencer_df = None
+    try:
+        with placeholder.container():
+            with st.spinner("Loading data..."):
+                influencer_df = load_influencer_table()
+    except Exception as e:
+        # Silently catch errors during startup to prevent timeout
+        import logging
+        logging.warning(f"Error loading influencer table during startup: {e}")
+        influencer_df = None
+    finally:
+        placeholder.empty()
     
     # Load tab-specific data lazily (only when needed)
     # These will be loaded when user switches to People tab
@@ -265,16 +280,26 @@ def main():
     persons_by_row_df = None
     
     # Clean bin columns if they exist
-    if influencer_df is not None:
-        if 'circulation_size_bin' in influencer_df.columns:
-            influencer_df = clean_bin_column(influencer_df, 'circulation_size_bin')
-        if 'sentiment_score_bin' in influencer_df.columns:
-            influencer_df = clean_bin_column(influencer_df, 'sentiment_score_bin')
+    if influencer_df is not None and not influencer_df.empty:
+        try:
+            if 'circulation_size_bin' in influencer_df.columns:
+                influencer_df = clean_bin_column(influencer_df, 'circulation_size_bin')
+            if 'sentiment_score_bin' in influencer_df.columns:
+                influencer_df = clean_bin_column(influencer_df, 'sentiment_score_bin')
+        except Exception as e:
+            st.warning(f"Error cleaning bin columns: {e}")
     
     # Emotion data is now pre-computed in the final_dataset_with_attribution.parquet as 'emotion_body' column
     
-    if influencer_df is None:
-        st.error("Unable to load influencer table. Please ensure the data files are in the correct location.")
+    if influencer_df is None or influencer_df.empty:
+        st.error("⚠️ Unable to load influencer table. Please ensure the data files are in the correct location.")
+        st.info("""
+        **Expected data file locations:**
+        - `data_storage/final_data/influencer_table.parquet` (or `.csv`)
+        - `data_storage/final_data/final_dataset_with_attribution.parquet`
+        - `data_storage/final_data/persons_by_row.parquet` (or `.csv`)
+        """)
+        # Don't stop - allow app to render with error message
         st.stop()
     
     # Start with unfiltered data - filters will be applied in Pulse tab
@@ -757,7 +782,7 @@ def main():
                                 height=300,
                                 showlegend=False
                             )
-                            st.plotly_chart(fig_sentiment, use_container_width=True)
+                            st.plotly_chart(fig_sentiment, width='stretch')
                         else:
                             st.info("No cluster/sentiment data available")
                     
@@ -779,7 +804,7 @@ def main():
                                 height=300,
                                 showlegend=False
                             )
-                            st.plotly_chart(fig_circ, use_container_width=True)
+                            st.plotly_chart(fig_circ, width='stretch')
                         else:
                             st.info("No cluster/circulation data available")
                     
@@ -807,7 +832,7 @@ def main():
                                 selected_persons=selected_persons if selected_persons else None
                             )
                         if emotion_chart:
-                            st.plotly_chart(emotion_chart, use_container_width=True)
+                            st.plotly_chart(emotion_chart, width='stretch')
                         else:
                             st.info("Emotion data not available. No articles found with emotion labels for the top individuals.")
 
@@ -1189,7 +1214,7 @@ def main():
                                         color_continuous_scale='RdYlBu'
                                     )
                                     fig_emotions.update_layout(height=300, yaxis={'categoryorder': 'total ascending'})
-                                    st.plotly_chart(fig_emotions, use_container_width=True)
+                                    st.plotly_chart(fig_emotions, width='stretch')
                         
                         with chart_col2:
                             # Sentiment distribution chart if available
@@ -1213,7 +1238,7 @@ def main():
                                         color_continuous_scale='RdYlBu'
                                     )
                                     fig_sentiment.update_layout(height=300, yaxis={'categoryorder': 'total ascending'})
-                                    st.plotly_chart(fig_sentiment, use_container_width=True)
+                                    st.plotly_chart(fig_sentiment, width='stretch')
                         
                         st.markdown("---")
                         
@@ -1392,7 +1417,7 @@ def main():
                         # Display table
                         st.dataframe(
                             display_df,
-                            use_container_width=True,
+                            width='stretch',
                             height=400
                         )
                         
@@ -1422,16 +1447,20 @@ def main():
         else:
             ""
 
-if __name__ == "__main__":
-    main()
-
 # -------------------- Dataset Footnote --------------------
-st.markdown("---")
-st.markdown(
-    """
-    <div style="font-size: 0.8em; text-align: left; margin-top: 2rem;">
-        Built by Georgetown University MSBA - Anna Glass, Jasmin Mendoza, Mohammad Waqas, Mark Saba, Posy Olivetti
-    </div>
-    """,
-    unsafe_allow_html=True
-)
+# Move footer inside main() to avoid executing at module level
+def render_footer():
+    st.markdown("---")
+    st.markdown(
+        """
+        <div style="font-size: 0.8em; text-align: left; margin-top: 2rem;">
+            Built by Georgetown University MSBA - Anna Glass, Jasmin Mendoza, Mohammad Waqas, Mark Saba, Posy Olivetti
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+# Streamlit executes module-level code, so call main() here
+# Also add footer at the end
+main()
+render_footer()
