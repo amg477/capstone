@@ -207,13 +207,13 @@ def main():
 
         c1, c2, c3 = st.columns(3)
         with c1:
-            selected_persons = st.multiselect("Select Individuals", all_people, default=[])
+            selected_persons = st.multiselect("Select Individuals", all_people, default=[], key="tab1_select_persons")
         with c2:
-            selected_clusters = st.multiselect("Select Clusters", clusters, default=[]) if clusters else []
+            selected_clusters = st.multiselect("Select Clusters", clusters, default=[], key="tab1_select_clusters") if clusters else []
         with c3:
             tmp = with_sentiment_band(influencer_df)
             bands = sorted(tmp['sentiment_band'].dropna().unique().tolist()) if 'sentiment_band' in tmp.columns else []
-            selected_sentiment_bands = st.multiselect("Sentiment Band", bands, default=[])
+            selected_sentiment_bands = st.multiselect("Sentiment Band", bands, default=[], key="tab1_sentiment_band")
 
         # Apply filters (people, cluster, band)
         influencer_view = influencer_df
@@ -400,17 +400,17 @@ def main():
             # Authors from final_df_sample (if available)
             if final_df_sample is not None and not final_df_sample.empty and 'author_name' in final_df_sample.columns:
                 authors = sorted(final_df_sample['author_name'].dropna().unique().tolist())[:50]
-                selected_authors_tab2 = st.multiselect("Select Authors", authors, default=[])
+                selected_authors_tab2 = st.multiselect("Select Authors", authors, default=[], key="tab2_select_authors")
             else:
                 selected_authors_tab2 = []
 
         with f2:
-            selected_clusters_tab2 = st.multiselect("Select Clusters", clusters2, default=[]) if clusters2 else []
+            selected_clusters_tab2 = st.multiselect("Select Clusters", clusters2, default=[], key="tab2_select_clusters") if clusters2 else []
 
         with f3:
             tmp2 = with_sentiment_band(influencer_df)
             bands2 = sorted(tmp2['sentiment_band'].dropna().unique().tolist()) if 'sentiment_band' in tmp2.columns else []
-            selected_sentiment_bands_tab2 = st.multiselect("Sentiment Band", bands2, default=[])
+            selected_sentiment_bands_tab2 = st.multiselect("Sentiment Band", bands2, default=[], key="tab2_sentiment_band")
 
         fr2c1, fr2c2, fr2c3 = st.columns(3)
         # Date/publication/source filters are not pushed down (your loader has no args), so we skip widgets here
