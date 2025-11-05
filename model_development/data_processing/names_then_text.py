@@ -9,8 +9,9 @@ Pipeline on the *sampled* dataset:
   Stage 3: Emotion of article_body (cleaned) → processed_with_people_emotion.parquet
 
 Guarantees:
-- people_by_row is comma-space separated (e.g., "Jane Doe, John Smith"), preserves original casing,
-  and is NOT cleaned or normalized in any stage.
+- Stage 1 writes raw PERSON strings to people_by_row (comma-space separated, e.g., "Jane Doe, John Smith").
+- Stage 2 adds people_by_row_clean (deduped, accent-folded, title-cased; comma-space separated).
+- Set OVERWRITE_PEOPLE_NAMES=1 to overwrite people_by_row with the cleaned version during Stage 2.
 """
 
 import os
@@ -18,8 +19,9 @@ import sys
 import gc
 import re
 import hashlib
+import unicodedata
 from pathlib import Path
-from typing import Tuple
+from typing import Tuple, Optional
 
 import pandas as pd
 import numpy as np
@@ -73,6 +75,7 @@ NER_SOURCE    = os.getenv("NER_SOURCE", "full")  # "headline" or "full"
 # ---- Stage 2 (text) envs ----
 USE_LEMMATIZATION = bool(int(os.getenv("USE_LEMMATIZATION", "0")))
 STAGE2_BATCH_ROWS = int(os.getenv("STAGE2_BATCH_ROWS", "200000"))
+OVERWRITE_PEOPLE  = bool(int(os.getenv("OVERWRITE_PEOPLE_NAMES", "0")))  # 1 to overwrite people_by_row with cleaned
 
 # ---- Stage 3 (emotion) envs ----
 # Default to a solid zero-shot emotion classifier (no sentencepiece dependency)
@@ -107,6 +110,103 @@ def _canonicalize_dtypes(df: pd.DataFrame) -> pd.DataFrame:
     for c in obj_like:
         df[c] = df[c].astype("string[pyarrow]")
     return df
+
+# ---------- Person-name cleaning helpers ----------
+HONORIFICS = {
+    "mr","mrs","ms","miss","mx","dr","prof","sir","dame","lord","lady",
+    "president","pres","gov","sen","rep","amb","sec","chancellor","pm",
+    "pres.","gov.","sen.","rep.","dr.","prof.","mr.","mrs.","ms.","mx."
+}
+TRAILING_SUFFIXES = {"jr","sr","ii","iii","iv","phd","md","esq","jr.","sr.","ph.d.","m.d."}
+GENERIC_NONNAMES = {"anonymous","unknown","staff","editor","guest","author","reporter"}
+
+def _strip_accents(s: str) -> str:
+    if not s:
+        return s
+    return unicodedata.normalize("NFKD", s).encode("ASCII", "ignore").decode("ASCII")
+
+def _titlecase_name(s: str) -> str:
+    if not s:
+        return s
+    parts = s.split()
+    lower_particles = {"de","del","da","dos","das","van","der","den","von","la","le","di","du","al","bin"}
+    fixed = []
+    for p in parts:
+        if p.lower() in lower_particles:
+            fixed.append(p.lower())
+        else:
+            sub = "-".join(seg.capitalize() for seg in p.split("-"))
+            sub = "'".join(seg.capitalize() for seg in sub.split("'"))
+            fixed.append(sub)
+    return " ".join(fixed)
+
+def _clean_person_name(raw: str) -> Optional[str]:
+    """Lightweight canonicalizer for PERSON entity text."""
+    if not isinstance(raw, str):
+        return None
+    s = raw.strip().strip("›«»“”\"'`·•")
+    s = re.sub(r"\s+", " ", s)
+    s = _strip_accents(s)
+    # Remove leading/trailing punctuation
+    s = re.sub(r"^[,.\-–—;:()$begin:math:display$$end:math:display${}]+|[,.\-–—;:()$begin:math:display$$end:math:display${}]+$", "", s).strip()
+    if not s:
+        return None
+
+    toks = [t for t in s.split() if t]
+    if not toks:
+        return None
+
+    # Drop honorifics at start
+    while toks and toks[0].lower().rstrip(".") in HONORIFICS:
+        toks = toks[1:]
+    # Drop suffixes at end
+    while toks and toks[-1].lower().rstrip(".") in TRAILING_SUFFIXES:
+        toks = toks[:-1]
+    if not toks:
+        return None
+
+    # Filter out single-letter tokens without dot
+    kept = []
+    for t in toks:
+        tt = t.strip()
+        if re.fullmatch(r"[A-Za-z]", tt):
+            continue
+        kept.append(tt)
+    toks = kept
+    if not toks:
+        return None
+
+    cand = " ".join(toks).strip()
+    if cand.lower() in GENERIC_NONNAMES:
+        return None
+
+    cand = _titlecase_name(cand)
+    if len(cand) < 2:
+        return None
+    return cand
+
+def _clean_people_series(s: pd.Series, keep_delim: str = ", ") -> pd.Series:
+    """
+    Clean a comma-separated PERSON list per row and return the cleaned list,
+    deduped (case-insensitive) and rejoined with ', '.
+    """
+    def _clean_row(val: str) -> str:
+        if not isinstance(val, str) or not val.strip():
+            return ""
+        names = [n.strip() for n in val.split(",") if n.strip()]
+        cleaned = []
+        seen = set()
+        for nm in names:
+            c = _clean_person_name(nm)
+            if not c:
+                continue
+            key = c.lower()
+            if key not in seen:
+                seen.add(key)
+                cleaned.append(c)
+        return keep_delim.join(cleaned)
+    out = s.fillna("").astype(str).apply(_clean_row)
+    return pd.Series(out, dtype="string[pyarrow]")
 
 # ---------- Stage 1: PERSON extraction on sampled ----------
 def _load_spacy(model: str):
@@ -196,7 +296,8 @@ def stage2_text_processing(input_path: Path, output_path: Path) -> Tuple[Path, i
     - Preserves raw text to headline_raw/article_body_raw
     - Cleans headline/article_body
     - Adds token counts
-    - Keeps people_by_row as-is (unchanged)
+    - Adds people_by_row_clean (cleaned, deduped, title-cased; comma-space separated)
+    - Keeps people_by_row raw unless OVERWRITE_PEOPLE_NAMES=1
     """
     import pyarrow.dataset as pds
 
@@ -256,8 +357,8 @@ def stage2_text_processing(input_path: Path, output_path: Path) -> Tuple[Path, i
     if HEADLINE_COL not in present_cols:
         present_cols.append(HEADLINE_COL)
 
-    writer: pq.ParquetWriter | None = None
-    target_schema: pa.Schema | None = None
+    writer: Optional[pq.ParquetWriter] = None
+    target_schema: Optional[pa.Schema] = None
     total_rows = 0
     batch_idx = 0
 
@@ -275,6 +376,13 @@ def stage2_text_processing(input_path: Path, output_path: Path) -> Tuple[Path, i
             if col in pdf.columns:
                 pdf[col] = normalize_categorical(pdf[col])
 
+        # --- People names: cleaned companion column + optional overwrite ---
+        if "people_by_row" in pdf.columns:
+            pdf["people_by_row"] = pdf["people_by_row"].astype("string[pyarrow]")
+            pdf["people_by_row_clean"] = _clean_people_series(pdf["people_by_row"])
+            if OVERWRITE_PEOPLE:
+                pdf["people_by_row"] = pdf["people_by_row_clean"]
+
         # Clean text
         pdf[HEADLINE_COL] = clean_text_series(pdf[HEADLINE_COL])
         pdf[BODY_COL]     = clean_text_series(pdf[BODY_COL])
@@ -283,10 +391,6 @@ def stage2_text_processing(input_path: Path, output_path: Path) -> Tuple[Path, i
         pdf["headline_token_count"] = pdf[HEADLINE_COL].apply(lambda s: len(re.findall(r"\S+", s))).astype("Int32")
         pdf["body_token_count"]     = pdf[BODY_COL].apply(lambda s: len(re.findall(r"\S+", s))).astype("Int32")
         pdf["token_count"]          = (pdf["headline_token_count"] + pdf["body_token_count"]).astype("Int32")
-
-        # Ensure people_by_row dtype but don't alter content
-        if "people_by_row" in pdf.columns:
-            pdf["people_by_row"] = pdf["people_by_row"].astype("string[pyarrow]")
 
         # Dtypes
         pdf = _canonicalize_dtypes(pdf)
@@ -356,7 +460,6 @@ def _predict_emotion_batch(clf, texts: list[str]) -> list[str | None]:
         preds = clf(inputs, truncation=True, max_length=EMOTION_MAX_LEN)
         for res in preds:
             if isinstance(res, list) and len(res):
-                # pick highest score label
                 best = max(res, key=lambda x: x.get("score", 0.0))
                 out.append(best.get("label"))
             elif isinstance(res, dict) and "label" in res:
@@ -390,9 +493,11 @@ def stage3_emotion(input_path: Path, output_path: Path) -> Path:
         preds = _predict_emotion_batch(clf, texts)
         df[EMOTION_COL_NAME] = preds
 
-    # Ensure people_by_row still untouched
+    # Ensure people_by_row still proper dtype
     if "people_by_row" in df.columns:
         df["people_by_row"] = df["people_by_row"].astype("string[pyarrow]")
+    if "people_by_row_clean" in df.columns:
+        df["people_by_row_clean"] = df["people_by_row_clean"].astype("string[pyarrow]")
 
     # Write out
     output_path.parent.mkdir(parents=True, exist_ok=True)

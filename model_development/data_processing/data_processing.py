@@ -82,7 +82,7 @@ FILTER_US_ONLY = True
 NUMERIC_REQUIRED = ["vipr_weight", "circulation", "sentiment"]  # drop NA if present
 
 # Sampling config
-DEFAULT_TARGET_N = int(os.getenv("SAMPLE_N", "75,000"))
+DEFAULT_TARGET_N = int(os.getenv("SAMPLE_N", "50000"))
 DEFAULT_SEED     = int(os.getenv("SAMPLE_SEED", "2025"))
 DEFAULT_STRATA   = ["tag_name", "source_type", "sentiment_band"]
 
