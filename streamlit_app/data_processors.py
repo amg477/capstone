@@ -8,28 +8,6 @@ import pandas as pd
 import re
 
 
-def clean_bin_column(df, col_name):
-    """Extract just the number from bin columns (e.g., 'circulation_size_bin_5' -> 5)"""
-    if col_name not in df.columns:
-        return df
-    
-    df = df.copy()
-    
-    # Extract number from end of string
-    def extract_number(val):
-        if pd.isna(val):
-            return None
-        val_str = str(val)
-        # Find last number in the string
-        matches = re.findall(r'\d+', val_str)
-        if matches:
-            return int(matches[-1])  # Get last number
-        return None
-    
-    df[col_name] = df[col_name].apply(extract_number)
-    return df
-
-
 def extract_clean_names(person_string):
     """
     Extract and clean person names from a string that may contain multiple names or non-name words.

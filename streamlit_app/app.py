@@ -23,18 +23,24 @@ APP_DIR = Path(__file__).resolve().parent
 if str(APP_DIR) not in sys.path:
     sys.path.insert(0, str(APP_DIR))
 
-# Your existing modules (names and signatures preserved)
+# Load the Data 
 from data_loaders import (
-    load_influencer_table,   # no args
-    load_final_dataset,      # no args
-    load_persons_by_row,     # no args
+    load_influencer_table,  
+    load_final_dataset,    
+    load_persons_by_row,     
 )
-from data_processors import (
-    clean_bin_column,
-    extract_clean_names,     # not used here but kept for compatibility
-    is_likely_person_name,   # not used here but available
-)
+# Note: data_processors functions are not currently used
+# from data_processors import (
+#     clean_bin_column,
+#     extract_clean_names,
+#     is_likely_person_name,
+# )
 from charts import create_emotion_chart
+# Optional: Network analysis (restores Network tab if data present)
+try:
+    import network_analysis as net
+except Exception:
+    net = None
 
 # Try to import helpers; if missing, define fallbacks inline
 # ---- Inline helpers (no extra files needed) ----
@@ -158,15 +164,6 @@ def main():
     if len(influencer_df) > MAX_INFLUENCER_ROWS:
         influencer_df = influencer_df.head(MAX_INFLUENCER_ROWS)
 
-    # Optional bin cleaning
-    try:
-        if 'circulation_size_bin' in influencer_df.columns:
-            influencer_df = clean_bin_column(influencer_df, 'circulation_size_bin')
-        if 'sentiment_score_bin' in influencer_df.columns:
-            influencer_df = clean_bin_column(influencer_df, 'sentiment_score_bin')
-    except Exception as e:
-        st.warning(f"Error cleaning bin columns: {e}")
-
     # Preload smaller article/person data (no params per your loaders)
     with st.spinner("Preparing people index..."):
         final_df_sample = load_final_dataset()  # you load the full file; we’ll guard/cap below
@@ -183,7 +180,7 @@ def main():
         else:
             all_people = []
 
-    tab1, tab2 = st.tabs(["PolicyPath", "People"])
+    tab1, tab2, tab3, tab4 = st.tabs(["PolicyPath", "People", "Topics", "Network"])
 
     # --------------------------------------
     # Tab 1: Pulse / Aggregates
@@ -542,6 +539,151 @@ def main():
                         st.caption(f"Exporting {len(person_articles):,} articles with current filters.")
                     else:
                         st.warning(f"No article data found for {story_person}" + (f" with keyword '{story_keyword}'" if story_keyword and story_keyword.strip() else "") + ".")
+
+    # --------------------------------------
+    # Tab 3: Topics — search by tag_name
+    # --------------------------------------
+    with tab3:
+        st.markdown('<div class="section-header" style="font-size:1.25rem;font-weight:700;color:#142536;margin-top:1rem;">Topics</div>', unsafe_allow_html=True)
+        if final_df_sample is None or final_df_sample.empty or persons_by_row_df is None or persons_by_row_df.empty:
+            st.info("Final dataset and persons_by_row are required for topic search.")
+        else:
+            # Topic list from tag_name (cap to keep UI responsive)
+            tag_counts = final_df_sample['tag_name'].dropna().astype(str).value_counts()
+            tag_options = tag_counts.head(500).index.tolist()
+            col_t1, col_t2 = st.columns([3, 1])
+            with col_t1:
+                selected_tag = st.selectbox("Select Topic (tag_name)", options=[""] + tag_options, index=0, key="topic_select")
+            with col_t2:
+                top_n_topic = st.slider("Top N People", 5, 50, 20, key="topic_topn")
+
+            if selected_tag:
+                # Filter article and person mappings to this topic
+                final_df_topic = final_df_sample[final_df_sample['tag_name'].astype(str) == selected_tag].copy()
+                pbr_topic = persons_by_row_df[persons_by_row_df['tag_name'].astype(str) == selected_tag].copy()
+
+                # Explode persons and normalize names
+                pbr_long_topic = add_normalized_person(explode_persons(pbr_topic))
+                if pbr_long_topic.empty:
+                    st.info("No people detected for this topic.")
+                else:
+                    # Top people by mention count within the topic
+                    counts = pbr_long_topic['person_norm'].value_counts()
+                    top_people = counts.head(top_n_topic)
+                    influencer_topic = pd.DataFrame({
+                        'person_list': top_people.index.tolist(),
+                        'mention_count': top_people.values.tolist()
+                    })
+
+                    # Prepare sentiment aggregation for re-use
+                    final_df_topic2 = final_df_topic.copy()
+                    if 'row_index' not in final_df_topic2.columns:
+                        final_df_topic2 = final_df_topic2.reset_index().rename(columns={'index': 'row_index'})
+                    join_df = pbr_long_topic[['row_index', 'person_norm']].merge(
+                        final_df_topic2[['row_index', 'sentiment_score']],
+                        on='row_index', how='inner'
+                    )
+                    sent_agg = (
+                        join_df.groupby('person_norm')['sentiment_score']
+                        .mean().reset_index()
+                    )
+                    sent_agg = sent_agg[sent_agg['person_norm'].isin(influencer_topic['person_list'])]
+                    sent_agg = sent_agg.sort_values('sentiment_score', ascending=False)
+
+                    # Sub-tabs for a cleaner layout
+                    t_overview, t_sentiment, t_emotion = st.tabs(["Overview", "Sentiment", "Emotion"])
+
+                    with t_overview:
+                        with st.container(border=True):
+                            st.markdown(f"#### Top People in “{selected_tag}”")
+                            fig_top = px.bar(
+                                x=influencer_topic['mention_count'],
+                                y=influencer_topic['person_list'],
+                                orientation='h',
+                                labels={'x': 'Mentions', 'y': 'Person'},
+                                template='simple_white'
+                            )
+                            fig_top.update_layout(
+                                margin=dict(l=10, r=10, t=10, b=10),
+                                height=max(320, len(influencer_topic) * 22),
+                                yaxis={'categoryorder': 'total ascending'}
+                            )
+                            st.plotly_chart(fig_top, use_container_width=True)
+
+                    with t_sentiment:
+                        with st.container(border=True):
+                            st.markdown(f"#### Average Sentiment by Person")
+                            if not sent_agg.empty:
+                                # Diverging color by sign
+                                colors = sent_agg['sentiment_score'].apply(lambda v: "#4AB48E" if pd.notna(v) and v >= 0 else "#D94841")
+                                fig_sent = go.Figure(data=[
+                                    go.Bar(
+                                        x=sent_agg['sentiment_score'],
+                                        y=sent_agg['person_norm'],
+                                        orientation='h',
+                                        marker_color=colors
+                                    )
+                                ])
+                                fig_sent.update_layout(
+                                    template='simple_white',
+                                    margin=dict(l=10, r=10, t=10, b=10),
+                                    height=max(320, len(sent_agg) * 22),
+                                    xaxis=dict(zeroline=True, zerolinecolor="#cccccc", title="Avg Sentiment"),
+                                    yaxis=dict(title="Person", categoryorder='total ascending')
+                                )
+                                st.plotly_chart(fig_sent, use_container_width=True)
+                            else:
+                                st.info("No sentiment data available for the selected topic.")
+
+                    with t_emotion:
+                        with st.container(border=True):
+                            st.markdown("#### Emotion Distribution (Top People)")
+                            # Reuse existing emotion chart with filtered datasets and selected persons
+                            if 'emotion_body' in final_df_topic.columns:
+                                emotion_chart = create_emotion_chart(
+                                    influencer_topic,
+                                    final_df=final_df_topic,
+                                    persons_by_row_df=pbr_topic,
+                                    n=len(influencer_topic),
+                                    selected_persons=influencer_topic['person_list'].tolist()
+                                )
+                                if emotion_chart:
+                                    emotion_chart.update_layout(
+                                        template='simple_white',
+                                        margin=dict(l=10, r=10, t=10, b=10),
+                                        height=max(360, len(influencer_topic) * 18),
+                                    )
+                                    st.plotly_chart(emotion_chart, use_container_width=True)
+                                else:
+                                    st.info("Emotion data not available for this topic.")
+                            else:
+                                st.info("Final dataset lacks emotion_body for this topic.")
+
+    # --------------------------------------
+    # Tab 4: Network — restore visualization
+    # --------------------------------------
+    with tab4:
+        st.markdown('<div class="section-header" style="font-size:1.25rem;font-weight:700;color:#142536;margin-top:1rem;">Network</div>', unsafe_allow_html=True)
+        if net is None:
+            st.info("Network module not available.")
+        else:
+            try:
+                data = net.get_network_data()
+                edges = data.get('publisher_term_edges')
+                if edges is not None and not edges.empty:
+                    G = net.build_content_graph(edges)
+                    node2c = net.community_map_content(G)
+                    fig_net = net.create_interactive_network_visualization(
+                        G, node2c, edges, title="Content Network: Publishers ↔ Terms"
+                    )
+                    if fig_net:
+                        st.plotly_chart(fig_net, use_container_width=True)
+                    else:
+                        st.info("Unable to render network figure.")
+                else:
+                    st.info("No precomputed network data found (publisher_term_edges.csv).")
+            except Exception:
+                st.info("Network data could not be loaded.")
 
     render_footer()
 

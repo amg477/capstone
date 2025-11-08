@@ -2,19 +2,23 @@
 """
 pca.py — Self-contained PCA → KMeans → Influencer table
 
-- Loads final dataset (CSV or Parquet)
+- Loads final dataset (Parquet)
 - Selects numeric + binary features
 - Scales, runs PCA (retain ~90% variance by default, or cap)
 - Chooses K via silhouette over a configurable range
 - Fits final KMeans
 - Builds influencer_table from persons_by_row (if provided)
-- Writes ONLY influencer_table.csv
+- Writes ONLY influencer_table.parquet
 
 Usage examples:
+  # Run with default paths (no arguments needed):
+  python pca.py
+
+  # Override specific paths if needed:
   python pca.py \
-    --final /Users/annaglass/capstone/capstone/data_storage/final_data/final_dataset_with_attribution.parquet \
-    --person-rows /Users/annaglass/capstone/capstone/data_storage/final_data/persons_by_row.csv \
-    --outdir /Users/annaglass/capstone/capstone/data_storage/final_data
+    --final /path/to/final_dataset_with_attribution.parquet \
+    --person-rows /path/to/persons_by_row.parquet \
+    --outdir /path/to/output
 
   # CSV inputs also supported:
   python pca.py --final final_df.csv --person-rows persons_by_row.csv --outdir outputs
@@ -49,10 +53,14 @@ class PCAConfig:
 
 
 def _read_any(path: str | Path) -> pd.DataFrame:
+    """Read CSV file (or Parquet if CSV fails)."""
     path = str(path)
-    if path.lower().endswith((".parquet", ".pq")):
+    # Try CSV first
+    try:
+        return pd.read_csv(path)
+    except Exception:
+        # If CSV fails, try Parquet as fallback
         return pd.read_parquet(path)
-    return pd.read_csv(path)
 
 
 def _ensure_row_index(df: pd.DataFrame) -> pd.DataFrame:
@@ -180,28 +188,56 @@ def run_pca_analysis(
 
     # Interpret clusters with original metrics (subset)
     metrics_cols = [c for c in ["vipr_score", "vipr_weight", "sentiment_score", "circulation_size"] if c in df.columns]
+    # Add emotion_body if available (categorical, will use mode aggregation)
+    emotion_col = "emotion_body" if "emotion_body" in df.columns else None
+    
     interp_df = df[["row_index"] + metrics_cols].merge(df_pca[["row_index", "cluster"]], on="row_index", how="left")
     cluster_summary = interp_df.groupby("cluster")[metrics_cols].mean().reset_index()
 
     # Influencer table (optional)
     influencer_table = None
     if person_row_df is not None and isinstance(person_row_df, pd.DataFrame) and {"row_index", "persons"}.issubset(person_row_df.columns):
+        # Prepare columns to merge
+        merge_cols = ["row_index"] + metrics_cols
+        if emotion_col:
+            merge_cols.append(emotion_col)
+        
         merged = (
             person_row_df[["row_index", "persons"]]
             .merge(df_pca[["row_index", "cluster"]], on="row_index", how="left")
-            .merge(df[["row_index"] + metrics_cols], on="row_index", how="left")
+            .merge(df[merge_cols], on="row_index", how="left")
         )
         merged["person_list"] = merged["persons"].apply(_split_persons)
         exploded = merged.explode("person_list").dropna(subset=["person_list"])
 
+        # Aggregation: mean for numeric metrics, mode for emotion
         agg_dict = {m: "mean" for m in metrics_cols}
         agg_dict.update({"row_index": "count"})  # mention_count
+        
+        # Add emotion aggregation (mode - most common emotion)
+        # Use a named function for proper pandas aggregation
+        def get_mode(series):
+            """Get the most common non-null value"""
+            non_null = series.dropna()
+            if len(non_null) == 0:
+                return None
+            mode_values = non_null.mode()
+            return mode_values.iloc[0] if len(mode_values) > 0 else None
+        
+        if emotion_col:
+            agg_dict[emotion_col] = get_mode
+        
         influencer_table = (
             exploded.groupby(["person_list", "cluster"])
             .agg(agg_dict)
             .rename(columns={"row_index": "mention_count"})
             .reset_index()
         )
+        
+        # Handle emotion column - ensure it's properly formatted
+        if emotion_col and emotion_col in influencer_table.columns:
+            # Convert to string type and handle any aggregation artifacts
+            influencer_table[emotion_col] = influencer_table[emotion_col].astype(str).replace('nan', None)
 
         # Simple, interpretable cluster labels
         lab = cluster_summary.copy()
@@ -241,11 +277,18 @@ def run_pca_analysis(
 
 
 # ------------------------------ CLI Runner -----------------------------------
+# Default paths (can be overridden via command-line arguments)
+# Note: These files may have .parquet extension but contain CSV data
+ROOT = Path(__file__).resolve().parent.parent  # .../capstone/capstone
+DEFAULT_FINAL = ROOT / "data_storage" / "final_data" / "final_dataset_with_attribution.parquet"
+DEFAULT_PERSON_ROWS = ROOT / "data_storage" / "final_data" / "persons_by_row.parquet"
+DEFAULT_OUTDIR = ROOT / "data_storage" / "final_data"
+
 def parse_args() -> argparse.Namespace:
-    ap = argparse.ArgumentParser(description="Execute PCA → KMeans → Influencer pipeline (save ONLY influencer_table.csv).")
-    ap.add_argument("--final", required=True, help="Path to final_df (CSV or Parquet).")
-    ap.add_argument("--person-rows", dest="person_rows", default=None, help="Path to persons_by_row CSV (optional, builds influencer_table).")
-    ap.add_argument("--outdir", default=".", help="Output directory (default: current).")
+    ap = argparse.ArgumentParser(description="Execute PCA → KMeans → Influencer pipeline (save ONLY influencer_table.parquet).")
+    ap.add_argument("--final", default=str(DEFAULT_FINAL), help=f"Path to final_df (CSV or Parquet). Default: {DEFAULT_FINAL}")
+    ap.add_argument("--person-rows", dest="person_rows", default=str(DEFAULT_PERSON_ROWS), help=f"Path to persons_by_row CSV/Parquet (optional, builds influencer_table). Default: {DEFAULT_PERSON_ROWS}")
+    ap.add_argument("--outdir", default=str(DEFAULT_OUTDIR), help=f"Output directory. Default: {DEFAULT_OUTDIR}")
     ap.add_argument("--k-min", type=int, default=2, help="Minimum K (default: 2).")
     ap.add_argument("--k-max", type=int, default=10, help="Maximum K (default: 10).")
     ap.add_argument("--sil-sample", type=int, default=5000, help="Silhouette sample size (default: 5000).")
@@ -262,7 +305,7 @@ def main() -> None:
     final_df = _read_any(args.final)
     person_row_df = None
     if args.person_rows:
-        # persons_by_row is expected to be CSV; Parquet supported too if provided
+        # persons_by_row is expected to be parquet; Parquet supported too if provided
         person_row_df = _read_any(args.person_rows)
 
     # Configure pipeline
@@ -283,9 +326,9 @@ def main() -> None:
 
     # Save ONLY the influencer table
     if out["influencer_table"] is not None and not out["influencer_table"].empty:
-        out_path = os.path.join(args.outdir, "influencer_table.csv")
-        out["influencer_table"].to_csv(out_path, index=False)
-        print(f"\nSaved influencer_table.csv to: {os.path.abspath(out_path)}")
+        out_path = os.path.join(args.outdir, "influencer_table.parquet")
+        out["influencer_table"].to_parquet(out_path, index=False)
+        print(f"\nSaved influencer_table.parquet to: {os.path.abspath(out_path)}")
     else:
         print(
             "\nNo influencer_table produced. Ensure person_row_df is provided and includes "
@@ -294,7 +337,7 @@ def main() -> None:
         )
 
     # Minimal console summary
-    print("\n=== PCA Influencer Pipeline Complete (no other CSVs written) ===")
+    print("\n=== PCA Influencer Pipeline Complete (no other parquets written) ===")
     print(f"Optimal K*: {out['optimal_k']}")
     print(f"PCA components kept: {out['n_components']}")
     print("Features used:", ", ".join(out["features_used"]))

@@ -44,18 +44,18 @@ from scipy.sparse.linalg import spsolve
 # Paths & Core Columns
 # =============================================================================
 ROOT = Path("/Users/annaglass/capstone/capstone")
-DATA_PARQUET = ROOT / "data_storage" / "processed_data" / "processed_with_people_emotion.parquet"
+DATA_PARQUET = ROOT / "data_storage" / "final_data" / "cleaned_sampled_data.parquet"
 
 OUT_DIR  = ROOT / "data_storage" / "final_data"
 OUT_FILE = OUT_DIR / "attribution_dataset.parquet"
 
-KEYWORDS = OUT_DIR / "top_1000_keywords.csv"
-BIGRAMS  = OUT_DIR / "top_1000_bigrams.csv"
+KEYWORDS = OUT_DIR / "top_1000_keywords.parquet"
+BIGRAMS  = OUT_DIR / "top_1000_bigrams.parquet"
 
-PERSONS_FILE        = OUT_DIR / "persons_detected.csv"
-PERSONS_BY_ROW_FILE = OUT_DIR / "persons_by_row.csv"
+PERSONS_FILE        = OUT_DIR / "persons_detected.parquet"
+PERSONS_BY_ROW_FILE = OUT_DIR / "persons_by_row.parquet"
 FULL_DATASET_FILE   = OUT_DIR / "final_dataset_with_attribution.parquet"
-TAG_PCA_FILE        = OUT_DIR / "tagname_pca_ready.csv"
+TAG_PCA_FILE        = OUT_DIR / "tagname_pca_ready.parquet"
 
 PATH_KEY   = "tag_name"
 TIME_COL   = "seq_index"
@@ -175,307 +175,42 @@ def _row_weight_with_reliability(r: pd.Series) -> float:
     return base * mult
 
 # =============================================================================
-# People cleaning (NO global combining) + per-row surname→full upgrade + exports
+# People detection (expects pre-cleaned data from clean_people_names.py)
+# All cleaning logic has been moved to clean_people_names.py
 # =============================================================================
-EXCLUDE_LOWER = {
-    # diseases / medical conditions
-    "covid","covid-19","covid19","sars-cov-2","h1n1","influenza","influenza a","measles","polio","mpox",
-    "fentanyl","listeria","bird flu","gonorrhea","xylazine","rubella","diarrhea","hepatitis c",
-    "chikungunya","tick-borne","tick","acinetobacter","e. coli","malaria","omicron","chikv-en",
-    "mosquito","marijuana","lassa","lassa fever","ebola","stargardt","culex",
-    "measles outbreak","measles vaccine","measles cases","measles surge","measles alert",
-    "measles confirmed","measles grows","measles-rubella","measles case","measles urgent",
-    "polio vaccine","mpox vaccine",
-    # medical/vaccine terms
-    "vaccine","vaccines","vaccine hesitancy","vaccine changes","vaccine boycotts","vaccine choice",
-    "vaccine development","vaccine hesitant","vaccine type","vaccine malaria","vaccines submit",
-    "vaccines size","breakthrough therapy","gene therapy","chikungunya vaccine","chikungunya outbreak",
-    "kidney diseases","allergy immunol","neurology","metabolic","hygiene","legionnaires",
-    "discontinue nuzyra","enamel hypoplasia","alcohol disorder","alcohol concern","alcohol bristol",
-    "alcohol springfield","alcoholics anonymous","influenza vaccine","tdap","carbapenem",
-    "chi-square","chi-squared","likert","likert scale","nirsevimab",
-    # companies/products
-    "pfizer","moderna","jynneos","glaxosmithkline","sanofi","novo nordisk","tonix","paratek",
-    "purdue pharma","zepbound","elebsiran","paxlovid","brii bio","brii limited","alpha genesis",
-    "trader joe","pharma","medicines","tonix medicines","novartis","walgreens","medscape",
-    "mercer","licensee mdpi","biotech","biotech hubs",
-    # web/tech/urls
-    "https","download","email","email copy","email alerts","email address","email facebook",
-    "email print","index.php","zoom","youtube","youtube shorts","youtube channel","meta","org",
-    "sci","view","photo","photo credit","photo courtesy","mobile apps","getty images","getty",
-    "news-releases","issuewire","bloomberg","politico","plos",
-    # generic non-persons
-    "meeting","conference","summit","session","panel","committee","hearing","event","gala","forum",
-    "ceremony","group","team","class","program","organization","party","association",
-    "worldwide","founder","children","advocacy","escape","lung","fahrenheit","award","awards",
-    "data","challenges","lifestyle","schedule","breakthrough","primary logo","threaten",
-    "associate dean","preparedness","highs","progress","deaths","figure","figures","fig","figs",
-    "network","science","alert","lifestyle medicine","lifestyle coaches","metadata","data-vis",
-    "bird","boar","wildfires","tribal","older","africans","bangladeshi","coom","valentine",
-    "wash","gracia","cook","gounder","clade","spectrum","rice","formula","schedule iii",
-    # fictional/unlikely
-    "superman","lex luthor","jesus","jesus christ","dad",
-    # organizations
-    "gavi","nyu langone","alaska native","alaska natives","disease central","mnu-topics",
-    "organizations grants","scientology network","scientologists","scientolgytv","alliance melbourne",
-    "alliancebernstein","without borders","unicef","investor relations","publicis groupe","meltwater",
-    "refinitiv","westlaw","kantar","wbz newsradio","cloudberry","cloudberry health",
-    "compare-autoinsurance","brigham","ayushman bharat","ayushman","lok sabha","twin peaks",
-    "xinhua","rdc screening","healthbeat","biotech hubs",
-    # places (common ones)
-    "khan younis","khan yunis","malawi","goma","rafah","tamil nadu","mali","nepal","sri lanka",
-    "burkina faso","mauritius","niger","san diego","rajasthan","haryana","albuquerque",
-    # single letters and abbreviations (will be filtered by length check too)
-    "al","j","l","g","n","y","x","w","z","b","t","s","h","a",
-    "tel","en","res","sl","cv","mar","ma","bin","prep","drs","dr","mm","clin","nutr","dl","mou",
-    "li","kefir",
-    # Anna's examples (lowercased)
-    "appili","appili therapeutics signs","distribution","apli","adtx","appili therapeutics",
-    "appili share","appili shares","appili shareholder","buyer","closing","llp","bird fu",
-    "aspek promotif dan","twins","twin birth weight","isabella, valentine's day","influenza a(h5n1",
-    "haemophilus influenzae","top story","damage","discusses breakthrough","fda roundup","antifungal",
-    "clsi m27-a3","vaccine enabling kit","caspofungin","anchorage mega","egr6","bigdye","supplementary fig.",
-    "y132f","hospital","ethics","c. auris","tbiaa","homemaker mode","pennymuster.com",
-    "everyone, moutaz kotob, park ave, ste 1500","instagram","twitter","facebook","google","x",
-    "sprouted mat","r- oceanside",
-}
-
-SOFT_EXCLUDES = (
-    # orgs/places/things commonly embedded in tokens
-    "university","college","institute","hospital","medical center","center","centre","committee",
-    "department","ministry","laboratory","lab","foundation","association","academy","watch","watcher",
-    "pharmacy","school","program","project","trial","policy","laboratories",
-    "airport","county","province","prefecture","city","town","district","state","territory",
-    "franchisees","opportunities","surveillance","sequencing","omics","genome","genomic",
-    "®","™","©","http://","https://",".com",".org",".gov",".edu",".net"
-)
-
-TITLE_RE = re.compile(r'^(dr\.?|mr\.?|mrs\.?|ms\.?|prof\.?|president|pres\.?|senator|sen\.?|rep\.?|representative|gov\.?|governor)\s+', re.I)
-SUFFIX_RE = re.compile(r'\s+(jr\.?|sr\.?|phd|md|rn|esq\.?)$', re.I)
-PUNCT_INNER = re.compile(r"[^\w\s\-\.’']")
-SPLITTER = re.compile(r"[,\|;/]+")
-
-# possessive stripping (Biden’s / Biden ' s / Bidens’ → Biden)
-POSSESSIVE_RE = re.compile(r"(?:\s*['’]\s*s|\s*s\s*['’])\s*$", re.I)
-def _strip_possessive(s: str) -> str:
-    if not s:
-        return ""
-    return POSSESSIVE_RE.sub("", str(s)).strip()
-
-def _looks_like_url_or_code(s: str) -> bool:
-    s2 = s.strip().lower()
-    return s2.startswith(("http://","https://")) or any(t in s2 for t in (".com",".org",".gov",".edu",".net","js.id","®"))
-
-def _name_core(s: str) -> str:
-    """
-    Reduce a raw token to 'First Last' (or single token). Safe for empties.
-    Case/possessive-insensitive: strip possessives before normalization.
-    """
-    if not s or not str(s).strip():
-        return ""
-    s = _strip_possessive(str(s))
-    s = TITLE_RE.sub("", s).strip()
-    s = SUFFIX_RE.sub("", s).strip()
-    s = PUNCT_INNER.sub(" ", s)
-    s = re.sub(r"\s+", " ", s).strip()
-    if not s:
-        return ""
-    # remove isolated middle initials (A.) → A
-    s = re.sub(r"\b([A-Za-z])\.\b", r"\1", s)
-    parts = s.split()
-    if not parts:
-        return ""
-    # keep only alphabetic-ish tokens or hyphenated names
-    parts = [p for p in parts if re.fullmatch(r"[A-Za-z][A-Za-z\-’.']*", p)]
-    if not parts:
-        return ""
-    if len(parts) >= 2:
-        return f"{parts[0]} {parts[-1]}"
-    return parts[0]
-
-def _is_non_person_token(tok: str) -> bool:
-    if not tok or not str(tok).strip():
-        return True
-    t = _strip_possessive(tok.strip())
-    t_low = t.lower()
-
-    # Single letter tokens (very likely not a person)
-    if len(t) == 1 and t.isalpha():
-        return True
-    
-    # Pattern like "J. Clin", "A. Al", etc. (journal citations, not names)
-    if re.match(r"^[A-Za-z]\.\s+[A-Z]", t) and len(t) < 10:
-        return True
-    
-    # Pattern like "J. Clin.", "A. Al.", etc. with trailing period
-    if re.match(r"^[A-Za-z]\.\s+[A-Z][a-z]+\.?$", t) and len(t) < 15:
-        return True
-    
-    if _looks_like_url_or_code(t):
-        return True
-    if t_low in EXCLUDE_LOWER:
-        return True
-    if any(key in t_low for key in SOFT_EXCLUDES):
-        return True
-    if len(t) >= 3 and t.upper() == t and not re.search(r"[a-z]", t):  # ACRONYMS
-        return True
-    if re.match(r"^[•‐\-—–↑↓→←±✓✕✖️🗓˜]+", t):  # bullets/arrows
-        return True
-    if sum(c.isdigit() for c in t) >= 2:
-        return True
-    
-    # Filter place names starting with "Al-" (common Arabic place prefix)
-    if re.match(r"^al-", t_low) and len(t.split()) == 1:
-        return True
-    
-    # Filter URLs/domains more aggressively
-    if re.search(r"\.(com|org|gov|edu|net|php)$", t_low):
-        return True
-    
-    return False
-
-def _surname_lower(name: str) -> str:
-    core = _name_core(name)
-    toks = core.split()
-    return toks[-1].lower() if toks else ""
-
-def _canonicalize_name(name: str) -> str:
-    """
-    Normalize a name to a canonical form (case-insensitive).
-    Maps specific surnames and case variations to canonical full names:
-    - "trump" -> "Donald Trump"
-    - "biden" -> "Joe Biden"
-    - "kennedy" -> "Robert Kennedy"
-    - "harris" -> "Kamala Harris"
-    
-    For other names, converts to Title Case for full names.
-    """
-    if not name or not str(name).strip():
-        return ""
-    
-    name_lower = name.strip().lower()
-    
-    # Specific surname mappings
-    if name_lower == "trump":
-        return "Donald Trump"
-    elif name_lower == "biden":
-        return "Joe Biden"
-    elif name_lower == "kennedy":
-        return "Robert Kennedy"
-    elif name_lower == "harris":
-        return "Kamala Harris"
-    
-    # For full names, normalize to Title Case
-    parts = name.strip().split()
-    if len(parts) >= 2:
-        # Title case each part (handle hyphenated names)
-        title_parts = []
-        for part in parts:
-            if '-' in part:
-                # Handle hyphenated names like "Mary-Jane"
-                hyphen_parts = [p.capitalize() for p in part.split('-')]
-                title_parts.append('-'.join(hyphen_parts))
-            else:
-                title_parts.append(part.capitalize())
-        return " ".join(title_parts)
-    elif len(parts) == 1:
-        # Single token: capitalize first letter
-        return parts[0].capitalize()
-    
-    return name.strip()
-
-def _row_clean_names(cell: str) -> list[str]:
-    """
-    Split -> drop non-people -> normalize to 'First Last' or single token.
-    Canonicalize names (case-insensitive) and apply specific mappings.
-    Deduplicate case-insensitively using canonical forms.
-    Then, within the row ONLY: if a single-token surname has exactly one
-    matching full name with same surname, upgrade it to that full name.
-    """
-    if pd.isna(cell) or not str(cell).strip():
-        return []
-
-    # 1) tokenization + strong filtering + core reduction
-    parts = [p.strip() for p in SPLITTER.split(str(cell)) if p.strip()]
-    prelim, seen_lower = [], set()
-    for p in parts:
-        if _is_non_person_token(p):
-            continue
-        core = _name_core(p)
-        if not core:
-            continue
-        # drop single tokens that are common non-person words
-        if len(core.split()) == 1 and core.lower() in EXCLUDE_LOWER:
-            continue
-        
-        # Canonicalize the name (case-insensitive, applies specific mappings)
-        canonical = _canonicalize_name(core)
-        if not canonical:
-            continue
-        
-        # Check if canonicalized name is still a non-person (case-insensitive)
-        canonical_lower = canonical.lower()
-        if canonical_lower in EXCLUDE_LOWER:
-            continue
-        if any(key in canonical_lower for key in SOFT_EXCLUDES):
-            continue
-        
-        # Deduplicate case-insensitively using canonical form
-        key = canonical_lower
-        if key not in seen_lower:
-            seen_lower.add(key)
-            prelim.append(canonical)
-
-    if not prelim:
-        return []
-
-    # 2) per-row surname→full upgrade (no global combining)
-    #    build surname -> set(full names) present in row
-    surname_to_full = {}
-    for n in prelim:
-        toks = n.split()
-        if len(toks) >= 2:
-            sn = toks[-1].lower()
-            surname_to_full.setdefault(sn, set()).add(n)
-
-    upgraded = []
-    for n in prelim:
-        toks = n.split()
-        if len(toks) == 1:
-            sn = toks[0].lower()
-            candidates = surname_to_full.get(sn, set())
-            if len(candidates) == 1:
-                # upgrade single surname to the unique full name in THIS row
-                n = next(iter(candidates))
-        upgraded.append(n)
-
-    # final de-dup (preserve order) after upgrades, case-insensitive
-    outs, seen_lower2 = [], set()
-    for n in upgraded:
-        k = n.lower()
-        if k not in seen_lower2:
-            seen_lower2.add(k)
-            outs.append(n)
-
-    return outs
+# REMOVED: All cleaning functions (EXCLUDE_LOWER, SOFT_EXCLUDES, _name_core, 
+# _is_non_person_token, _canonicalize_name, _row_clean_names, etc.) 
+# These are now handled by clean_people_names.py
+# =============================================================================
 
 def detect_persons_and_flag_conversion(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Clean 'people_by_row' with case-insensitive canonicalization.
-    Applies specific mappings (trump->Donald Trump, biden->Joe Biden, kennedy->Robert Kennedy).
-    Set has_person / is_conversion directly from cleaned+upgraded list.
-    Write persons CSVs.
+    Expects 'people_by_row' column to already be cleaned by clean_people_names.py.
+    Simply checks if the column has non-empty content to flag conversions.
+    Write persons CSVs from the already-cleaned data.
     """
     if "people_by_row" not in df.columns:
         raise ValueError("people_by_row column is required but not found in the input dataset.")
-
-    cleaned_lists = df["people_by_row"].apply(_row_clean_names)
-    df["people_by_row"] = cleaned_lists.apply(lambda lst: ", ".join(lst)).astype("string")
-    df["has_person"] = cleaned_lists.apply(lambda x: len(x) > 0)
+    
+    # Check if we have the cleaned column, otherwise use the original
+    people_col = "people_by_row_clean" if "people_by_row_clean" in df.columns else "people_by_row"
+    
+    # Flag rows with non-empty people data
+    df["has_person"] = df[people_col].notna() & (df[people_col].astype(str).str.strip() != "")
     df["is_conversion"] = df["has_person"]
+    
+    # Use the cleaned column for output if available, otherwise use original
+    output_col = people_col if people_col == "people_by_row_clean" else "people_by_row"
+    df["people_by_row"] = df[output_col].astype("string")
 
-    # Exports based on cleaned lists
-    flat = [p for lst in cleaned_lists for p in lst]
+    # Extract unique persons from cleaned data (split by comma)
+    flat = []
+    for cell in df[output_col].dropna():
+        s = str(cell).strip()
+        if s:
+            parts = [p.strip() for p in s.split(",") if p.strip()]
+            flat.extend(parts)
+    
     if flat:
         agg = (pd.Series(flat, dtype="string")
                .value_counts()
@@ -494,10 +229,24 @@ def detect_persons_and_flag_conversion(df: pd.DataFrame) -> pd.DataFrame:
     })
     persons_by_row.to_csv(PERSONS_BY_ROW_FILE, index=False)
 
-    print(f"[conv] PERSON rows (cleaned) = {int(df['has_person'].sum())} / {len(df)}")
+    print(f"[conv] PERSON rows (from cleaned data) = {int(df['has_person'].sum())} / {len(df)}")
     print(f"[conv] Saved unique persons -> {PERSONS_FILE}")
     print(f"[conv] Saved per-row persons -> {PERSONS_BY_ROW_FILE}")
     return df
+
+# =============================================================================
+# REMOVED CLEANING FUNCTIONS (now in clean_people_names.py):
+# - EXCLUDE_LOWER
+# - SOFT_EXCLUDES  
+# - TITLE_RE, SUFFIX_RE, PUNCT_INNER, SPLITTER, POSSESSIVE_RE
+# - _strip_possessive()
+# - _looks_like_url_or_code()
+# - _name_core()
+# - _is_non_person_token()
+# - _surname_lower()
+# - _canonicalize_name()
+# - _row_clean_names()
+# =============================================================================
 
 # =============================================================================
 # Markov core
@@ -582,7 +331,6 @@ def markov_from_paths(paths: List[List[str]], weights: np.ndarray,
     states = sorted([s for s in set(states) if s != CONV])
     if not states:
         return pd.DataFrame(columns=["state","credit","credit_share"])
-
     P = _row_normalized_transition(paths, weights, states)
     START = len(states); CONV_ID = len(states) + 1
 
@@ -763,7 +511,7 @@ def main():
     # Per-tag order index
     df[TIME_COL] = df.groupby(PATH_KEY).cumcount().astype(int)
 
-    # Clean names + per-row surname→full upgrade + set conversions from cleaned list
+    # Expects pre-cleaned data from clean_people_names.py - just flag conversions
     df = detect_persons_and_flag_conversion(df)
 
     # Numeric bins → create then normalize to 1..5 ints
