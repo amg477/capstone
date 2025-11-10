@@ -36,15 +36,34 @@ def _get_tried_paths():
         str(Path("/Users/annaglass/capstone/capstone/data_storage/streamlit_app_data")),
     ]
 
+def _find_file(filename: str) -> tuple[Path | None, list[str]]:
+    """Find a file by checking all possible paths. Returns (file_path, tried_paths)"""
+    tried_paths = []
+    possible_dirs = [
+        APP_DIR.parent / "data_storage" / "streamlit_app_data",
+        Path("data_storage/streamlit_app_data"),
+        Path("/mount/src/capstone/data_storage/streamlit_app_data"),
+        Path("/Users/annaglass/capstone/capstone/data_storage/streamlit_app_data"),
+    ]
+    
+    for data_dir in possible_dirs:
+        tried_paths.append(str(data_dir))
+        file_path = data_dir / filename
+        if file_path.exists():
+            return file_path, tried_paths
+    
+    # Return the most likely path even if it doesn't exist (for error messages)
+    most_likely = APP_DIR.parent / "data_storage" / "streamlit_app_data" / filename
+    return most_likely, tried_paths
+
 DATA_DIR = _find_data_dir()
 
 @st.cache_data(show_spinner=False, ttl=3600)
 def load_influencer_table():
     """Load influencer table - simple and fast"""
     try:
-        file_path = DATA_DIR / "influencer_table_cleaned.parquet"
+        file_path, tried_paths = _find_file("influencer_table_cleaned.parquet")
         if not file_path.exists():
-            tried_paths = _get_tried_paths()
             error_msg = (
                 f"**Influencer table not found**\n\n"
                 f"Looking for: `{file_path}`\n\n"
@@ -63,7 +82,6 @@ def load_influencer_table():
         try:
             return pd.read_parquet(file_path)
         except (FileNotFoundError, OSError) as e:
-            tried_paths = _get_tried_paths()
             error_msg = (
                 f"**Error reading influencer table**\n\n"
                 f"File path: `{file_path}`\n"
@@ -88,9 +106,8 @@ def load_influencer_table():
 def load_final_dataset():
     """Load final dataset - simple and fast"""
     try:
-        file_path = DATA_DIR / "final_dataset_with_attribution.parquet"
+        file_path, tried_paths = _find_file("final_dataset_with_attribution.parquet")
         if not file_path.exists():
-            tried_paths = _get_tried_paths()
             error_msg = (
                 f"**Final dataset not found**\n\n"
                 f"Looking for: `{file_path}`\n\n"
@@ -109,7 +126,6 @@ def load_final_dataset():
         try:
             return pd.read_parquet(file_path)
         except (FileNotFoundError, OSError) as e:
-            tried_paths = _get_tried_paths()
             error_msg = (
                 f"**Error reading final dataset**\n\n"
                 f"File path: `{file_path}`\n"
@@ -134,9 +150,8 @@ def load_final_dataset():
 def load_persons_by_row():
     """Load persons by row - simple and fast"""
     try:
-        file_path = DATA_DIR / "persons_by_row_cleaned.parquet"
+        file_path, tried_paths = _find_file("persons_by_row_cleaned.parquet")
         if not file_path.exists():
-            tried_paths = _get_tried_paths()
             error_msg = (
                 f"**Persons by row not found**\n\n"
                 f"Looking for: `{file_path}`\n\n"
@@ -155,7 +170,6 @@ def load_persons_by_row():
         try:
             return pd.read_parquet(file_path)
         except (FileNotFoundError, OSError) as e:
-            tried_paths = _get_tried_paths()
             error_msg = (
                 f"**Error reading persons by row**\n\n"
                 f"File path: `{file_path}`\n"
