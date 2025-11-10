@@ -1021,7 +1021,7 @@ def main():
                         else:
                             st.info("Published datetime column is not available for mentions over time.")
 
-                        st.markdown("### Network Graph")
+                        st.markdown("### Network Analysis")
                         network_fig = build_person_network_graph(person_articles, story_person)
                         if network_fig:
                             st.plotly_chart(
