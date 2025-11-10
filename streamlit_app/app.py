@@ -586,6 +586,8 @@ def safe_table(df: pd.DataFrame, max_rows: int = 2000, height: int = 420):
 @st.cache_data(show_spinner=False, ttl=3600)
 def with_sentiment_band(df: pd.DataFrame) -> pd.DataFrame:
     """Add sentiment band column if not present - simplified"""
+    if df is None or df.empty:
+        return pd.DataFrame()
     if 'sentiment_score' in df.columns and 'sentiment_band' not in df.columns:
         df = df.copy()
         df['sentiment_band'] = pd.cut(
@@ -609,13 +611,20 @@ def main():
     final_df_sample = load_final_dataset()
     persons_by_row_df = load_persons_by_row()
 
-    MAX_INFLUENCER_ROWS = 200_000
-    if len(influencer_df) > MAX_INFLUENCER_ROWS:
-        influencer_df = influencer_df.head(MAX_INFLUENCER_ROWS)
-
-    influencer_df = with_sentiment_band(influencer_df)
-
+    # Check if DataFrames are empty and handle gracefully
+    if influencer_df is None or influencer_df.empty:
+        influencer_df = pd.DataFrame()
+    else:
+        MAX_INFLUENCER_ROWS = 200_000
+        if len(influencer_df) > MAX_INFLUENCER_ROWS:
+            influencer_df = influencer_df.head(MAX_INFLUENCER_ROWS)
+        influencer_df = with_sentiment_band(influencer_df)
+    
+    if final_df_sample is None or final_df_sample.empty:
+        final_df_sample = pd.DataFrame()
+    
     if persons_by_row_df is None or persons_by_row_df.empty:
+        persons_by_row_df = pd.DataFrame()
         pbr_long = pd.DataFrame(columns=['row_index', 'person', 'person_norm_lc'])
         all_people = []
     else:
@@ -629,17 +638,17 @@ def main():
 
     # Cluster options
     cluster_col = None
-    try:
-        if 'cluster_label' in influencer_df.columns:
-            clusters = sorted(influencer_df['cluster_label'].dropna().astype(str).unique().tolist())
-            cluster_col = 'cluster_label'
-        elif 'cluster' in influencer_df.columns:
-            clusters = sorted(influencer_df['cluster'].dropna().astype(str).unique().tolist())
-            cluster_col = 'cluster'
-        else:
+    clusters = []
+    if influencer_df is not None and not influencer_df.empty:
+        try:
+            if 'cluster_label' in influencer_df.columns:
+                clusters = sorted(influencer_df['cluster_label'].dropna().astype(str).unique().tolist())
+                cluster_col = 'cluster_label'
+            elif 'cluster' in influencer_df.columns:
+                clusters = sorted(influencer_df['cluster'].dropna().astype(str).unique().tolist())
+                cluster_col = 'cluster'
+        except Exception:
             clusters = []
-    except Exception:
-        clusters = []
 
     author_options = get_filter_options(final_df_sample, "author_name")
     publication_options = get_filter_options(final_df_sample, "publication_name")
@@ -651,7 +660,12 @@ def main():
     with col1:
         selected_clusters = st.multiselect("Select Clusters", clusters, default=[], key="tab1_select_clusters") if clusters else []
     with col2:
-        sentiment_bands_available = sorted(influencer_df['sentiment_band'].dropna().unique().tolist())
+        sentiment_bands_available = []
+        if influencer_df is not None and not influencer_df.empty and 'sentiment_band' in influencer_df.columns:
+            try:
+                sentiment_bands_available = sorted(influencer_df['sentiment_band'].dropna().unique().tolist())
+            except Exception:
+                sentiment_bands_available = []
         selected_sentiment_bands_global = st.multiselect("Sentiment Band", sentiment_bands_available, default=[], key="tab1_sentiment_band")
     with col3:
         selected_authors_global = st.multiselect("Authors", author_options, key="tab1_select_authors")
@@ -726,14 +740,15 @@ def main():
         all_people_filtered = get_all_people_list(pbr_long_filtered)
 
     # Apply filters (cluster, band) to influencer view
-    influencer_view = influencer_df
+    influencer_view = influencer_df.copy() if influencer_df is not None and not influencer_df.empty else pd.DataFrame()
 
-    if selected_clusters and cluster_col:
-        influencer_view = influencer_view[influencer_view[cluster_col].astype(str).isin(selected_clusters)]
+    if not influencer_view.empty:
+        if selected_clusters and cluster_col and cluster_col in influencer_view.columns:
+            influencer_view = influencer_view[influencer_view[cluster_col].astype(str).isin(selected_clusters)]
 
-    if selected_sentiment_bands_global:
-        # sentiment_band already computed in influencer_view (from influencer_df)
-        influencer_view = influencer_view[influencer_view['sentiment_band'].isin(selected_sentiment_bands_global)]
+        if selected_sentiment_bands_global and 'sentiment_band' in influencer_view.columns:
+            # sentiment_band already computed in influencer_view (from influencer_df)
+            influencer_view = influencer_view[influencer_view['sentiment_band'].isin(selected_sentiment_bands_global)]
 
     # Summary metrics
     st.markdown('<div class="section-header" style="font-size:1.5rem;font-weight:700;color:#142536;margin-top:1.5rem;margin-bottom:1rem;">Data Summary</div>', unsafe_allow_html=True)
