@@ -194,7 +194,6 @@ def build_person_network_graph(person_articles: pd.DataFrame, person_name: str) 
 
     fig = go.Figure(data=[edge_trace] + node_traces)
     fig.update_layout(
-        title=dict(text=f"Network View: {center}", x=0.5, font=dict(size=16)),
         showlegend=True,
         hovermode="closest",
         dragmode="pan",
@@ -539,7 +538,6 @@ def build_topic_categorical_network_graph(
     
     fig = go.Figure(data=[edge_trace] + node_traces)
     fig.update_layout(
-        title=dict(text=f"Categorical Network View: {topic_center}", x=0.5, font=dict(size=16)),
         showlegend=True,
         hovermode="closest",
         dragmode="pan",
@@ -863,7 +861,7 @@ def main():
     # Main Tabs: People and Topics
     # --------------------------------------
     st.markdown("<br>", unsafe_allow_html=True)  # Add some spacing
-    people_tab, topic_tab = st.tabs(["👥 People", "🏷️ Topics"])
+    people_tab, topic_tab = st.tabs(["People", "Topics"])
 
     # ------------------------------- People Tab ------------------------------- #
     with people_tab:
@@ -1007,7 +1005,6 @@ def main():
                                     mentions_series,
                                     x='date',
                                     y='mentions',
-                                    title=f"Mentions of {story_person} Over Time",
                                     labels={'date': 'Date', 'mentions': 'Number of Articles'}
                                 )
                                 fig_mentions.update_layout(
