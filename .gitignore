@@ -14,4 +14,7 @@ __pycache__/
 # Large data artifacts
 data_storage/**/*.parquet
 !data_storage/final_data/final_dataset_with_attribution.parquet
+!data_storage/streamlit_app_data/influencer_table_cleaned.parquet
+!data_storage/streamlit_app_data/final_dataset_with_attribution.parquet
+!data_storage/streamlit_app_data/persons_by_row_cleaned.parquet
 data_storage/raw_data/*.xlsx
