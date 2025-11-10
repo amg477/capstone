@@ -755,16 +755,18 @@ def main():
     if influencer_view is not None and not influencer_view.empty:
         m1, m2, m3, m4 = st.columns(4)
         with m1:
-            st.metric("Total Individuals", f"{len(influencer_view):,}")
+            st.metric("Total Individuals", f"{len(influencer_view):,}", help="Number of unique individuals in the filtered dataset")
         with m2:
             total_mentions = influencer_view.get('mention_count', pd.Series([0]*len(influencer_view))).sum()
-            st.metric("Total Mentions", f"{int(total_mentions):,}")
+            st.metric("Total Mentions", f"{int(total_mentions):,}", help="Total number of mentions across all individuals")
         with m3:
             avg_sentiment = influencer_view.get('sentiment_score', pd.Series(dtype=float)).mean()
-            st.metric("Avg Sentiment Score", f"{(avg_sentiment if pd.notna(avg_sentiment) else 0):.2f}")
+            st.metric("Avg Sentiment Score", f"{(avg_sentiment if pd.notna(avg_sentiment) else 0):.2f}", help="Average sentiment score (-1 to 1)")
         with m4:
             avg_circ = influencer_view.get('circulation_size', pd.Series(dtype=float)).mean()
-            st.metric("Avg Circulation", f"{(avg_circ if pd.notna(avg_circ) else 0):,.0f}")
+            st.metric("Avg Circulation", f"{(avg_circ if pd.notna(avg_circ) else 0):,.0f}", help="Average circulation size of publications")
+    else:
+        st.info("No data available. Please check your filters or ensure data files are loaded.")
 
     show_overview = st.checkbox("See General Overview", value=False)
 
@@ -860,8 +862,8 @@ def main():
     # --------------------------------------
     # Main Tabs: People and Topics
     # --------------------------------------
-    st.markdown("---")
-    people_tab, topic_tab = st.tabs(["People", "Topics"])
+    st.markdown("<br>", unsafe_allow_html=True)  # Add some spacing
+    people_tab, topic_tab = st.tabs(["👥 People", "🏷️ Topics"])
 
     # ------------------------------- People Tab ------------------------------- #
     with people_tab:
