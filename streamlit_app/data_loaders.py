@@ -11,46 +11,168 @@ import os
 # Get the directory of this file, then navigate to data directory
 APP_DIR = Path(__file__).resolve().parent
 
-# Try multiple possible paths (for local and Streamlit Cloud)
-possible_paths = [
-    APP_DIR.parent / "data_storage" / "streamlit_app_data",  # Relative from streamlit_app/
-    Path("data_storage/streamlit_app_data"),  # From project root (current working directory)
-    Path("/mount/src/capstone/data_storage/streamlit_app_data"),  # Streamlit Cloud path
-    Path("/Users/annaglass/capstone/capstone/data_storage/streamlit_app_data"),  # Absolute fallback
-]
-
-DATA_DIR = None
-for path in possible_paths:
-    if path.exists():
-        DATA_DIR = path
-        break
-
-if DATA_DIR is None:
+def _find_data_dir():
+    """Find the data directory by trying multiple possible paths"""
+    possible_paths = [
+        APP_DIR.parent / "data_storage" / "streamlit_app_data",  # Relative from streamlit_app/
+        Path("data_storage/streamlit_app_data"),  # From project root (current working directory)
+        Path("/mount/src/capstone/data_storage/streamlit_app_data"),  # Streamlit Cloud path
+        Path("/Users/annaglass/capstone/capstone/data_storage/streamlit_app_data"),  # Absolute fallback
+    ]
+    
+    for path in possible_paths:
+        if path.exists():
+            return path
+    
     # Last resort: use the first relative path even if it doesn't exist yet
-    # (might be created or mounted on Streamlit Cloud)
-    DATA_DIR = APP_DIR.parent / "data_storage" / "streamlit_app_data"
+    return APP_DIR.parent / "data_storage" / "streamlit_app_data"
+
+def _get_tried_paths():
+    """Get list of paths that were tried"""
+    return [
+        str(APP_DIR.parent / "data_storage" / "streamlit_app_data"),
+        str(Path("data_storage/streamlit_app_data")),
+        str(Path("/mount/src/capstone/data_storage/streamlit_app_data")),
+        str(Path("/Users/annaglass/capstone/capstone/data_storage/streamlit_app_data")),
+    ]
+
+DATA_DIR = _find_data_dir()
 
 @st.cache_data(show_spinner=False, ttl=3600)
 def load_influencer_table():
     """Load influencer table - simple and fast"""
-    file_path = DATA_DIR / "influencer_table_cleaned.parquet"
-    if not file_path.exists():
-        raise FileNotFoundError(f"Influencer table not found at {file_path}")
-    return pd.read_parquet(file_path)
+    try:
+        file_path = DATA_DIR / "influencer_table_cleaned.parquet"
+        if not file_path.exists():
+            tried_paths = _get_tried_paths()
+            error_msg = (
+                f"**Influencer table not found**\n\n"
+                f"Looking for: `{file_path}`\n\n"
+                f"Tried paths:\n" + "\n".join(f"- {p}" for p in tried_paths) + "\n\n"
+                f"Current directory: `{os.getcwd()}`\n"
+                f"App directory: `{APP_DIR}`\n\n"
+                f"Please ensure `influencer_table_cleaned.parquet` is available in one of these locations."
+            )
+            try:
+                st.error(error_msg)
+            except:
+                pass  # If Streamlit isn't initialized yet, just continue
+            return pd.DataFrame()  # Return empty DataFrame instead of raising error
+        
+        # Try to read the file - this can still raise FileNotFoundError in some cases
+        try:
+            return pd.read_parquet(file_path)
+        except (FileNotFoundError, OSError) as e:
+            tried_paths = _get_tried_paths()
+            error_msg = (
+                f"**Error reading influencer table**\n\n"
+                f"File path: `{file_path}`\n"
+                f"Error: {str(e)}\n\n"
+                f"Tried paths:\n" + "\n".join(f"- {p}" for p in tried_paths) + "\n\n"
+                f"Current directory: `{os.getcwd()}`\n"
+                f"App directory: `{APP_DIR}`"
+            )
+            try:
+                st.error(error_msg)
+            except:
+                pass
+            return pd.DataFrame()
+    except Exception as e:
+        try:
+            st.error(f"Unexpected error loading influencer table: {str(e)}")
+        except:
+            pass
+        return pd.DataFrame()
 
 @st.cache_data(show_spinner=False, ttl=3600)
 def load_final_dataset():
     """Load final dataset - simple and fast"""
-    file_path = DATA_DIR / "final_dataset_with_attribution.parquet"
-    if not file_path.exists():
-        raise FileNotFoundError(f"Final dataset not found at {file_path}")
-    return pd.read_parquet(file_path)
+    try:
+        file_path = DATA_DIR / "final_dataset_with_attribution.parquet"
+        if not file_path.exists():
+            tried_paths = _get_tried_paths()
+            error_msg = (
+                f"**Final dataset not found**\n\n"
+                f"Looking for: `{file_path}`\n\n"
+                f"Tried paths:\n" + "\n".join(f"- {p}" for p in tried_paths) + "\n\n"
+                f"Current directory: `{os.getcwd()}`\n"
+                f"App directory: `{APP_DIR}`\n\n"
+                f"Please ensure `final_dataset_with_attribution.parquet` is available in one of these locations."
+            )
+            try:
+                st.error(error_msg)
+            except:
+                pass  # If Streamlit isn't initialized yet, just continue
+            return pd.DataFrame()  # Return empty DataFrame instead of raising error
+        
+        # Try to read the file - this can still raise FileNotFoundError in some cases
+        try:
+            return pd.read_parquet(file_path)
+        except (FileNotFoundError, OSError) as e:
+            tried_paths = _get_tried_paths()
+            error_msg = (
+                f"**Error reading final dataset**\n\n"
+                f"File path: `{file_path}`\n"
+                f"Error: {str(e)}\n\n"
+                f"Tried paths:\n" + "\n".join(f"- {p}" for p in tried_paths) + "\n\n"
+                f"Current directory: `{os.getcwd()}`\n"
+                f"App directory: `{APP_DIR}`"
+            )
+            try:
+                st.error(error_msg)
+            except:
+                pass
+            return pd.DataFrame()
+    except Exception as e:
+        try:
+            st.error(f"Unexpected error loading final dataset: {str(e)}")
+        except:
+            pass
+        return pd.DataFrame()
 
 @st.cache_data(show_spinner=False, ttl=3600)
 def load_persons_by_row():
     """Load persons by row - simple and fast"""
-    file_path = DATA_DIR / "persons_by_row_cleaned.parquet"
-    if not file_path.exists():
-        raise FileNotFoundError(f"Persons by row not found at {file_path}")
-    return pd.read_parquet(file_path)
+    try:
+        file_path = DATA_DIR / "persons_by_row_cleaned.parquet"
+        if not file_path.exists():
+            tried_paths = _get_tried_paths()
+            error_msg = (
+                f"**Persons by row not found**\n\n"
+                f"Looking for: `{file_path}`\n\n"
+                f"Tried paths:\n" + "\n".join(f"- {p}" for p in tried_paths) + "\n\n"
+                f"Current directory: `{os.getcwd()}`\n"
+                f"App directory: `{APP_DIR}`\n\n"
+                f"Please ensure `persons_by_row_cleaned.parquet` is available in one of these locations."
+            )
+            try:
+                st.error(error_msg)
+            except:
+                pass  # If Streamlit isn't initialized yet, just continue
+            return pd.DataFrame()  # Return empty DataFrame instead of raising error
+        
+        # Try to read the file - this can still raise FileNotFoundError in some cases
+        try:
+            return pd.read_parquet(file_path)
+        except (FileNotFoundError, OSError) as e:
+            tried_paths = _get_tried_paths()
+            error_msg = (
+                f"**Error reading persons by row**\n\n"
+                f"File path: `{file_path}`\n"
+                f"Error: {str(e)}\n\n"
+                f"Tried paths:\n" + "\n".join(f"- {p}" for p in tried_paths) + "\n\n"
+                f"Current directory: `{os.getcwd()}`\n"
+                f"App directory: `{APP_DIR}`"
+            )
+            try:
+                st.error(error_msg)
+            except:
+                pass
+            return pd.DataFrame()
+    except Exception as e:
+        try:
+            st.error(f"Unexpected error loading persons by row: {str(e)}")
+        except:
+            pass
+        return pd.DataFrame()
 
