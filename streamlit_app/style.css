@@ -148,15 +148,34 @@ header[data-testid="stHeader"] {
 }
 
 /* ---------- Headings ---------- */
-h1, h2, h3 {
+h1, h2, h3, h4, h5, h6 {
   color: var(--penta-dark) !important;
-  line-height: 1.15;
+  line-height: 1.3;
   letter-spacing: .005em;
   font-family: Poppins !important;
+  margin-top: 1rem !important;
+  margin-bottom: 0.75rem !important;
 }
-h1 { font-weight: 800; }
-h2 { font-weight: 700; }
-h3 { font-weight: 650; }
+h1 { 
+  font-weight: 800; 
+  font-size: 2rem !important;
+}
+h2 { 
+  font-weight: 700; 
+  font-size: 1.5rem !important;
+}
+h3 { 
+  font-weight: 650; 
+  font-size: 1.25rem !important;
+}
+h4 { 
+  font-weight: 600; 
+  font-size: 1.1rem !important;
+}
+h5, h6 { 
+  font-weight: 600; 
+  font-size: 1rem !important;
+}
 
 /* Decorative left bar on major sections */
 .pp-section h2 {
@@ -333,12 +352,66 @@ button.katex-html + button, .pp-btn-secondary {
   line-height: 1.55;
   color: var(--penta-dark);
   font-family: Poppins !important;
+  font-size: 1rem !important;
+  margin: 0.5rem 0 !important;
 }
 
-/* ---------- Left Alignment ---------- */
-/* Left align section headers */
+/* Standardize all text elements */
+.stMarkdown, 
+[data-testid="stMarkdownContainer"],
+.stText,
+.stCaption {
+  font-family: Poppins !important;
+  font-size: 0.95rem !important;
+  color: var(--penta-dark) !important;
+  line-height: 1.5 !important;
+}
+
+/* Standardize labels */
+label,
+.stSelectbox label,
+.stMultiselect label,
+.stTextInput label,
+.stSlider label {
+  font-family: Poppins !important;
+  font-size: 0.9rem !important;
+  font-weight: 600 !important;
+  color: var(--penta-dark) !important;
+}
+
+/* Standardize captions */
+.stCaption {
+  font-size: 0.85rem !important;
+  color: var(--penta-slate) !important;
+  font-weight: 400 !important;
+}
+
+/* Standardize section headers */
 .section-header {
-  text-align: left !important;
+  font-family: Poppins !important;
+  font-weight: 700 !important;
+  color: var(--penta-dark) !important;
+  margin-top: 1.5rem !important;
+  margin-bottom: 1rem !important;
+  letter-spacing: -0.01em !important;
+}
+
+/* Standardize main header */
+.main-header {
+  font-family: Poppins !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.02em !important;
+}
+
+/* Consistent spacing for containers */
+.stContainer,
+.element-container {
+  margin-bottom: 1rem !important;
+}
+
+/* Improve readability */
+[data-testid="stMarkdownContainer"] {
+  line-height: 1.6 !important;
 }
 
 /* Left align columns container (metrics row) */

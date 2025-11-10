@@ -7,6 +7,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import re
+import streamlit as st
 
 
 def create_emotion_chart(df, final_df=None, persons_by_row_df=None, n=20, cluster_col=None, selected_clusters=None, selected_persons=None):
@@ -117,14 +118,11 @@ def create_emotion_chart(df, final_df=None, persons_by_row_df=None, n=20, cluste
         return name_str
     
     # IMPORTANT: Filter to full names FIRST, before any other filtering
-    # This ensures we work with all full names, not just filtered subset
-    filtered_df = df.copy()
-    
     # Filter to only full names (first and last name, not single names)
-    filtered_df = filtered_df[filtered_df['person_list'].apply(is_full_name)]
+    mask = df['person_list'].apply(is_full_name)
+    filtered_df = df[mask].copy()
     
-    # Normalize Robert Kennedy variations and Trump variations and other name variations
-    filtered_df = filtered_df.copy()
+    # Normalize names - vectorized where possible
     filtered_df['person_list'] = filtered_df['person_list'].apply(normalize_robert_kennedy)
     filtered_df['person_list'] = filtered_df['person_list'].apply(normalize_trump)
     filtered_df['person_list'] = filtered_df['person_list'].apply(normalize_elon_musk)
@@ -191,132 +189,97 @@ def create_emotion_chart(df, final_df=None, persons_by_row_df=None, n=20, cluste
     # If we have article data and person mapping, aggregate emotions per person
     if final_df is not None and persons_by_row_df is not None and not persons_by_row_df.empty:
         # Ensure final_df has row_index
-        final_df_copy = final_df.copy()
-        if 'row_index' not in final_df_copy.columns:
-            final_df_copy = final_df_copy.reset_index().rename(columns={'index': 'row_index'})
+        if 'row_index' not in final_df.columns:
+            final_df = final_df.reset_index().rename(columns={'index': 'row_index'})
         
-        # Get articles for each top person and aggregate emotions
-        emotion_data = []
+        # Pre-explode persons_by_row_df once - much faster than doing it per person
+        pbr_exploded = persons_by_row_df[['row_index', 'persons']].dropna()
+        pbr_exploded = pbr_exploded.assign(person=pbr_exploded['persons'].astype(str).str.split(',')).explode('person')
+        pbr_exploded['person'] = pbr_exploded['person'].str.strip()
+        pbr_exploded = pbr_exploded[pbr_exploded['person'] != '']
         
-        # Pre-process persons_by_row_df to split by comma
-        persons_by_row_df_processed = persons_by_row_df.copy()
-        persons_by_row_df_processed['persons_list'] = persons_by_row_df_processed['persons'].astype(str).str.split(',')
+        # Pre-normalize all person names once
+        pbr_exploded['person_norm'] = pbr_exploded['person'].apply(normalize_robert_kennedy)
+        pbr_exploded['person_norm'] = pbr_exploded['person_norm'].apply(normalize_trump)
+        pbr_exploded['person_norm'] = pbr_exploded['person_norm'].apply(normalize_elon_musk)
+        pbr_exploded['person_norm'] = pbr_exploded['person_norm'].apply(normalize_anthony_fauci)
+        pbr_exploded['person_norm'] = pbr_exploded['person_norm'].apply(normalize_kamala_harris)
         
+        # Normalize top_persons for matching
+        top_persons_normalized = {}
         for person in top_persons:
-            person_normalized = normalize_robert_kennedy(person)
-            person_normalized = normalize_trump(person_normalized)
-            person_normalized = normalize_elon_musk(person_normalized)
-            person_normalized = normalize_anthony_fauci(person_normalized)
-            person_normalized = normalize_kamala_harris(person_normalized)
-            person_normalized_lower = person_normalized.lower().strip()
-            
-            # Find rows where this SPECIFIC person is mentioned (exact match in comma-separated list)
-            def person_in_row(row):
-                # Handle list or scalar values
-                if not isinstance(row, list):
-                    if pd.isna(row):
-                        return False
-                    row = [row]  # Convert scalar to list
-                
-                persons_list = row if isinstance(row, list) else []
-                for p in persons_list:
-                    if p is None or (not isinstance(p, str) and pd.isna(p)):
-                        continue
-                    p_str = str(p).strip()
-                    if not p_str:
-                        continue
-                    p_normalized = normalize_robert_kennedy(p_str)
-                    p_normalized = normalize_trump(p_normalized)
-                    p_normalized = normalize_elon_musk(p_normalized)
-                    p_normalized = normalize_anthony_fauci(p_normalized)
-                    p_normalized = normalize_kamala_harris(p_normalized)
-                    p_normalized_lower = p_normalized.lower().strip()
-                    
-                    # For Robert Kennedy, match variations
-                    if person_normalized == "Robert Kennedy":
-                        if 'robert' in p_normalized_lower and ('kennedy' in p_normalized_lower or 'junior' in p_normalized_lower):
-                            return True
-                    # For Donald Trump, match variations
-                    elif person_normalized == "Donald Trump":
-                        if 'trump' in p_normalized_lower:
-                            family_members = ['lady trump', 'eric trump', 'melania trump', 'meliana trump', 'barron trump']
-                            if not any(family in p_normalized_lower for family in family_members):
-                                return True
-                    # For Elon Musk, match variations
-                    elif person_normalized == "Elon Musk":
-                        if 'musk' in p_normalized_lower:
-                            return True
-                    # For Anthony Fauci, match variations
-                    elif person_normalized == "Anthony Fauci":
-                        if 'fauci' in p_normalized_lower or 'faucci' in p_normalized_lower:
-                            return True
-                    # For Kamala Harris, match variations
-                    elif person_normalized == "Kamala Harris":
-                        if 'harris' in p_normalized_lower and ('kamala' in p_normalized_lower or p_normalized_lower == 'harris'):
-                            return True
-                    else:
-                        # Exact match (case-insensitive)
-                        if p_normalized_lower == person_normalized_lower:
-                            return True
-                return False
-            
-            person_rows = persons_by_row_df_processed[
-                persons_by_row_df_processed['persons_list'].apply(person_in_row)
-            ]
-            
-            if not person_rows.empty:
-                # Get articles for this person
-                person_articles = final_df_copy.merge(
-                    person_rows[['row_index']],
-                    on='row_index',
-                    how='inner'
-                )
-                
-                # Count emotions if available
-                if 'emotion_body' in person_articles.columns:
-                    # Filter out None/NaN emotions
-                    valid_emotions = person_articles['emotion_body'].dropna()
-                    emotion_counts = valid_emotions.value_counts().to_dict()
-                else:
-                    # If no emotion column, skip this person
-                    emotion_counts = {}
-                
-                # Only add if we have emotion data
-                if emotion_counts:
-                    emotion_data.append({
-                        'person': person,
-                        'emotions': emotion_counts
-                    })
+            p_norm = normalize_robert_kennedy(person)
+            p_norm = normalize_trump(p_norm)
+            p_norm = normalize_elon_musk(p_norm)
+            p_norm = normalize_anthony_fauci(p_norm)
+            p_norm = normalize_kamala_harris(p_norm)
+            top_persons_normalized[person] = p_norm
         
-        if not emotion_data:
+        # Filter exploded dataframe to only top persons - vectorized!
+        pbr_filtered = pbr_exploded[pbr_exploded['person_norm'].isin(top_persons_normalized.values())]
+        
+        if pbr_filtered.empty:
             return None
         
-        # Prepare data for stacked bar chart
-        # Get all unique emotions across all persons
-        all_emotions = set()
-        for item in emotion_data:
-            all_emotions.update(item['emotions'].keys())
-        all_emotions = sorted([e for e in all_emotions if e])  # Remove None/empty
+        # Merge with final_df once - much faster than per-person merges
+        # Only select needed columns from final_df
+        final_df_cols = ['row_index', 'emotion_body']
+        if 'emotion_body' not in final_df.columns:
+            return None
+        merged = pbr_filtered[['row_index', 'person_norm']].merge(
+            final_df[final_df_cols],
+            on='row_index',
+            how='inner'
+        )
         
-        if not all_emotions:
+        # Map normalized names back to display names
+        norm_to_display = {v: k for k, v in top_persons_normalized.items()}
+        merged['person_display'] = merged['person_norm'].map(norm_to_display)
+        merged = merged[merged['person_display'].notna()]
+        
+        if merged.empty or 'emotion_body' not in merged.columns:
             return None
         
-        # Create DataFrame for plotting
-        chart_data = []
-        for item in emotion_data:
-            person = item['person']
-            emotions = item['emotions']
-            total_count = sum(emotions.values())
-            for emotion in all_emotions:
-                count = emotions.get(emotion, 0)
-                chart_data.append({
-                    'person': person,
-                    'emotion': emotion,
-                    'count': count,
-                    'total': total_count
-                })
+        # Group by person and emotion - vectorized aggregation!
+        emotion_counts = merged.groupby(['person_display', 'emotion_body']).size().reset_index(name='count')
+        emotion_counts = emotion_counts[emotion_counts['emotion_body'].notna()]
         
-        chart_df = pd.DataFrame(chart_data)
+        if emotion_counts.empty:
+            return None
+        
+        # Get total counts per person for sorting
+        person_totals = emotion_counts.groupby('person_display')['count'].sum().reset_index(name='total')
+        emotion_counts = emotion_counts.merge(person_totals, on='person_display')
+        
+        # Filter to only top persons (in case normalization created duplicates)
+        emotion_counts = emotion_counts[emotion_counts['person_display'].isin(top_persons)]
+        
+        if emotion_counts.empty:
+            return None
+        
+        # Get all unique emotions
+        all_emotions = sorted(emotion_counts['emotion_body'].unique())
+        
+        # Pivot to wide format for plotting
+        chart_df = emotion_counts.pivot_table(
+            index='person_display',
+            columns='emotion_body',
+            values='count',
+            fill_value=0
+        ).reset_index()
+        
+        # Get totals for sorting
+        chart_df['total'] = chart_df[all_emotions].sum(axis=1)
+        
+        # Melt back to long format for plotly
+        chart_df = chart_df.melt(
+            id_vars=['person_display', 'total'],
+            value_vars=all_emotions,
+            var_name='emotion',
+            value_name='count'
+        )
+        
+        chart_df = chart_df.rename(columns={'person_display': 'person'})
         
         # Create horizontal stacked bar chart
         fig = go.Figure()
@@ -340,16 +303,15 @@ def create_emotion_chart(df, final_df=None, persons_by_row_df=None, n=20, cluste
             ))
         
         # Sort persons by total count (descending - most mentioned at top)
-        # For horizontal bar charts, first item in array appears at top
-        person_totals = chart_df.groupby('person')['total'].first().sort_values(ascending=True)
-        person_order = person_totals.index.tolist()
+        person_order = chart_df.groupby('person')['total'].first().sort_values(ascending=True).index.tolist()
+        num_persons = len(person_order)
         
         fig.update_layout(
             title=f'Emotion Distribution for Top {n} Individuals',
             yaxis_title='Individual',
             xaxis_title='Number of Articles',
             barmode='stack',
-            height=max(400, len(emotion_data) * 30),
+            height=max(400, num_persons * 30),
             yaxis={
                 'categoryorder': 'array',
                 'categoryarray': person_order  # Most mentioned first (at top)

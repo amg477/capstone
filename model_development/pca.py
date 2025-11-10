@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -157,6 +158,384 @@ def _split_persons(s: object) -> List[str]:
     return [p.strip() for p in str(s).split(",") if str(p).strip()]
 
 
+def _normalize_middle_initial(name: str) -> str:
+    """
+    Normalize middle initials to include periods.
+    Example: "Robert F Kennedy" -> "Robert F. Kennedy"
+    """
+    if not name or pd.isna(name):
+        return name
+    
+    name_str = str(name).strip()
+    parts = name_str.split()
+    
+    if len(parts) < 2:
+        return name_str
+    
+    normalized_parts = []
+    for i, part in enumerate(parts):
+        # Check if this is a single letter (likely a middle initial)
+        # and it's not the first or last part
+        if i > 0 and i < len(parts) - 1 and len(part) == 1 and part.isalpha():
+            # Single letter in middle position - add period if not present
+            if not part.endswith('.'):
+                normalized_parts.append(part.upper() + '.')
+            else:
+                normalized_parts.append(part.upper())
+        else:
+            normalized_parts.append(part)
+    
+    return ' '.join(normalized_parts)
+
+
+def _get_name_base(name: str) -> tuple[str, str]:
+    """
+    Extract base name components for comparison.
+    Returns (first_name, last_name, middle_parts) tuple.
+    Example: "Robert F. Kennedy" -> ("robert", "kennedy", ["f"])
+    """
+    if not name or pd.isna(name):
+        return ("", "", [])
+    
+    parts = str(name).strip().split()
+    if len(parts) < 2:
+        return ("", parts[0].lower() if parts else "", [])
+    
+    first = parts[0].lower()
+    last = parts[-1].lower()
+    middle = parts[1:-1] if len(parts) > 2 else []
+    
+    return (first, last, [p.lower().rstrip('.') for p in middle])
+
+
+def _canonicalize_person_name(name: str, surname_map: dict[str, str] = None) -> str:
+    """
+    Canonicalize a person name for grouping.
+    Maps surnames to full names using surname_map if provided.
+    Also handles specific known mappings.
+    """
+    if not name or pd.isna(name):
+        return name
+    
+    name_str = str(name).strip()
+    if not name_str:
+        return name_str
+    
+    name_lower = name_str.lower()
+    
+    # Specific surname mappings
+    if name_lower == "trump":
+        return "Donald Trump"
+    elif name_lower == "biden":
+        return "Joe Biden"
+    elif name_lower == "kennedy":
+        return "Robert F. Kennedy"
+    elif name_lower == "harris":
+        return "Kamala Harris"
+    
+    # Use surname map if provided (for dynamic mapping like "Obama" -> "Barack Obama")
+    if surname_map:
+        name_tokens = name_str.split()
+        if len(name_tokens) == 1:
+            # Single token surname
+            surname_lower = name_tokens[0].lower()
+            if surname_lower in surname_map:
+                return surname_map[surname_lower]
+        elif len(name_tokens) == 2 and len(name_tokens[0]) == 1:
+            # Initial + surname (e.g., "D. Trump")
+            surname_lower = name_tokens[1].lower()
+            if surname_lower in surname_map:
+                return surname_map[surname_lower]
+    
+    # Normalize middle initials to include periods
+    name_str = _normalize_middle_initial(name_str)
+    
+    # For full names, normalize to Title Case
+    parts = name_str.split()
+    if len(parts) >= 2:
+        title_parts = []
+        for part in parts:
+            if '-' in part:
+                hyphen_parts = [p.capitalize() for p in part.split('-')]
+                title_parts.append('-'.join(hyphen_parts))
+            elif '.' in part and len(part) == 2:
+                # Middle initial with period
+                title_parts.append(part[0].upper() + '.')
+            else:
+                title_parts.append(part.capitalize())
+        return " ".join(title_parts)
+    elif len(parts) == 1:
+        return parts[0].capitalize()
+    
+    return name_str
+
+
+def _build_surname_upgrade_map_from_table(influencer_table: pd.DataFrame) -> dict[str, str]:
+    """
+    Build a map from single-token surname -> dominant full name from the influencer_table.
+    Only creates mappings when a full name with that surname is dominant.
+    Uses mention_count to weight the dominance calculation.
+    """
+    if influencer_table is None or influencer_table.empty:
+        return {}
+    
+    person_col = "person_list" if "person_list" in influencer_table.columns else None
+    if not person_col:
+        return {}
+    
+    # Count full names per surname (weighted by mention_count)
+    surname_to_full_counts: dict[str, dict[str, int]] = {}
+    
+    # Get mention_count column if available, otherwise use 1 for each row
+    count_col = "mention_count" if "mention_count" in influencer_table.columns else None
+    
+    for idx, row in influencer_table.iterrows():
+        name = row[person_col]
+        if pd.isna(name):
+            continue
+        
+        name_str = str(name).strip()
+        if not name_str:
+            continue
+        
+        tokens = name_str.split()
+        if len(tokens) >= 2:
+            # Full name - extract surname
+            surname = tokens[-1].lower()
+            if surname not in surname_to_full_counts:
+                surname_to_full_counts[surname] = {}
+            
+            # Use mention_count if available, otherwise 1
+            count = int(row[count_col]) if count_col and pd.notna(row[count_col]) else 1
+            surname_to_full_counts[surname][name_str] = surname_to_full_counts[surname].get(name_str, 0) + count
+    
+    # Build upgrade map: surname -> dominant full name
+    upgrade_map: dict[str, str] = {}
+    for surname, full_counts in surname_to_full_counts.items():
+        if not full_counts:
+            continue
+        
+        # Get total count and dominant full name
+        total = sum(full_counts.values())
+        dominant_full, dom_count = max(full_counts.items(), key=lambda kv: kv[1])
+        
+        # Only create mapping if dominant full name represents at least 60% of occurrences
+        # and occurs at least 3 times
+        if dom_count >= 3 and (dom_count / total) >= 0.6:
+            upgrade_map[surname] = dominant_full
+    
+    return upgrade_map
+
+
+def _filter_single_first_names(exploded_df: pd.DataFrame, final_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Filter out single-token first names that don't appear with a last name in the article text.
+    For each single-token name, check if it appears with a last name in headline or body.
+    If not, drop that row.
+    """
+    if exploded_df is None or exploded_df.empty:
+        return exploded_df
+    
+    if final_df is None or final_df.empty:
+        return exploded_df
+    
+    # Identify single-token names (first names only)
+    single_token_mask = exploded_df["person_list"].apply(lambda x: len(str(x).split()) == 1)
+    single_token_rows = exploded_df[single_token_mask].copy()
+    
+    if single_token_rows.empty:
+        return exploded_df
+    
+    # Get text columns from final_df
+    headline_col = "headline" if "headline" in final_df.columns else None
+    body_col = "body" if "body" in final_df.columns else None
+    
+    if not headline_col and not body_col:
+        # No text columns available, return as-is
+        return exploded_df
+    
+    # Create a set of row_indexes to keep
+    rows_to_keep = set(exploded_df[~single_token_mask].index.tolist())
+    
+    # Check each single-token name
+    for idx, row in single_token_rows.iterrows():
+        first_name = str(row["person_list"]).strip()
+        if not first_name:
+            continue
+        
+        row_index = row["row_index"]
+        
+        # Find the corresponding article in final_df
+        article_row = final_df[final_df["row_index"] == row_index]
+        if article_row.empty:
+            # No matching article, drop this row
+            continue
+        
+        article_text = ""
+        if headline_col and pd.notna(article_row[headline_col].iloc[0]):
+            article_text += " " + str(article_row[headline_col].iloc[0])
+        if body_col and pd.notna(article_row[body_col].iloc[0]):
+            article_text += " " + str(article_row[body_col].iloc[0])
+        
+        # Keep original case for pattern matching (need to check for capitalized last names)
+        article_text_original = article_text
+        article_text_lower = article_text.lower()
+        first_name_lower = first_name.lower()
+        
+        # Check if first name appears with a last name (another capitalized word after it)
+        # Pattern: "firstname Lastname" or "Firstname Lastname"
+        # Look for the first name followed by a capitalized word (potential last name)
+        # Pattern: firstname + space + capitalized word (in original case)
+        pattern1 = rf"\b{re.escape(first_name_lower)}\s+[A-Z][a-z]+\b"
+        # Pattern: Firstname + space + capitalized word (if first name is capitalized)
+        pattern2 = rf"\b{first_name.capitalize()}\s+[A-Z][a-z]+\b"
+        
+        # Also check for "Lastname, Firstname" pattern
+        pattern3 = rf"\b[A-Z][a-z]+\s*,\s*{re.escape(first_name_lower)}\b"
+        pattern4 = rf"\b[A-Z][a-z]+\s*,\s*{first_name.capitalize()}\b"
+        
+        # Check if any pattern matches (use original case text)
+        has_last_name = (
+            re.search(pattern1, article_text_original) is not None or
+            re.search(pattern2, article_text_original) is not None or
+            re.search(pattern3, article_text_original) is not None or
+            re.search(pattern4, article_text_original) is not None
+        )
+        
+        if has_last_name:
+            # First name appears with a last name, keep this row
+            rows_to_keep.add(idx)
+        # Otherwise, drop it (don't add to rows_to_keep)
+    
+    # Filter the dataframe to keep only valid rows
+    filtered_df = exploded_df[exploded_df.index.isin(rows_to_keep)].copy()
+    
+    return filtered_df
+
+
+def _group_and_aggregate_influencer_table(influencer_table: pd.DataFrame) -> pd.DataFrame:
+    """
+    Group influencer_table by canonicalized person name, emotion_body, and cluster_label.
+    Aggregates metrics appropriately (sum counts, mean for numeric metrics).
+    Combines name variants like "Robert F. Kennedy", "Robert F Kennedy", "Robert Kennedy" -> "Robert F. Kennedy"
+    """
+    if influencer_table is None or influencer_table.empty:
+        return influencer_table
+    
+    # Build surname upgrade map from the table itself
+    surname_map = _build_surname_upgrade_map_from_table(influencer_table)
+    
+    # First pass: canonicalize names and normalize middle initials
+    influencer_table = influencer_table.copy()
+    influencer_table["person_canonical"] = influencer_table["person_list"].apply(
+        lambda x: _canonicalize_person_name(x, surname_map)
+    )
+    
+    # Second pass: Group variants by name base (first + last name, ignoring middle parts)
+    # Also handle single surnames that should be combined with full names
+    # Create a mapping from (first, last) to the most complete canonical form
+    name_base_to_canonical: dict[tuple, str] = {}
+    
+    # Build a map from surname -> full name for single surnames
+    # Use the surname_map if available (has dominant full name), otherwise use any full name found
+    surname_to_full: dict[str, str] = {}
+    # First, use surname_map (has dominant full name based on frequency)
+    if surname_map:
+        for surname, full_name in surname_map.items():
+            surname_to_full[surname] = full_name
+    # Then, add any other full names we see (for surnames not in surname_map)
+    for canonical_name in influencer_table["person_canonical"].dropna().unique():
+        base = _get_name_base(canonical_name)
+        # If it's a full name (has first name) and surname not already mapped, map it
+        if base[0] and base[1] not in surname_to_full:  # Has first name and not already mapped
+            surname_to_full[base[1]] = canonical_name
+    
+    for canonical_name in influencer_table["person_canonical"].dropna().unique():
+        base = _get_name_base(canonical_name)
+        # Group by first and last name only (ignore middle parts for grouping)
+        base_key = (base[0], base[1])  # (first, last) - ignore middle for grouping
+        
+        # Special case: if this is a single surname (no first name), try to upgrade it
+        if not base[0] and base[1] in surname_to_full:
+            # Upgrade single surname to full name
+            canonical_name = surname_to_full[base[1]]
+            base = _get_name_base(canonical_name)
+            base_key = (base[0], base[1])
+        
+        # If we haven't seen this base, or if this canonical form is more complete (has middle initial)
+        if base_key not in name_base_to_canonical:
+            name_base_to_canonical[base_key] = canonical_name
+        else:
+            # Prefer the form with middle initial/name if available
+            existing = name_base_to_canonical[base_key]
+            existing_base = _get_name_base(existing)
+            
+            # If current has middle parts and existing doesn't, use current
+            if base[2] and not existing_base[2]:
+                name_base_to_canonical[base_key] = canonical_name
+            # If both have middle parts, prefer the one with period in initial
+            elif base[2] and existing_base[2]:
+                current_middle = ' '.join(base[2])
+                existing_middle = ' '.join(existing_base[2])
+                # Prefer form with period if available
+                if '.' in current_middle and '.' not in existing_middle:
+                    name_base_to_canonical[base_key] = canonical_name
+            # If neither has middle parts, keep existing (or could prefer current, but existing is fine)
+    
+    # Map each canonical name to its most complete form
+    def get_most_complete_form(name: str) -> str:
+        if pd.isna(name):
+            return name
+        base = _get_name_base(name)
+        # If single surname, try to upgrade to full name
+        if not base[0] and base[1] in surname_to_full:
+            upgraded = surname_to_full[base[1]]
+            base = _get_name_base(upgraded)
+        base_key = (base[0], base[1])  # Group by first + last only
+        return name_base_to_canonical.get(base_key, name)
+    
+    influencer_table["person_canonical"] = influencer_table["person_canonical"].apply(get_most_complete_form)
+    
+    # Determine grouping columns
+    group_cols = ["person_canonical"]
+    if "emotion_body" in influencer_table.columns:
+        group_cols.append("emotion_body")
+    if "cluster_label" in influencer_table.columns:
+        group_cols.append("cluster_label")
+    
+    # Build aggregation dictionary
+    agg_dict = {}
+    
+    # Sum for count columns
+    if "mention_count" in influencer_table.columns:
+        agg_dict["mention_count"] = "sum"
+    
+    # Mean for numeric metrics
+    numeric_cols = ["vipr_score", "vipr_weight", "sentiment_score", "circulation_size"]
+    for col in numeric_cols:
+        if col in influencer_table.columns:
+            agg_dict[col] = "mean"
+    
+    # Keep cluster (should be consistent within cluster_label, but take first)
+    if "cluster" in influencer_table.columns:
+        agg_dict["cluster"] = "first"
+    
+    # Group and aggregate
+    grouped = influencer_table.groupby(group_cols, as_index=False).agg(agg_dict)
+    
+    # Rename person_canonical back to person_list
+    grouped = grouped.rename(columns={"person_canonical": "person_list"})
+    
+    # Re-sort by mention_count, then vipr_score if present
+    sort_cols, sort_asc = ["mention_count"], [False]
+    if "vipr_score" in grouped.columns:
+        sort_cols.append("vipr_score")
+        sort_asc.append(False)
+    grouped = grouped.sort_values(sort_cols, ascending=sort_asc).reset_index(drop=True)
+    
+    return grouped
+
+
 def run_pca_analysis(
     final_df: pd.DataFrame,
     person_row_df: Optional[pd.DataFrame],
@@ -210,6 +589,9 @@ def run_pca_analysis(
         merged["person_list"] = merged["persons"].apply(_split_persons)
         exploded = merged.explode("person_list").dropna(subset=["person_list"])
 
+        # Filter out single first names that don't appear with a last name in article text
+        exploded = _filter_single_first_names(exploded, df)
+
         # Aggregation: mean for numeric metrics, mode for emotion
         agg_dict = {m: "mean" for m in metrics_cols}
         agg_dict.update({"row_index": "count"})  # mention_count
@@ -258,6 +640,11 @@ def run_pca_analysis(
 
         lab["cluster_label"] = lab.apply(_label_row, axis=1)
         influencer_table = influencer_table.merge(lab[["cluster", "cluster_label"]], on="cluster", how="left")
+
+        # Group and aggregate by canonicalized person name, emotion_body, and cluster_label
+        # This groups surnames with full names (e.g., "Obama" -> "Barack Obama")
+        # while preserving separate rows for different emotion_body/cluster_label combinations
+        influencer_table = _group_and_aggregate_influencer_table(influencer_table)
 
         # Rank by mention_count, then vipr_score if present
         sort_cols, sort_asc = ["mention_count"], [False]

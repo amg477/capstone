@@ -159,15 +159,15 @@ EXCLUSION_SUBSTRINGS = (
 
 # Explicit multi-word brand/term exclusions (lowercased)
 EXPLICIT_EXCLUDES = {
-    # From user-provided lists (lowercased) - ALL words user specified
-    "viewpoint", "humanized mouse", "hospital", "covid-19", "covid", "include", "Include", "yellow dye", "red dye", "sharks",
+    # From user-provided lists (all lowercased for case-insensitive matching)
+    "viewpoint", "humanized mouse", "hospital", "covid-19", "covid", "include", "yellow dye", "red dye", "sharks",
     "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday", "monday's", "tuesday's", "wednesday's", "thursday's", "friday's", "saturday's", "sunday's",
     "measles", "measles vaccine", "measles cases", "measles surge", "measles outbreak", "measles vaccine", "measles cases", "measles surge", "measles outbreak",
     "diasorian spa", "hulu", "miami", "market research", "market research firm", "market research firms", "market research company", "market research companies",
      "market research report", "market research reports", "market research study", "market research studies", "market research analysis", "market research analyses", "market research report", "market research reports", "market research study", "market research studies", "market research analysis", "market research analyses",
     "google", "gemini", "netflix", "twitter", "instagram", "facebook", "x", "sprouted mat", "r- oceanside", 
     "parks", "rally planned", "asthma", "asthma cases", "asthma surge", "asthma outbreak", "asthma vaccine", "asthma cases", "asthma surge", "asthma outbreak",
-    "adults", "gyms", "southeast promise", "zell", "venmo", "smokehouse barbeque", "creek", "cigar", "Advancing Pulmonary", "Money Box",
+    "adults", "gyms", "southeast promise", "zell", "venmo", "smokehouse barbeque", "creek", "cigar", "advancing pulmonary", "money box",
     "tanita", "invicta", "appendix supplementary", "dibley mj", "jin k", "mihrshahi", "ding trends", "int obes lond",
     "shipt shipt", "grow starter", "story", "vaccinia intravenous", "call", "veteran", "woodbridge", "meter", "joint statement",
     "tanita","invicta","appendix supplementary","dibley mj","jin k","mihrshahi","ding trends","int obes lond",
@@ -273,7 +273,77 @@ EXPLICIT_EXCLUDES = {
     "aurora reservoir", "aurora deals", "aurora borealis", "aurora calling", "aurora democrat", "aurora ct",
     "aurora move", "aurora west", "aurora rsvp", "aurora catholic",
     # From final scrape of final_dataset_with_attribution.parquet
-    "follow", "impfallianz gavi", "follow stateline", "follow visby", "follow aveva", "follow walker"
+    "follow", "impfallianz gavi", "follow stateline", "follow visby", "follow aveva", "follow walker",
+    # From scrape of influencer_table person_list column
+    "daytime", "revised", "spread", "gospel", "bitcoin", "sponsorships", "match", "chairman", "orphan",
+    "requirements", "quarantine", "latinx", "explainer", "blogs", "household", "cookie", "monocyte", "chair",
+    "primary", "olympic", "beta", "beginner", "equine", "rookie", "grow", "gums", "sharp", "annex",
+    "adventures", "recommendations", "insert", "lifeline", "historic", "babysitter", "veterinarian", "types",
+    "blob", "ymca", "sharefaith", "bacteria", "burden", "decay", "gray", "hepatitis", "autopen", "breastmilk",
+    "picaridin", "artificial", "mill", "injuries", "carfentanil", "huntington", "request", "angioplasty",
+    "astro", "turmeric", "alkaline", "chlorine", "milking", "pixabay", "crew", "councillor", "easy", "alpine",
+    "venus", "quitting", "para", "formulas", "protocols", "cough", "lahaina",
+    # Very short names (likely errors/abbreviations)
+    "rv", "ya", "ji", "dg", "mg", "ap", "lo", "en", "lt", "la", "el", "lu", "cm", "ja", "al", "xi", "mo",
+    "cc", "oe", "rp",
+    # From scrape of people_by_row_clean in final_dataset_with_attribution.parquet
+    "gavi", "polio", "lung", "rubella", "walgreens", "xylazine", "gonorrhea", "malaria", "zoom", "stateline",
+    "lifestyle", "res", "schedule", "tonix", "hygiene", "diarrhea", "mali", "paratek", "boar", "haryana",
+    "politico", "drs", "metabolic", "wildfires", "tribal", "novartis", "legionnaires", "elebsiran", "chikungunya",
+    "threaten", "xinhua", "rajasthan", "superman", "chi-square", "likert", "tick", "drop", "medscape", "paxlovid",
+    "tosymra", "omicron", "meta", "healthbeat", "nadda", "cloudberry", "whirlpool", "kefir", "unicef", "oracle",
+    "bloomberg", "odyssey", "lancet", "doi", "avian", "mou", "ebola", "gender", "sackler", "snapchat", "huggies",
+    "learn", "deaths", "grandma", "guiana", "bluesky", "hose", "bukavu", "culex", "runny", "zyn", "alpha",
+    "trauma", "stargardt", "yanomami", "radwan", "muscle", "wifi", "mac",
+    # Additional exclusions
+    "hepatitis", "hepatitis a", "hepatitis b", "hepatitis c", "hepatitis d", "hepatitis e",
+    "hepatitis a virus", "hepatitis b virus", "hepatitis c virus", "hepatitis d virus", "hepatitis e virus",
+    "hav", "hbv", "hcv", "hdv", "hev",
+    "cancer noveldrugdeliverysystemsnddsincancertherapymarket",
+    "cancer novel-drug-delivery-systems-ndds-in-cancer-therapy-market",  # Hyphenated version
+    "socioeconomic",
+    # From influencer_table scrape
+    "white house", "harley davidson", "harley-davidson", "lexington herald", "mosquito repellent",
+    "sigma aldrich", "sigma-aldrich", "chi square", "mari juana", "dana-farber", "dana farber",
+    "preeclampsia", "prediabetes", "socio-economic", "measles-rubella",
+    # Single-token non-person names from influencer_table
+    "tesla", "teslas", "nascar", "methanol", "glucagon", "pollen", "broccoli", "popcorn",
+    "heroin", "botox", "chlamydia", "pneumonia", "diphtheria", "whooping", "handwashing",
+    "homelessness", "debris", "victim", "adult", "female", "leaders", "attendance",
+    "charting", "explainer-how", "matinee", "outperformed", "futurecast", "shoot", "jump",
+    "flash", "fame", "info", "caucus", "flyers", "radio", "add", "cloud-based", "stand",
+    "keep", "creating", "talker", "slash", "joint", "battle", "stay", "sitting", "drinking",
+    "eradicating", "nighttime", "wheezing", "dizzy", "repeatedly", "thankfully", "cuts",
+    "lockdown", "assistance", "modernization", "switch", "counter", "restraint", "heartfelt",
+    "articles", "spray", "noise", "lesson", "proud", "cleaner", "knee", "pathogen", "societies",
+    # Suspicious full names with hyphens/dashes (likely non-person)
+    "r- palmdale", "r- murrieta", "r- westminster", "r- dixon", "r- visalia", "r- memphis", "white- holder",
+    "marianne co-", "camille bas-",
+    "lexington herald-", "and- hang", "austin- ems", "brian booth-", "ho-- alrit", "hilda solis-",
+    "successful pre-", "https quarantine-stations-at-ports-of-", "micro- bial", "bonnie halpern-",
+    "tamara adolescent-literacy-research-and-", "roger intelligence-and-the-national-security-",
+    "robert the-lesi-guide-to-licensing-best-", "https applied-human-resource-management-",
+    "https solid-waste-policies-and-strategies-", "juan rocha-", "woodruff kcrg-", "gestrich licht-",
+    "gary needs-and-capacity-assessment-", "miguel cultural-competence-in-health-education-",
+    "t. obesity-", "sigma- aldrich", "how- jaden", "tier iii-", "a. hyperglycaemia-",
+    "pre- diabetes", "sbm- grameen", "choice- pathophysiology", "b.-j. hu", "z.-q. zhu",
+    "growth- quality-", "angel reese-", "counsel- season", "thomas handbook-of-the-philosophy-of-",
+     "am. sit-to-", "jus-- ju", "tiru chabba-", "active- deliberately",
+    "narendra modi-", "edition freedom-of-environmental-", "john introduction-to-environmental-impact-",
+     "pre- eclampsia", "h.-f. clinical", "versus double-", "kevin solution-manual-for-vanders-human-",
+    "https test-bank-for-nutritional-sciences-", "yoakum counties--", "says--", "az thea-",
+    "words-- shankar", "lee donohue-", "aboud walk-", "gsta monitoring-and-surveillance-of-",
+    "gary guidelines-for-achieving-project-", "distancing-- morgan", "immune escape-", "sorbonne paris-",
+    "mosquito repellent--",  "frozen mexican-",
+    "https functional-assessment-and-program-", "https program-evaluation-for-social-workers-",
+    "joseph integrative-pain-medicine-the-science-", "tova the-encyclopedia-of-complementary-and-",
+    "edition perspectives-on-complementary-and-", "dave chemistry-in-alternative-reaction-",
+    "march- may", "c.-yl. writing", "https a-familial-cluster-of-pneumonia-",
+    "yu-chen remdesivir-for-severe-acute-respiratory-", "https severe-acute-respiratory-syndrome-",
+    "adalah satu-", "alfred dupont-", "l. gender-", "hadizadeh- talasaz", "edition perinatal-epidemiology-for-public-",
+     "kennedy families-", "tony award-", "gray trace-", "gray circles-",
+    "https anomaly-detection-and-complex-event-", "https the-dr-peter-breggin-hour-", "d- alhambra",
+     "harley- davidson", "raoult tick-"
 }
 
 # Courtesy/political titles to strip when normalizing names (lowercased)
@@ -283,11 +353,36 @@ TITLE_PREFIXES = (
     "mayor", "minister", "ambassador", "hon", "honorable"
 )
 
+# Normalize all exclusion sets to lowercase for case-insensitive matching
+# This ensures all comparisons are case-insensitive regardless of input case
+EXPLICIT_EXCLUDES = {str(e).lower() for e in EXPLICIT_EXCLUDES}
+EXCLUSION_SUBSTRINGS = tuple(str(s).lower() for s in EXCLUSION_SUBSTRINGS)
+FOOD_KEYWORDS = {str(k).lower() for k in FOOD_KEYWORDS}
+BEVERAGE_KEYWORDS = {str(k).lower() for k in BEVERAGE_KEYWORDS}
+BRAND_SUFFIXES = {str(s).lower() for s in BRAND_SUFFIXES}
+DRUG_SUFFIXES = tuple(str(s).lower() for s in DRUG_SUFFIXES)
+US_STATES = {str(s).lower() for s in US_STATES}
+COMMON_COUNTRIES = {str(c).lower() for c in COMMON_COUNTRIES}
+LOCATION_SUFFIXES = tuple(str(s).lower() for s in LOCATION_SUFFIXES)
+
 
 def _looks_like_url_or_code(s: str) -> bool:
     """Check if string looks like a URL or code."""
     s2 = s.strip().lower()
-    return s2.startswith(("http://","https://")) or any(t in s2 for t in (".com",".org",".gov",".edu",".net","js.id","®"))
+    # URLs
+    if s2.startswith(("http://","https://", "http:", "https:")):
+        return True
+    if "https" in s2 or "http" in s2:
+        return True
+    # URL fragments (common patterns)
+    if any(t in s2 for t in (".com",".org",".gov",".edu",".net","js.id","®", "www.", "/", "://")):
+        return True
+    # Location codes like "R- Palmdale", "R- Westminster" (region codes)
+    if re.match(r"^[a-z]-?\s+[a-z]", s2) and len(s2.split()) == 2:
+        # Single letter followed by hyphen and location name
+        if re.match(r"^[a-z]-?\s+[a-z]", s2):
+            return True
+    return False
 
 def _is_non_person_phrase(name: str, stop: Set[str],
                           derived_phrases: Set[str] | None = None) -> bool:
@@ -300,7 +395,13 @@ def _is_non_person_phrase(name: str, stop: Set[str],
         return True
     if derived_phrases and s_lower in derived_phrases:
         return True
+    # Check exact match (case-insensitive)
     if s_lower in EXPLICIT_EXCLUDES:
+        return True
+    # Also check normalized version (remove hyphens/spaces for comparison)
+    # This handles cases like "cancer novel-drug-delivery..." matching "cancer noveldrugdeliverysystems..."
+    s_normalized = re.sub(r'[-\s]+', '', s_lower)
+    if s_normalized in {re.sub(r'[-\s]+', '', e) for e in EXPLICIT_EXCLUDES}:
         return True
     # direct membership
     if s_lower in stop:
@@ -316,8 +417,20 @@ def _is_non_person_phrase(name: str, stop: Set[str],
     if re.match(r"^[A-Za-z]\.\s+[A-Z][a-z]+\.?$", s) and len(s) < 15:
         return True
     
-    # URL/code detection
+    # URL/code detection (enhanced to catch URL fragments and location codes)
     if _looks_like_url_or_code(s):
+        return True
+    
+    # Names ending with trailing hyphens/dashes (parsing errors)
+    if s.strip().endswith(("-", "--", "---")):
+        return True
+    
+    # Location codes: single letter + hyphen + location (e.g., "R- Palmdale")
+    if re.match(r"^[A-Za-z]-?\s+[A-Za-z]", s.strip()) and len(s.strip().split()) == 2:
+        return True
+    
+    # URL fragments: contains "https" anywhere
+    if "https" in s_lower or "http" in s_lower:
         return True
     
     # Acronym detection: all caps, >=3 chars, no lowercase
@@ -351,8 +464,8 @@ def _is_non_person_phrase(name: str, stop: Set[str],
     # foods / beverages
     if any(w in FOOD_KEYWORDS for w in words) or any(w in BEVERAGE_KEYWORDS for w in words):
         return True
-    # company/brand organizational suffixes
-    if any(w.strip(".,") in BRAND_SUFFIXES for w in words):
+    # company/brand organizational suffixes (case-insensitive)
+    if any(w.strip(".,").lower() in BRAND_SUFFIXES for w in words):
         return True
     # drug-like tokens
     for w in words:
@@ -395,9 +508,9 @@ def _strip_trailing_exclusion_words(name: str, stop: Set[str]) -> str:
     
     # First, check for multi-word exclusion phrases at the end
     # Sort by length (longest first) to match longer phrases first
-    multi_word_excludes = sorted([e for e in EXPLICIT_EXCLUDES if " " in e], key=len, reverse=True)
+    multi_word_excludes = sorted([e for e in EXPLICIT_EXCLUDES if " " in e or "-" in e], key=len, reverse=True)
     for phrase in multi_word_excludes:
-        # Check if the name ends with this exclusion phrase
+        # Check exact match
         if name_lower.endswith(" " + phrase) or name_lower.endswith(phrase):
             # Find where the phrase starts
             phrase_parts = phrase.split()
@@ -412,6 +525,21 @@ def _strip_trailing_exclusion_words(name: str, stop: Set[str]) -> str:
                     name = " ".join(parts)
                     name_lower = name.lower()
                     break
+        # Also check normalized version (remove hyphens/spaces) for hyphenated exclusions
+        name_normalized = re.sub(r'[-\s]+', '', name_lower)
+        phrase_normalized = re.sub(r'[-\s]+', '', phrase)
+        if name_normalized.endswith(phrase_normalized):
+            # Find where the normalized phrase starts in the original
+            # This is approximate - we'll remove trailing tokens that match
+            phrase_word_count = len(phrase.split())
+            if len(parts) >= phrase_word_count:
+                # Remove the last N tokens
+                parts = parts[:-phrase_word_count]
+                if not parts:
+                    return name  # Don't remove everything
+                name = " ".join(parts)
+                name_lower = name.lower()
+                break
     
     # Now work backwards token by token, removing single-word exclusions
     # Keep at least the first token (first name)
@@ -419,9 +547,14 @@ def _strip_trailing_exclusion_words(name: str, stop: Set[str]) -> str:
     i = len(parts) - 1
     while i >= 0:
         token_lower = parts[i].lower().strip(".,'\"")
-        # Check if this token is an exclusion word
+        # Check if this token is an exclusion word (exact match)
         if token_lower in stop or token_lower in EXPLICIT_EXCLUDES:
             # It's an exclusion word, skip it
+            i -= 1
+            continue
+        # Also check normalized version (remove hyphens/spaces) for hyphenated exclusions
+        token_normalized = re.sub(r'[-\s]+', '', token_lower)
+        if token_normalized in {re.sub(r'[-\s]+', '', e) for e in EXPLICIT_EXCLUDES}:
             i -= 1
             continue
         # Not an exclusion word, keep everything from start to here
@@ -612,7 +745,12 @@ def _clean_people_cell(cell: object, stop: Set[str]) -> Optional[str]:
             continue
         
         # Final check: ensure canonicalized name is still valid
-        if candidate.lower() in stop or candidate.lower() in EXPLICIT_EXCLUDES:
+        candidate_lower = candidate.lower()
+        if candidate_lower in stop or candidate_lower in EXPLICIT_EXCLUDES:
+            continue
+        # Also check normalized version (remove hyphens/spaces) for hyphenated exclusions
+        candidate_normalized = re.sub(r'[-\s]+', '', candidate_lower)
+        if candidate_normalized in {re.sub(r'[-\s]+', '', e) for e in EXPLICIT_EXCLUDES}:
             continue
         
         # Final non-person phrase check on canonicalized name
@@ -642,7 +780,33 @@ def _clean_people_cell(cell: object, stop: Set[str]) -> Optional[str]:
         seen.add(key)
         uniq.append(n)
 
-    return (", ".join(uniq)) if uniq else None
+    # Convert to name capitalization (Title Case) and remove apostrophes (keep periods for middle initials)
+    def clean_name_for_output(name: str) -> str:
+        """Remove apostrophes, convert to Title Case, keep periods for initials."""
+        # Remove apostrophes (possessives and contractions)
+        cleaned_name = re.sub(r"['']", '', name)
+        # Remove extra whitespace
+        cleaned_name = re.sub(r'\s+', ' ', cleaned_name).strip()
+        # Convert to Title Case (capitalize first letter of each word)
+        # Handle periods specially - keep them and capitalize after them (for initials like "J. Smith")
+        parts = cleaned_name.split()
+        title_parts = []
+        for part in parts:
+            if '.' in part:
+                # Handle initials like "J." or "F."
+                if len(part) == 2 and part[0].isalpha() and part[1] == '.':
+                    title_parts.append(part[0].upper() + '.')
+                else:
+                    # Handle other cases with periods
+                    title_parts.append(part.capitalize())
+            else:
+                title_parts.append(part.capitalize())
+        return ' '.join(title_parts)
+    
+    # Clean each name and join with commas
+    cleaned_output = [clean_name_for_output(n) for n in uniq]
+    
+    return (", ".join(cleaned_output)) if cleaned_output else None
 
 
 def clean_series(series: pd.Series, stop: Set[str]) -> pd.Series:
