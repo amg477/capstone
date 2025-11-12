@@ -124,7 +124,7 @@ def is_single_name_or_initial(name: str) -> bool:
     - Full names with middle initials (e.g., "Robert F Kennedy")
     - Full names in general (e.g., "Joe Biden", "Kamala Harris")
     """
-    if not name or pd.isna(name):
+    if pd.isna(name) or not name:
         return False
     
     name = str(name).strip()
@@ -166,7 +166,7 @@ def should_keep_name(name: str) -> bool:
     - Name is NOT a single name/initial, OR
     - Name IS a single name/initial BUT is in the exception list
     """
-    if not name or pd.isna(name):
+    if pd.isna(name) or not name:
         return True  # Keep empty/NaN names
     
     name_str = str(name).strip()
@@ -201,7 +201,7 @@ def clean_persons_string(persons_str: str) -> str:
         Comma-separated string with single names/initials removed
         (except those in exception list)
     """
-    if not persons_str or pd.isna(persons_str):
+    if pd.isna(persons_str) or not persons_str:
         return ""
     
     persons_str = str(persons_str).strip()
@@ -269,9 +269,9 @@ def main():
     # Try multiple possible input file locations
     input_locations = [
         INPUT_FILE,
-        ROOT / "data_storage" / "final_data" / "persons_by_row.csv",
+        ROOT / "data_storage" / "final_data" / "persons_by_row.parquet",
         ROOT / "data_storage" / "streamlit_app_data" / "persons_by_row.parquet",
-        ROOT / "data_storage" / "streamlit_app_data" / "persons_by_row.csv",
+        ROOT / "data_storage" / "streamlit_app_data" / "persons_by_row.parquet",
     ]
     
     df = None
@@ -281,8 +281,8 @@ def main():
         if path.exists():
             try:
                 print(f"[load] Attempting to load {path.name}...")
-                if path.suffix == '.csv':
-                    df = pd.read_csv(path)
+                if path.suffix == '.parquet':
+                    df = pd.read_parquet(path)
                 else:
                     df = pd.read_parquet(path)
                 input_path = path

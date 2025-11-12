@@ -19,9 +19,6 @@ Usage examples:
     --final /path/to/final_dataset_with_attribution.parquet \
     --person-rows /path/to/persons_by_row.parquet \
     --outdir /path/to/output
-
-  # CSV inputs also supported:
-  python pca.py --final final_df.csv --person-rows persons_by_row.csv --outdir outputs
 """
 
 from __future__ import annotations

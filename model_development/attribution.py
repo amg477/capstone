@@ -16,9 +16,9 @@ Outputs
 -------
   data_storage/final_data/attribution_dataset.parquet                  (dimension-level credits)
   data_storage/final_data/final_dataset_with_attribution.parquet       (conversion-only rows; FINAL)
-  data_storage/final_data/tagname_pca_ready.csv
-  data_storage/final_data/persons_detected.csv                         (cleaned, per-name counts)
-  data_storage/final_data/persons_by_row.csv                           (cleaned per-row list)
+  data_storage/final_data/tagname_pca_ready.parquet
+  data_storage/final_data/persons_detected.parquet                         (cleaned, per-name counts)
+  data_storage/final_data/persons_by_row.parquet                           (cleaned per-row list)
 
 Env toggles (optional)
 ----------------------
@@ -187,7 +187,7 @@ def detect_persons_and_flag_conversion(df: pd.DataFrame) -> pd.DataFrame:
     """
     Expects 'people_by_row' column to already be cleaned by clean_people_names.py.
     Simply checks if the column has non-empty content to flag conversions.
-    Write persons CSVs from the already-cleaned data.
+    Write persons Parquet from the already-cleaned data.
     """
     if "people_by_row" not in df.columns:
         raise ValueError("people_by_row column is required but not found in the input dataset.")
@@ -219,7 +219,7 @@ def detect_persons_and_flag_conversion(df: pd.DataFrame) -> pd.DataFrame:
     else:
         agg = pd.DataFrame(columns=["person","count"])
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    agg.to_csv(PERSONS_FILE, index=False)
+    agg.to_parquet(PERSONS_FILE, index=False)
 
     persons_by_row = pd.DataFrame({
         "row_index": np.arange(len(df)),
@@ -227,7 +227,7 @@ def detect_persons_and_flag_conversion(df: pd.DataFrame) -> pd.DataFrame:
         "persons": df["people_by_row"],
         "has_person": df["has_person"].astype(int)
     })
-    persons_by_row.to_csv(PERSONS_BY_ROW_FILE, index=False)
+    persons_by_row.to_parquet(PERSONS_BY_ROW_FILE, index=False)
 
     print(f"[conv] PERSON rows (from cleaned data) = {int(df['has_person'].sum())} / {len(df)}")
     print(f"[conv] Saved unique persons -> {PERSONS_FILE}")
@@ -476,7 +476,7 @@ def write_tagname_summary(df: pd.DataFrame, out_path: Path):
         out["avg_abs_sentiment"] = g["sentiment_score"].apply(lambda s: _to_numeric(s).abs().mean())
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out.to_csv(out_path, index=False)
+    out.to_parquet(out_path, index=False)
 
 # =============================================================================
 # Main
@@ -544,12 +544,12 @@ def main():
     if ENABLE_TERMS:
         terms: List[str] = []
         if KEYWORDS.exists():
-            terms += pd.read_csv(KEYWORDS, header=None)[0].dropna().astype(str).str.strip().tolist()
+            terms += pd.read_parquet(KEYWORDS, header=None)[0].dropna().astype(str).str.strip().tolist()
         if BIGRAMS.exists():
             try:
-                t = pd.read_csv(BIGRAMS, header=None)[0]
+                t = pd.read_parquet(BIGRAMS, header=None)[0]
             except Exception:
-                t = pd.read_csv(BIGRAMS).iloc[:, 0]
+                t = pd.read_parquet(BIGRAMS).iloc[:, 0]
             terms += t.dropna().astype(str).str.strip().tolist()
 
         seen = set(); terms = [t for t in terms if not (t in seen or seen.add(t))]
