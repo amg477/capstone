@@ -3,7 +3,7 @@ Network Analysis Functions
 Handles network analysis, graph building, and network visualization
 """
 
-from typing import Dict, Tuple, List, Set, Iterable, Optional
+from typing import Dict, Tuple, List, Set, Iterable, Optional, TYPE_CHECKING
 from collections import Counter
 from itertools import combinations
 import pandas as pd
@@ -14,11 +14,23 @@ from pathlib import Path
 import streamlit as st
 
 # Try to import streamlit-agraph for interactive network graphs
+if TYPE_CHECKING:
+    from streamlit_agraph import Node, Edge, Config
+
 try:
     from streamlit_agraph import agraph, Node, Edge, Config
     AGraph_AVAILABLE = True
 except ImportError:
     AGraph_AVAILABLE = False
+    # Define placeholder classes to avoid NameError when module is imported
+    class Node:
+        pass
+    class Edge:
+        pass
+    class Config:
+        pass
+    def agraph(*args, **kwargs):
+        pass
 
 
 def bigram_strings(tokens: List[str]) -> Set[str]:
