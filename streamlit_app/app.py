@@ -574,7 +574,7 @@ def main():
                         st.markdown("### Summary")
                         if is_comparison:
                             # Comparison view - show all Person 1 metrics first, then all Person 2 metrics
-                            st.markdown(f"**{story_person}** (Green) vs **{story_person2_clean}** (Teal)")
+                            st.markdown(f"**{story_person}** vs **{story_person2_clean}**")
                             
                             # Calculate all values first
                             num_articles1 = len(person_articles)
@@ -769,7 +769,7 @@ def main():
                             with st.container(border=True):
                                 if is_comparison:
                                     st.markdown("#### Emotion Distribution")
-                                    st.caption(f"Comparison of emotions: {story_person} (green) vs {story_person2_clean} (teal)")
+                                    st.caption(f"Comparison of emotions: {story_person} vs {story_person2_clean}")
                                 else:
                                     st.markdown("#### Emotion Distribution")
                                     st.caption("Shows the distribution of emotions detected in articles mentioning this person")
@@ -788,7 +788,7 @@ def main():
                             with st.container(border=True):
                                 if is_comparison:
                                     st.markdown("#### Sentiment Distribution")
-                                    st.caption(f"Comparison of sentiment: {story_person} (green) vs {story_person2_clean} (teal)")
+                                    st.caption(f"Comparison of sentiment: {story_person} vs {story_person2_clean}")
                                 else:
                                     st.markdown("#### Sentiment Distribution")
                                     st.caption("Shows how sentiment is distributed across articles (Negative, Neutral, Positive)")
@@ -810,7 +810,7 @@ def main():
                         with st.container(border=True):
                             st.markdown("### Mentions Over Time")
                             if is_comparison:
-                                st.caption(f"Timeline comparison: {story_person} (green) vs {story_person2_clean} (teal). Helps identify trends and peak coverage periods for both individuals.")
+                                st.caption(f"Timeline comparison: {story_person} vs {story_person2_clean}. Helps identify trends and peak coverage periods for both individuals.")
                             else:
                                 st.caption("Timeline showing when articles mentioning this person were published. Helps identify trends and peak coverage periods.")
                             fig_mentions = create_person_mentions_over_time_chart(
