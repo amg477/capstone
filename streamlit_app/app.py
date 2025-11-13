@@ -7,6 +7,7 @@ Data cleaning is handled offline in clean_people_names.py.
 
 # Import Packages 
 from __future__ import annotations
+import warnings
 import streamlit as st
 import os
 from pathlib import Path
@@ -14,8 +15,31 @@ import sys
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from charts import create_emotion_chart
-import networkx as nx
+
+# Suppress Plotly deprecation warnings that Streamlit displays
+warnings.filterwarnings('ignore', message='.*keyword arguments.*deprecated.*')
+warnings.filterwarnings('ignore', message='.*deprecated.*will be removed.*')
+from charts import (
+    create_emotion_chart,
+    create_person_emotion_chart,
+    create_person_sentiment_chart,
+    create_person_mentions_over_time_chart,
+    create_topic_sentiment_by_people_chart,
+    create_topic_emotion_by_people_chart,
+    create_topic_mentions_over_time_chart,
+    create_circulation_quartile_chart,
+    create_top_people_bar_chart,
+    create_sentiment_by_cluster_chart,
+    create_circulation_by_cluster_chart,
+)
+from network_analysis import (
+    build_person_network_graph,
+    build_topic_people_network_graph,
+    build_topic_categorical_network_graph,
+    build_person_network_graph_interactive,
+    build_topic_categorical_network_graph_interactive,
+    AGraph_AVAILABLE,
+)
 from typing import Optional
 
 # Ensure current folder is importable 
@@ -62,493 +86,6 @@ def get_filter_options(df: Optional[pd.DataFrame], column: str, limit: int = 100
     return sorted(series.unique().tolist())[:limit]
 
 
-def build_person_network_graph(person_articles: pd.DataFrame, person_name: str) -> Optional[go.Figure]:
-    """Create an ego network for the selected person across categorical attributes."""
-    if person_articles is None or person_articles.empty:
-        return None
-
-    center = person_name.strip()
-    if not center:
-        return None
-
-    G = nx.Graph()
-    G.add_node(center, ntype="person", size=55)
-
-    categorical_cols = [
-        "publication_name",
-        "source_name",
-        "source_type",
-        "channel_name",
-        "author_name",
-        "tag_name",
-        "sentiment_band",
-    ]
-
-    for col in categorical_cols:
-        if col not in person_articles.columns:
-            continue
-
-        counts = (
-            person_articles[col]
-            .dropna()
-            .astype(str)
-            .str.strip()
-            .replace("", pd.NA)
-            .dropna()
-            .value_counts()
-        )
-        if counts.empty:
-            continue
-        
-        # Filter to top 20 if more than 20 options
-        if len(counts) > 20:
-            counts = counts.nlargest(20)
-
-        for value, weight in counts.items():
-            node_id = f"{col}:{value}"
-            G.add_node(node_id, ntype=col, size=18 + min(int(weight), 20))
-            G.add_edge(center, node_id, weight=int(weight))
-
-    if G.number_of_edges() == 0:
-        return None
-
-    pos = nx.spring_layout(G, k=0.7, seed=42)
-    pos[center] = (0.0, 0.0)
-
-    type_palette = {
-        "person": "#12715D",
-        "publication_name": "#4AB48E",
-        "source_name": "#2A9D8F",
-        "source_type": "#2A9D8F",
-        "channel_name": "#D4A115",
-        "author_name": "#D94841",
-        "tag_name": "#9467BD",
-        "sentiment_band": "#8C564B",
-    }
-
-    edge_x, edge_y = [], []
-    for u, v in G.edges():
-        x0, y0 = pos[u]
-        x1, y1 = pos[v]
-        edge_x.extend([x0, x1, None])
-        edge_y.extend([y0, y1, None])
-
-    edge_trace = go.Scatter(
-        x=edge_x,
-        y=edge_y,
-        mode="lines",
-        line=dict(width=1, color="rgba(120,120,120,0.4)"),
-        hoverinfo="none",
-        showlegend=False,
-    )
-
-    node_traces = []
-    node_types = {}
-    for node, data in G.nodes(data=True):
-        ntype = data.get("ntype", "unknown")
-        node_types.setdefault(ntype, []).append(node)
-
-    for ntype, nodes in node_types.items():
-        xs = [pos[n][0] for n in nodes]
-        ys = [pos[n][1] for n in nodes]
-        sizes = [G.nodes[n].get("size", 20) for n in nodes]
-        color = type_palette.get(ntype, "#808080")
-
-        hover_text = []
-        for n in nodes:
-            if n == center:
-                hover_text.append(f"<b>{center}</b><br>Type: Person")
-            else:
-                label = n.split(":", 1)[-1]
-                weight = int(G[center][n].get("weight", 0)) if center in G[n] else 0
-                hover_text.append(f"<b>{label}</b><br>Type: {ntype.replace('_', ' ').title()}<br>Articles: {weight}")
-
-        display_text = []
-        for n in nodes:
-            if n == center:
-                display_text.append(center)
-            else:
-                label = n.split(":", 1)[-1]
-                display_text.append(label if len(label) <= 14 else f"{label[:11]}…")
-
-        node_traces.append(
-            go.Scatter(
-                x=xs,
-                y=ys,
-                mode="markers+text",
-                marker=dict(
-                    size=sizes,
-                    color=color,
-                    line=dict(width=1, color="white"),
-                    opacity=0.85,
-                ),
-                text=display_text,
-                textposition="middle center",
-                textfont=dict(size=9, color="white"),
-                hovertext=hover_text,
-                hoverinfo="text",
-                name=ntype.replace("_", " ").title(),
-                showlegend=True,
-            )
-        )
-
-    fig = go.Figure(data=[edge_trace] + node_traces)
-    fig.update_layout(
-        showlegend=True,
-        hovermode="closest",
-        dragmode="pan",
-        margin=dict(b=30, l=10, r=10, t=50),
-        xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-        yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-        plot_bgcolor="white",
-        paper_bgcolor="white",
-        height=560,
-    )
-    return fig
-
-
-def build_topic_people_network_graph(
-    topic_name: str,
-    final_df_topic: pd.DataFrame,
-    pbr_long_topic: pd.DataFrame,
-    max_people: int = 30
-) -> Optional[go.Figure]:
-    """Create a bipartite network graph showing connections between a topic and people."""
-    if final_df_topic is None or final_df_topic.empty:
-        return None
-    
-    if pbr_long_topic is None or pbr_long_topic.empty:
-        return None
-    
-    topic_center = topic_name.strip()
-    if not topic_center:
-        return None
-    
-    # Ensure row_index exists
-    if 'row_index' not in final_df_topic.columns:
-        final_df_topic = final_df_topic.reset_index().rename(columns={'index': 'row_index'})
-    
-    # Convert row_index to numeric for merging
-    final_df_topic['row_index'] = pd.to_numeric(final_df_topic['row_index'], errors='coerce')
-    pbr_long_topic['row_index'] = pd.to_numeric(pbr_long_topic['row_index'], errors='coerce')
-    
-    # Count articles per person for this topic
-    person_counts = pbr_long_topic.groupby('person')['row_index'].nunique().reset_index(name='article_count')
-    person_counts = person_counts.sort_values('article_count', ascending=False).head(max_people)
-    
-    if person_counts.empty:
-        return None
-    
-    # Build the network graph
-    G = nx.Graph()
-    
-    # Add topic as center node
-    G.add_node(topic_center, ntype="topic", size=60)
-    
-    # Add people nodes and edges
-    for _, row in person_counts.iterrows():
-        person = row['person']
-        weight = int(row['article_count'])
-        
-        # Add person node
-        G.add_node(person, ntype="person", size=20 + min(weight, 30))
-        
-        # Add edge between topic and person
-        G.add_edge(topic_center, person, weight=weight)
-    
-    if G.number_of_edges() == 0:
-        return None
-    
-    # Use bipartite layout for better visualization
-    # Position topic in center, people around it
-    pos = nx.spring_layout(G, k=1.2, seed=42, iterations=50)
-    # Ensure topic is centered
-    pos[topic_center] = (0.0, 0.0)
-    
-    # Color palette
-    type_palette = {
-        "topic": "#9467BD",  # Purple for topics
-        "person": "#12715D",  # Green for people
-    }
-    
-    # Create edge traces - one trace per edge to support variable widths
-    edge_traces = []
-    edge_weights = []
-    for u, v in G.edges():
-        weight = G[u][v].get("weight", 1)
-        edge_weights.append(weight)
-    
-    max_weight = max(edge_weights) if edge_weights else 1
-    
-    for u, v in G.edges():
-        x0, y0 = pos[u]
-        x1, y1 = pos[v]
-        weight = G[u][v].get("weight", 1)
-        width = max(1, weight * 3 / max_weight)
-        
-        edge_traces.append(
-            go.Scatter(
-                x=[x0, x1, None],
-                y=[y0, y1, None],
-                mode="lines",
-                line=dict(
-                    width=width,
-                    color="rgba(120,120,120,0.3)"
-                ),
-                hoverinfo="none",
-                showlegend=False,
-            )
-        )
-    
-    # Create node traces by type
-    node_traces = []
-    node_types = {}
-    for node, data in G.nodes(data=True):
-        ntype = data.get("ntype", "unknown")
-        node_types.setdefault(ntype, []).append(node)
-    
-    for ntype, nodes in node_types.items():
-        xs = [pos[n][0] for n in nodes]
-        ys = [pos[n][1] for n in nodes]
-        sizes = [G.nodes[n].get("size", 20) for n in nodes]
-        color = type_palette.get(ntype, "#808080")
-        
-        hover_text = []
-        display_text = []
-        for n in nodes:
-            if n == topic_center:
-                hover_text.append(f"<b>{topic_center}</b><br>Type: Topic<br>Total Articles: {len(final_df_topic)}")
-                display_text.append(topic_center[:20] + "..." if len(topic_center) > 20 else topic_center)
-            else:
-                weight = int(G[topic_center][n].get("weight", 0)) if topic_center in G[n] else 0
-                hover_text.append(f"<b>{n}</b><br>Type: Person<br>Articles: {weight}")
-                display_text.append(n[:15] + "..." if len(n) > 15 else n)
-        
-        node_traces.append(
-            go.Scatter(
-                x=xs,
-                y=ys,
-                mode="markers+text",
-                marker=dict(
-                    size=sizes,
-                    color=color,
-                    line=dict(width=2, color="white"),
-                    opacity=0.9,
-                ),
-                text=display_text,
-                textposition="middle center",
-                textfont=dict(size=9 if ntype == "person" else 12, color="white", family="Arial Black"),
-                hovertext=hover_text,
-                hoverinfo="text",
-                name=ntype.title(),
-                showlegend=True,
-            )
-        )
-    
-    fig = go.Figure(data=edge_traces + node_traces)
-    fig.update_layout(
-        title=dict(text=f"Topic-People Network: {topic_center}", x=0.5, font=dict(size=16)),
-        showlegend=True,
-        hovermode="closest",
-        dragmode="pan",
-        margin=dict(b=30, l=10, r=10, t=50),
-        xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-        yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-        plot_bgcolor="white",
-        paper_bgcolor="white",
-        height=600,
-    )
-    return fig
-
-
-def build_topic_categorical_network_graph(
-    topic_name: str,
-    final_df_topic: pd.DataFrame,
-    pbr_long_topic: pd.DataFrame
-) -> Optional[go.Figure]:
-    """Create an ego network for the selected topic across all categorical attributes.
-    Filters categorical columns to top 20 if they have more than 20 options, except for person.
-    """
-    if final_df_topic is None or final_df_topic.empty:
-        return None
-    
-    topic_center = topic_name.strip()
-    if not topic_center:
-        return None
-    
-    # Ensure row_index exists
-    if 'row_index' not in final_df_topic.columns:
-        final_df_topic = final_df_topic.reset_index().rename(columns={'index': 'row_index'})
-    
-    # Convert row_index to numeric for merging
-    final_df_topic['row_index'] = pd.to_numeric(final_df_topic['row_index'], errors='coerce')
-    
-    # Get people from pbr_long_topic and add as a column
-    if pbr_long_topic is not None and not pbr_long_topic.empty:
-        pbr_long_topic['row_index'] = pd.to_numeric(pbr_long_topic['row_index'], errors='coerce')
-        # Get unique people per row_index
-        people_per_row = pbr_long_topic.groupby('row_index')['person'].apply(
-            lambda x: ', '.join(x.dropna().astype(str).unique())
-        ).reset_index(name='person')
-        # Merge with final_df_topic
-        final_df_topic = final_df_topic.merge(people_per_row, on='row_index', how='left')
-    
-    G = nx.Graph()
-    G.add_node(topic_center, ntype="topic", size=60)
-    
-    categorical_cols = [
-        "publication_name",
-        "source_name",
-        "source_type",
-        "channel_name",
-        "author_name",
-        "tag_name",
-        "sentiment_band",
-        "person",  # Add person as a categorical column
-    ]
-    
-    for col in categorical_cols:
-        if col not in final_df_topic.columns:
-            continue
-        
-        # For person column, handle comma-separated values
-        if col == "person":
-            # Explode comma-separated persons
-            person_series = final_df_topic[col].dropna().astype(str)
-            person_list = []
-            for persons_str in person_series:
-                if ',' in persons_str:
-                    person_list.extend([p.strip() for p in persons_str.split(',') if p.strip()])
-                else:
-                    person_list.append(persons_str.strip())
-            
-            if not person_list:
-                continue
-            
-            counts = pd.Series(person_list).value_counts()
-            # Filter to top 20 if more than 20 options (same as other categorical columns)
-            if len(counts) > 20:
-                counts = counts.nlargest(20)
-        else:
-            counts = (
-                final_df_topic[col]
-                .dropna()
-                .astype(str)
-                .str.strip()
-                .replace("", pd.NA)
-                .dropna()
-                .value_counts()
-            )
-            
-            # Filter to top 20 if more than 20 options
-            if len(counts) > 20:
-                counts = counts.nlargest(20)
-        
-        if counts.empty:
-            continue
-        
-        for value, weight in counts.items():
-            node_id = f"{col}:{value}"
-            G.add_node(node_id, ntype=col, size=18 + min(int(weight), 20))
-            G.add_edge(topic_center, node_id, weight=int(weight))
-    
-    if G.number_of_edges() == 0:
-        return None
-    
-    pos = nx.spring_layout(G, k=0.7, seed=42, iterations=50)
-    pos[topic_center] = (0.0, 0.0)
-    
-    type_palette = {
-        "topic": "#9467BD",
-        "person": "#12715D",
-        "publication_name": "#4AB48E",
-        "source_name": "#2A9D8F",
-        "source_type": "#2A9D8F",
-        "channel_name": "#D4A115",
-        "author_name": "#D94841",
-        "tag_name": "#9467BD",
-        "sentiment_band": "#8C564B",
-    }
-    
-    edge_x, edge_y = [], []
-    for u, v in G.edges():
-        x0, y0 = pos[u]
-        x1, y1 = pos[v]
-        edge_x.extend([x0, x1, None])
-        edge_y.extend([y0, y1, None])
-    
-    edge_trace = go.Scatter(
-        x=edge_x,
-        y=edge_y,
-        mode="lines",
-        line=dict(width=1, color="rgba(120,120,120,0.4)"),
-        hoverinfo="none",
-        showlegend=False,
-    )
-    
-    node_traces = []
-    node_types = {}
-    for node, data in G.nodes(data=True):
-        ntype = data.get("ntype", "unknown")
-        node_types.setdefault(ntype, []).append(node)
-    
-    for ntype, nodes in node_types.items():
-        xs = [pos[n][0] for n in nodes]
-        ys = [pos[n][1] for n in nodes]
-        sizes = [G.nodes[n].get("size", 20) for n in nodes]
-        color = type_palette.get(ntype, "#808080")
-        
-        hover_text = []
-        for n in nodes:
-            if n == topic_center:
-                hover_text.append(f"<b>{topic_center}</b><br>Type: Topic<br>Total Articles: {len(final_df_topic)}")
-            else:
-                label = n.split(":", 1)[-1]
-                weight = int(G[topic_center][n].get("weight", 0)) if topic_center in G[n] else 0
-                hover_text.append(f"<b>{label}</b><br>Type: {ntype.replace('_', ' ').title()}<br>Articles: {weight}")
-        
-        display_text = []
-        for n in nodes:
-            if n == topic_center:
-                display_text.append(topic_center[:20] + "..." if len(topic_center) > 20 else topic_center)
-            else:
-                label = n.split(":", 1)[-1]
-                display_text.append(label if len(label) <= 14 else f"{label[:11]}…")
-        
-        node_traces.append(
-            go.Scatter(
-                x=xs,
-                y=ys,
-                mode="markers+text",
-                marker=dict(
-                    size=sizes,
-                    color=color,
-                    line=dict(width=1, color="white"),
-                    opacity=0.85,
-                ),
-                text=display_text,
-                textposition="middle center",
-                textfont=dict(size=9, color="white"),
-                hovertext=hover_text,
-                hoverinfo="text",
-                name=ntype.replace("_", " ").title(),
-                showlegend=True,
-            )
-        )
-    
-    fig = go.Figure(data=[edge_trace] + node_traces)
-    fig.update_layout(
-        showlegend=True,
-        hovermode="closest",
-        dragmode="pan",
-        margin=dict(b=30, l=10, r=10, t=50),
-        xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-        yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-        plot_bgcolor="white",
-        paper_bgcolor="white",
-        height=600,
-    )
-    return fig
 # ---- end inline helpers ----
 
 # -------------------- Branding / Theme --------------------
@@ -579,20 +116,44 @@ def safe_table(df: pd.DataFrame, max_rows: int = 2000, height: int = 420):
     if len(df) > max_rows:
         st.caption(f"Showing first {max_rows:,} of {len(df):,} rows")
         df = df.head(max_rows)
-    st.dataframe(df, use_container_width=True, height=height)
+    st.dataframe(df, width="stretch", height=height)
 
 @st.cache_data(show_spinner=False, ttl=3600)
 def with_sentiment_band(df: pd.DataFrame) -> pd.DataFrame:
     """Add sentiment band column if not present - simplified"""
     if df is None or df.empty:
         return pd.DataFrame()
+    
+    # Normalize existing sentiment_band to title case if it exists
+    if 'sentiment_band' in df.columns:
+        df = df.copy()
+        df['sentiment_band'] = df['sentiment_band'].astype(str).str.title()
+        # Handle any NaN or 'nan' strings
+        df['sentiment_band'] = df['sentiment_band'].replace(['Nan', 'None', 'nan', 'none'], pd.NA)
+    
+    # Create sentiment_band from sentiment_score if needed
     if 'sentiment_score' in df.columns and 'sentiment_band' not in df.columns:
         df = df.copy()
+        # Use appropriate thresholds for sentiment_score scale (-100 to 100)
+        # Negative: < -10, Neutral: -10 to 10, Positive: > 10
         df['sentiment_band'] = pd.cut(
             df['sentiment_score'],
-            bins=[-float('inf'), -0.1, 0.1, float('inf')],
+            bins=[-float('inf'), -10, 10, float('inf')],
             labels=['Negative', 'Neutral', 'Positive']
         )
+    elif 'sentiment_score' in df.columns and 'sentiment_band' in df.columns:
+        # If both exist, ensure sentiment_band is properly set for any missing values
+        df = df.copy()
+        missing_mask = df['sentiment_band'].isna()
+        if missing_mask.any():
+            # Use appropriate thresholds for sentiment_score scale (-100 to 100)
+            # Negative: < -10, Neutral: -10 to 10, Positive: > 10
+            df.loc[missing_mask, 'sentiment_band'] = pd.cut(
+                df.loc[missing_mask, 'sentiment_score'],
+                bins=[-float('inf'), -10, 10, float('inf')],
+                labels=['Negative', 'Neutral', 'Positive']
+            )
+    
     return df
 
 # -------------------- Main app --------------------
@@ -656,7 +217,13 @@ def main():
 
     col1, col2, col3, col4, col5, col6, col7 = st.columns(7)
     with col1:
-        selected_clusters = st.multiselect("Select Clusters", clusters, default=[], key="tab1_select_clusters") if clusters else []
+        selected_clusters = st.multiselect(
+            "Select Clusters", 
+            clusters, 
+            default=[], 
+            key="tab1_select_clusters",
+            help="Filter articles by cluster groups. Clusters represent groups of articles with similar characteristics."
+        ) if clusters else []
     with col2:
         sentiment_bands_available = []
         if influencer_df is not None and not influencer_df.empty and 'sentiment_band' in influencer_df.columns:
@@ -664,17 +231,48 @@ def main():
                 sentiment_bands_available = sorted(influencer_df['sentiment_band'].dropna().unique().tolist())
             except Exception:
                 sentiment_bands_available = []
-        selected_sentiment_bands_global = st.multiselect("Sentiment Band", sentiment_bands_available, default=[], key="tab1_sentiment_band")
+        selected_sentiment_bands_global = st.multiselect(
+            "Sentiment Band", 
+            sentiment_bands_available, 
+            default=[], 
+            key="tab1_sentiment_band",
+            help="Filter by sentiment categories: Negative (< -10), Neutral (-10 to 10), or Positive (> 10) on a -100 to 100 scale"
+        )
     with col3:
-        selected_authors_global = st.multiselect("Authors", author_options, key="tab1_select_authors")
+        selected_authors_global = st.multiselect(
+            "Authors", 
+            author_options, 
+            key="tab1_select_authors",
+            help="Filter articles by specific authors. Select multiple authors to see articles from any of them."
+        )
     with col4:
-        selected_publications_global = st.multiselect("Publications", publication_options, key="tab1_select_publications")
+        selected_publications_global = st.multiselect(
+            "Publications", 
+            publication_options, 
+            key="tab1_select_publications",
+            help="Filter articles by publication source. Shows articles from selected publications."
+        )
     with col5:
-        selected_source_names_global = st.multiselect("Source Names", source_name_options, key="tab1_select_source_names")
+        selected_source_names_global = st.multiselect(
+            "Source Names", 
+            source_name_options, 
+            key="tab1_select_source_names",
+            help="Filter by source name (e.g., specific news agencies, organizations)."
+        )
     with col6:
-        selected_channels_global = st.multiselect("Channels", channel_options, key="tab1_select_channels")
+        selected_channels_global = st.multiselect(
+            "Channels", 
+            channel_options, 
+            key="tab1_select_channels",
+            help="Filter by distribution channel (e.g., social media, news wires, trade publications)."
+        )
     with col7:
-        selected_topics_global = st.multiselect("Topics", topic_options_global, key="tab1_select_topics")
+        selected_topics_global = st.multiselect(
+            "Topics", 
+            topic_options_global, 
+            key="tab1_select_topics",
+            help="Filter articles by topic tags. Topics represent the main themes or subjects of articles."
+        )
 
     # Apply global filters to the article-level data for use in both sub-tabs
     final_df_filtered = None
@@ -753,20 +351,40 @@ def main():
     if influencer_view is not None and not influencer_view.empty:
         m1, m2, m3, m4 = st.columns(4)
         with m1:
-            st.metric("Total Individuals", f"{len(influencer_view):,}", help="Number of unique individuals in the filtered dataset")
+            st.metric(
+                "Total Individuals", 
+                f"{len(influencer_view):,}", 
+                help="Number of unique individuals (people) found in articles matching your current filters"
+            )
         with m2:
             total_mentions = influencer_view.get('mention_count', pd.Series([0]*len(influencer_view))).sum()
-            st.metric("Total Mentions", f"{int(total_mentions):,}", help="Total number of mentions across all individuals")
+            st.metric(
+                "Total Mentions", 
+                f"{int(total_mentions):,}", 
+                help="Total number of times individuals are mentioned across all filtered articles"
+            )
         with m3:
             avg_sentiment = influencer_view.get('sentiment_score', pd.Series(dtype=float)).mean()
-            st.metric("Avg Sentiment Score", f"{(avg_sentiment if pd.notna(avg_sentiment) else 0):.2f}", help="Average sentiment score (-1 to 1)")
+            st.metric(
+                "Avg Sentiment Score", 
+                f"{(avg_sentiment if pd.notna(avg_sentiment) else 0):.2f}", 
+                help="Average sentiment score ranging from -1 (very negative) to +1 (very positive). Values near 0 are neutral."
+            )
         with m4:
             avg_circ = influencer_view.get('circulation_size', pd.Series(dtype=float)).mean()
-            st.metric("Avg Circulation", f"{(avg_circ if pd.notna(avg_circ) else 0):,.0f}", help="Average circulation size of publications")
+            st.metric(
+                "Avg Circulation", 
+                f"{(avg_circ if pd.notna(avg_circ) else 0):,.0f}", 
+                help="Average circulation size (readership/reach) of publications in the filtered dataset"
+            )
     else:
         st.info("No data available. Please check your filters or ensure data files are loaded.")
 
-    show_overview = st.checkbox("See General Overview", value=False)
+    show_overview = st.checkbox(
+        "See General Overview", 
+        value=False,
+        help="Display high-level visualizations including cluster analysis and top individuals across all filtered data"
+    )
 
     if show_overview:
         st.markdown("### General Overview")
@@ -774,48 +392,16 @@ def main():
         if cluster_col and influencer_view is not None and not influencer_view.empty:
             c1, c2 = st.columns(2)
             with c1:
-                sentiment_by_cluster = (
-                    influencer_view.groupby(cluster_col)['sentiment_score']
-                    .mean()
-                    .reset_index()
-                    .sort_values('sentiment_score', ascending=False)
-                    .head(10)
-                )
-                if not sentiment_by_cluster.empty:
-                    fig_sentiment = go.Figure(data=[
-                        go.Bar(x=sentiment_by_cluster[cluster_col], y=sentiment_by_cluster['sentiment_score'])
-                    ])
-                    fig_sentiment.update_layout(
-                        title="Sentiment Distribution by Cluster (Top 10)",
-                        xaxis_title="Cluster",
-                        yaxis_title="Average Sentiment",
-                        height=300,
-                        showlegend=False,
-                    )
-                    st.plotly_chart(fig_sentiment, use_container_width=True)
+                fig_sentiment = create_sentiment_by_cluster_chart(influencer_view, cluster_col)
+                if fig_sentiment:
+                    st.plotly_chart(fig_sentiment, width="stretch")
                 else:
                     st.info("No cluster/sentiment data available after filters.")
 
             with c2:
-                circ_by_cluster = (
-                    influencer_view.groupby(cluster_col)['circulation_size']
-                    .mean()
-                    .reset_index()
-                    .sort_values('circulation_size', ascending=False)
-                    .head(10)
-                )
-                if not circ_by_cluster.empty:
-                    fig_circ = go.Figure(data=[
-                        go.Bar(x=circ_by_cluster[cluster_col], y=circ_by_cluster['circulation_size'])
-                    ])
-                    fig_circ.update_layout(
-                        title="Top Clusters by Circulation",
-                        xaxis_title="Cluster",
-                        yaxis_title="Average Circulation",
-                        height=300,
-                        showlegend=False,
-                    )
-                    st.plotly_chart(fig_circ, use_container_width=True)
+                fig_circ = create_circulation_by_cluster_chart(influencer_view, cluster_col)
+                if fig_circ:
+                    st.plotly_chart(fig_circ, width="stretch")
                 else:
                     st.info("No cluster/circulation data available after filters.")
         else:
@@ -828,7 +414,8 @@ def main():
             max_value=50,
             value=20,
             step=5,
-            key="top_people_slider_overview"
+            key="top_people_slider_overview",
+            help="Adjust the number of top individuals displayed in the bar chart, ranked by number of article mentions"
         )
 
         if pbr_long_filtered is None or pbr_long_filtered.empty:
@@ -840,22 +427,11 @@ def main():
             if top_people_counts.empty:
                 st.info("No individuals found for the current selection.")
             else:
-                top_people_counts = top_people_counts.head(n_top_general)
-                fig_top_people = px.bar(
-                    top_people_counts.sort_values('article_count', ascending=True),
-                    x='article_count',
-                    y='person',
-                    orientation='h',
-                    labels={'article_count': 'Number of Articles', 'person': 'Individual'},
-                    title=f"Top {len(top_people_counts)} Individuals by Article Mentions"
-                )
-                fig_top_people.update_layout(
-                    template='simple_white',
-                    margin=dict(l=10, r=10, t=60, b=10),
-                    height=max(400, len(top_people_counts) * 22),
-                    yaxis={'categoryorder': 'array', 'categoryarray': top_people_counts.sort_values('article_count')['person']}
-                )
-                st.plotly_chart(fig_top_people, use_container_width=True)
+                fig_top_people = create_top_people_bar_chart(pbr_long_filtered, n_top_general)
+                if fig_top_people:
+                    st.plotly_chart(fig_top_people, width="stretch")
+                else:
+                    st.info("No individuals found for the current selection.")
 
     # --------------------------------------
     # Main Tabs: People and Topics
@@ -868,20 +444,29 @@ def main():
         st.markdown("### Search Individual")
 
         people_options = all_people_filtered if all_people_filtered else all_people
-        col_person, col_keyword = st.columns([2, 1])
+        col_person, col_person2, col_keyword = st.columns([2, 2, 1])
         with col_person:
             story_person = st.selectbox(
                 "Select an Individual",
                 options=[""] + people_options,
                 index=0,
-                help="Fast, case-insensitive, normalized people search",
+                help="Search and select a person to analyze. The search is case-insensitive and handles name variations automatically.",
                 key="tab2_story_person"
+            )
+        with col_person2:
+            story_person2 = st.selectbox(
+                "Compare with (Optional)",
+                options=[""] + people_options,
+                index=0,
+                help="Optionally select a second person to compare side-by-side. Both individuals will be shown in the same charts with different colors.",
+                key="tab2_story_person2"
             )
         with col_keyword:
             story_keyword = st.text_input(
                 "Optional Keyword Filter",
                 placeholder="e.g., vaccine, policy...",
-                key="tab2_story_keyword"
+                key="tab2_story_keyword",
+                help="Filter articles to only those containing your keyword in the headline or article body. Useful for focusing on specific topics."
             )
 
         if story_person and story_person.strip():
@@ -896,6 +481,7 @@ def main():
                     if 'row_index' not in final_df_people.columns:
                         final_df_people = final_df_people.reset_index().rename(columns={'index': 'row_index'})
 
+                    # Get articles for first person
                     needle = story_person.strip().lower()
                     matching_rows = pbr_long_filtered.loc[
                         pbr_long_filtered['person_norm_lc'] == needle, 'row_index'
@@ -905,15 +491,39 @@ def main():
                         if len(matching_rows) > 0 else pd.DataFrame()
                     )
 
-                    if story_keyword and story_keyword.strip() and not person_articles.empty:
+                    # Get articles for second person if selected
+                    person2_articles = pd.DataFrame()
+                    story_person2_clean = story_person2.strip() if story_person2 and story_person2.strip() else None
+                    if story_person2_clean and story_person2_clean.lower() != needle:
+                        needle2 = story_person2_clean.lower()
+                        matching_rows2 = pbr_long_filtered.loc[
+                            pbr_long_filtered['person_norm_lc'] == needle2, 'row_index'
+                        ].unique()
+                        person2_articles = (
+                            final_df_people[final_df_people['row_index'].isin(matching_rows2)].copy()
+                            if len(matching_rows2) > 0 else pd.DataFrame()
+                        )
+
+                    # Apply keyword filter to both
+                    if story_keyword and story_keyword.strip():
                         keyword = story_keyword.strip().lower()
-                        keyword_mask = pd.Series(False, index=person_articles.index)
-                        for col in ['headline', 'article_body']:
-                            if col in person_articles.columns:
-                                keyword_mask = keyword_mask | person_articles[col].astype(str).str.lower().str.contains(
-                                    keyword, regex=False
-                                )
-                        person_articles = person_articles[keyword_mask]
+                        if not person_articles.empty:
+                            keyword_mask = pd.Series(False, index=person_articles.index)
+                            for col in ['headline', 'article_body']:
+                                if col in person_articles.columns:
+                                    keyword_mask = keyword_mask | person_articles[col].astype(str).str.lower().str.contains(
+                                        keyword, regex=False
+                                    )
+                            person_articles = person_articles[keyword_mask]
+                        
+                        if not person2_articles.empty:
+                            keyword_mask2 = pd.Series(False, index=person2_articles.index)
+                            for col in ['headline', 'article_body']:
+                                if col in person2_articles.columns:
+                                    keyword_mask2 = keyword_mask2 | person2_articles[col].astype(str).str.lower().str.contains(
+                                        keyword, regex=False
+                                    )
+                            person2_articles = person2_articles[keyword_mask2]
 
                     if person_articles.empty:
                         st.warning(
@@ -922,129 +532,338 @@ def main():
                             + " within the current filters."
                         )
                     else:
+                        # Check if comparing
+                        is_comparison = story_person2_clean and not person2_articles.empty
+                        
                         st.markdown("### Summary")
-                        summary_cols = st.columns(4)
-                        with summary_cols[0]:
-                            st.metric("Total Articles", len(person_articles))
-                        with summary_cols[1]:
+                        if is_comparison:
+                            # Comparison view - show all Person 1 metrics first, then all Person 2 metrics
+                            st.markdown(f"**{story_person}** (Green) vs **{story_person2_clean}** (Teal)")
+                            
+                            # Calculate all values first
+                            num_articles1 = len(person_articles)
+                            num_articles2 = len(person2_articles)
                             avg_sentiment = person_articles.get('sentiment_score', pd.Series(dtype=float)).mean()
-                            st.metric("Avg Sentiment", f"{(avg_sentiment if pd.notna(avg_sentiment) else 0):.2f}")
-                        with summary_cols[2]:
+                            avg_sentiment2 = person2_articles.get('sentiment_score', pd.Series(dtype=float)).mean()
                             total_circ = person_articles.get('circulation_size', pd.Series(dtype=float)).sum()
-                            st.metric("Total Reach", f"{int(total_circ) if pd.notna(total_circ) else 0:,}")
-                        with summary_cols[3]:
+                            total_circ2 = person2_articles.get('circulation_size', pd.Series(dtype=float)).sum()
                             unique_pubs = person_articles.get('publication_name', pd.Series(dtype=str)).nunique()
-                            st.metric("Unique Publishers", int(unique_pubs) if pd.notna(unique_pubs) else 0)
+                            unique_pubs2 = person2_articles.get('publication_name', pd.Series(dtype=str)).nunique()
+                            
+                            # Person 1 row 1 - main metrics
+                            summary_cols1 = st.columns(4)
+                            with summary_cols1[0]:
+                                st.metric(
+                                    f"{story_person} - Articles", 
+                                    num_articles1,
+                                    help="Total number of articles mentioning this person after applying all filters"
+                                )
+                            with summary_cols1[1]:
+                                st.metric(
+                                    f"{story_person} - Avg Sentiment", 
+                                    f"{(avg_sentiment if pd.notna(avg_sentiment) else 0):.2f}",
+                                    help="Average sentiment score for articles mentioning this person"
+                                )
+                            with summary_cols1[2]:
+                                st.metric(
+                                    f"{story_person} - Total Reach", 
+                                    f"{int(total_circ) if pd.notna(total_circ) else 0:,}",
+                                    help="Sum of circulation sizes across all publications mentioning this person"
+                                )
+                            with summary_cols1[3]:
+                                st.metric(
+                                    f"{story_person} - Publishers", 
+                                    int(unique_pubs) if pd.notna(unique_pubs) else 0,
+                                    help="Number of distinct publications that have mentioned this person"
+                                )
+                        else:
+                            # Single person view
+                            summary_cols = st.columns(4)
+                            with summary_cols[0]:
+                                st.metric(
+                                    "Total Articles", 
+                                    len(person_articles),
+                                    help="Total number of articles mentioning this person after applying all filters"
+                                )
+                            with summary_cols[1]:
+                                avg_sentiment = person_articles.get('sentiment_score', pd.Series(dtype=float)).mean()
+                                st.metric(
+                                    "Avg Sentiment", 
+                                    f"{(avg_sentiment if pd.notna(avg_sentiment) else 0):.2f}",
+                                    help="Average sentiment score for articles mentioning this person (-1 to +1)"
+                                )
+                            with summary_cols[2]:
+                                total_circ = person_articles.get('circulation_size', pd.Series(dtype=float)).sum()
+                                st.metric(
+                                    "Total Reach", 
+                                    f"{int(total_circ) if pd.notna(total_circ) else 0:,}",
+                                    help="Sum of circulation sizes across all publications mentioning this person"
+                                )
+                            with summary_cols[3]:
+                                unique_pubs = person_articles.get('publication_name', pd.Series(dtype=str)).nunique()
+                                st.metric(
+                                    "Unique Publishers", 
+                                    int(unique_pubs) if pd.notna(unique_pubs) else 0,
+                                    help="Number of distinct publications that have mentioned this person"
+                                )
 
-                        extra_metrics = []
-                        if 'hit_strength' in person_articles.columns:
-                            extra_metrics.append(("Total Hit Strength", person_articles['hit_strength'].sum()))
-                        if 'vipr_score' in person_articles.columns:
-                            extra_metrics.append(("Total VIPR Score", person_articles['vipr_score'].sum()))
-                        if 'vipr_weight' in person_articles.columns:
-                            extra_metrics.append(("Total VIPR Weight", person_articles['vipr_weight'].sum()))
-                        if extra_metrics:
-                            metric_cols = st.columns(len(extra_metrics))
-                            for col_obj, (label, value) in zip(metric_cols, extra_metrics):
-                                with col_obj:
-                                    display_val = f"{value:,.0f}" if pd.notna(value) else "N/A"
-                                    st.metric(label, display_val)
+                        # Extra metrics section
+                        if is_comparison:
+                            # Comparison view - show all Person 1 metrics first, then all Person 2 metrics
+                            extra_metrics_list = []
+                            
+                            # Average Total Reach per Article
+                            total_circ1 = person_articles.get('circulation_size', pd.Series(dtype=float)).sum()
+                            num_articles1 = len(person_articles)
+                            total_circ2 = person2_articles.get('circulation_size', pd.Series(dtype=float)).sum()
+                            num_articles2 = len(person2_articles)
+                            
+                            if num_articles1 > 0 and pd.notna(total_circ1) and num_articles2 > 0 and pd.notna(total_circ2):
+                                avg_reach1 = total_circ1 / num_articles1
+                                avg_reach2 = total_circ2 / num_articles2
+                                extra_metrics_list.append(("Average Total Reach per Article", avg_reach1, avg_reach2))
+                            
+                            # Average Hit Strength
+                            if 'hit_strength' in person_articles.columns and 'hit_strength' in person2_articles.columns:
+                                hit1 = person_articles['hit_strength'].mean()
+                                hit2 = person2_articles['hit_strength'].mean()
+                                if pd.notna(hit1) and pd.notna(hit2):
+                                    extra_metrics_list.append(("Average Hit Strength", hit1, hit2))
+                            
+                            # Average VIPR Score
+                            if 'vipr_score' in person_articles.columns and 'vipr_score' in person2_articles.columns:
+                                vipr1 = person_articles['vipr_score'].mean()
+                                vipr2 = person2_articles['vipr_score'].mean()
+                                if pd.notna(vipr1) and pd.notna(vipr2):
+                                    extra_metrics_list.append(("Average VIPR Score", vipr1, vipr2))
+                            
+                            # Average VIPR Weight
+                            if 'vipr_weight' in person_articles.columns and 'vipr_weight' in person2_articles.columns:
+                                weight1 = person_articles['vipr_weight'].mean()
+                                weight2 = person2_articles['vipr_weight'].mean()
+                                if pd.notna(weight1) and pd.notna(weight2):
+                                    extra_metrics_list.append(("Average VIPR Weight", weight1, weight2))
+                            
+                            # Person 1 row 2 - extra metrics (right after main metrics)
+                            if extra_metrics_list:
+                                metric_cols1 = st.columns(len(extra_metrics_list))
+                                for col_obj, (label, value1, value2) in zip(metric_cols1, extra_metrics_list):
+                                    with col_obj:
+                                        st.metric(
+                                            f"{story_person} - {label}",
+                                            f"{value1:,.0f}" if pd.notna(value1) else "N/A",
+                                            help=f"{label} for {story_person}"
+                                        )
+                            
+                            # Person 2 row 1 - main metrics with deltas
+                            summary_cols2 = st.columns(4)
+                            with summary_cols2[0]:
+                                st.metric(
+                                    f"{story_person2_clean} - Articles", 
+                                    num_articles2,
+                                    delta=num_articles2 - num_articles1,
+                                    help="Total number of articles mentioning the comparison person"
+                                )
+                            with summary_cols2[1]:
+                                delta_sentiment = (avg_sentiment2 - avg_sentiment) if pd.notna(avg_sentiment2) and pd.notna(avg_sentiment) else None
+                                st.metric(
+                                    f"{story_person2_clean} - Avg Sentiment", 
+                                    f"{(avg_sentiment2 if pd.notna(avg_sentiment2) else 0):.2f}",
+                                    delta=f"{delta_sentiment:.2f}" if delta_sentiment is not None else None,
+                                    help="Average sentiment score for articles mentioning the comparison person"
+                                )
+                            with summary_cols2[2]:
+                                delta_circ = (total_circ2 - total_circ) if pd.notna(total_circ2) and pd.notna(total_circ) else None
+                                st.metric(
+                                    f"{story_person2_clean} - Total Reach", 
+                                    f"{int(total_circ2) if pd.notna(total_circ2) else 0:,}",
+                                    delta=f"{int(delta_circ):,}" if delta_circ is not None else None,
+                                    help="Sum of circulation sizes for the comparison person"
+                                )
+                            with summary_cols2[3]:
+                                delta_pubs = (unique_pubs2 - unique_pubs) if pd.notna(unique_pubs2) and pd.notna(unique_pubs) else None
+                                st.metric(
+                                    f"{story_person2_clean} - Publishers", 
+                                    int(unique_pubs2) if pd.notna(unique_pubs2) else 0,
+                                    delta=delta_pubs if delta_pubs is not None else None,
+                                    help="Number of distinct publications mentioning the comparison person"
+                                )
+                            
+                            # Person 2 row 2 - extra metrics with deltas
+                            if extra_metrics_list:
+                                metric_cols2 = st.columns(len(extra_metrics_list))
+                                for col_obj, (label, value1, value2) in zip(metric_cols2, extra_metrics_list):
+                                    with col_obj:
+                                        delta_val = value2 - value1 if pd.notna(value1) and pd.notna(value2) else None
+                                        if label == "Average Total Reach per Article":
+                                            delta_display = f"{int(delta_val):,}" if delta_val is not None else None
+                                        else:
+                                            delta_display = f"{delta_val:,.0f}" if delta_val is not None else None
+                                        st.metric(
+                                            f"{story_person2_clean} - {label}",
+                                            f"{value2:,.0f}" if pd.notna(value2) else "N/A",
+                                            delta=delta_display,
+                                            help=f"{label} for {story_person2_clean}"
+                                        )
+                        else:
+                            # Single person view
+                            extra_metrics = []
+                            # Calculate Average Total Reach per Article
+                            total_circ_for_avg = person_articles.get('circulation_size', pd.Series(dtype=float)).sum()
+                            num_articles = len(person_articles)
+                            if num_articles > 0 and pd.notna(total_circ_for_avg):
+                                avg_reach_per_article = total_circ_for_avg / num_articles
+                                extra_metrics.append(("Average Total Reach per Article", avg_reach_per_article))
+                            
+                            if 'hit_strength' in person_articles.columns:
+                                extra_metrics.append(("Average Hit Strength", person_articles['hit_strength'].mean()))
+                            if 'vipr_score' in person_articles.columns:
+                                extra_metrics.append(("Average VIPR Score", person_articles['vipr_score'].mean()))
+                            if 'vipr_weight' in person_articles.columns:
+                                extra_metrics.append(("Average VIPR Weight", person_articles['vipr_weight'].mean()))
+                            if extra_metrics:
+                                metric_cols = st.columns(len(extra_metrics))
+                                for col_obj, (label, value) in zip(metric_cols, extra_metrics):
+                                    with col_obj:
+                                        display_val = f"{value:,.0f}" if pd.notna(value) else "N/A"
+                                        st.metric(label, display_val)
 
                         viz_col1, viz_col2 = st.columns(2)
                         with viz_col1:
-                            if 'emotion_body' in person_articles.columns:
-                                emotion_counts = person_articles['emotion_body'].value_counts().dropna().head(12)
-                                if not emotion_counts.empty:
-                                    fig_emotions = px.bar(
-                                        x=emotion_counts.values,
-                                        y=emotion_counts.index,
-                                        orientation='h',
-                                        title=f'Emotions in Articles About {story_person}',
-                                        labels={'x': 'Number of Articles', 'y': 'Emotion'}
-                                    )
-                                    fig_emotions.update_layout(height=300, yaxis={'categoryorder': 'total ascending'})
-                                    st.plotly_chart(fig_emotions, use_container_width=True)
+                            with st.container(border=True):
+                                if is_comparison:
+                                    st.markdown("#### Emotion Distribution")
+                                    st.caption(f"Comparison of emotions: {story_person} (green) vs {story_person2_clean} (teal)")
+                                else:
+                                    st.markdown("#### Emotion Distribution")
+                                    st.caption("Shows the distribution of emotions detected in articles mentioning this person")
+                                fig_emotions = create_person_emotion_chart(
+                                    person_articles, 
+                                    story_person,
+                                    person2_articles if is_comparison else None,
+                                    story_person2_clean if is_comparison else None
+                                )
+                                if fig_emotions:
+                                    st.plotly_chart(fig_emotions, width="stretch")
                                 else:
                                     st.info("No emotion data available.")
-                            else:
-                                st.info("Emotion column not available.")
 
                         with viz_col2:
-                            if 'sentiment_band' not in person_articles.columns:
-                                person_articles = with_sentiment_band(person_articles)
-                            sentiment_counts = person_articles['sentiment_band'].value_counts().dropna()
-                            if not sentiment_counts.empty:
-                                fig_sentiment_person = px.bar(
-                                    x=sentiment_counts.values,
-                                    y=sentiment_counts.index,
-                                    orientation='h',
-                                    title=f'Sentiment in Articles About {story_person}',
-                                    labels={'x': 'Number of Articles', 'y': 'Sentiment'}
+                            with st.container(border=True):
+                                if is_comparison:
+                                    st.markdown("#### Sentiment Distribution")
+                                    st.caption(f"Comparison of sentiment: {story_person} (green) vs {story_person2_clean} (teal)")
+                                else:
+                                    st.markdown("#### Sentiment Distribution")
+                                    st.caption("Shows how sentiment is distributed across articles (Negative, Neutral, Positive)")
+                                if 'sentiment_band' not in person_articles.columns:
+                                    person_articles = with_sentiment_band(person_articles)
+                                if is_comparison and 'sentiment_band' not in person2_articles.columns:
+                                    person2_articles = with_sentiment_band(person2_articles)
+                                fig_sentiment_person = create_person_sentiment_chart(
+                                    person_articles, 
+                                    story_person,
+                                    person2_articles if is_comparison else None,
+                                    story_person2_clean if is_comparison else None
                                 )
-                                fig_sentiment_person.update_layout(height=300, yaxis={'categoryorder': 'total ascending'})
-                                st.plotly_chart(fig_sentiment_person, use_container_width=True)
-                            else:
-                                st.info("No sentiment distribution available.")
+                                if fig_sentiment_person:
+                                    st.plotly_chart(fig_sentiment_person, width="stretch")
+                                else:
+                                    st.info("No sentiment distribution available.")
 
-                        st.markdown("### Mentions Over Time")
-                        if 'published_datetime' in person_articles.columns:
-                            mentions_df = person_articles[['published_datetime']].copy()
-                            mentions_df['published_datetime'] = pd.to_datetime(
-                                mentions_df['published_datetime'], errors='coerce'
+                        with st.container(border=True):
+                            st.markdown("### Mentions Over Time")
+                            if is_comparison:
+                                st.caption(f"Timeline comparison: {story_person} (green) vs {story_person2_clean} (teal). Helps identify trends and peak coverage periods for both individuals.")
+                            else:
+                                st.caption("Timeline showing when articles mentioning this person were published. Helps identify trends and peak coverage periods.")
+                            fig_mentions = create_person_mentions_over_time_chart(
+                                person_articles,
+                                story_person,
+                                person2_articles if is_comparison else None,
+                                story_person2_clean if is_comparison else None
                             )
-                            mentions_df = mentions_df.dropna(subset=['published_datetime'])
-                            if not mentions_df.empty:
-                                mentions_df['date'] = mentions_df['published_datetime'].dt.date
-                                mentions_series = (
-                                    mentions_df.groupby('date')
-                                    .size()
-                                    .reset_index(name='mentions')
-                                    .sort_values('date')
-                                )
-                                fig_mentions = px.line(
-                                    mentions_series,
-                                    x='date',
-                                    y='mentions',
-                                    labels={'date': 'Date', 'mentions': 'Number of Articles'}
-                                )
-                                fig_mentions.update_layout(
-                                    template='simple_white',
-                                    margin=dict(l=10, r=10, t=10, b=10),
-                                    height=350,
-                                )
-                                st.plotly_chart(fig_mentions, use_container_width=True)
+                            if fig_mentions:
+                                st.plotly_chart(fig_mentions, width="stretch")
                             else:
                                 st.info("No published dates available to plot mentions over time.")
-                        else:
-                            st.info("Published datetime column is not available for mentions over time.")
 
-                        st.markdown("### Network Analysis")
-                        network_fig = build_person_network_graph(person_articles, story_person)
-                        if network_fig:
-                            st.plotly_chart(
-                                network_fig,
-                                use_container_width=True,
-                                config={
-                                    "modeBarButtonsToRemove": [
-                                        "select2d", "lasso2d"
-                                    ],
-                                    "displayModeBar": True,
-                                    "displaylogo": False,
-                                    "doubleClick": "reset",
-                                    "toImageButtonOptions": {
-                                        "format": "png",
-                                        "filename": "network_graph",
-                                        "height": 600,
-                                        "width": 1200,
-                                        "scale": 1
-                                    }
-                                }
+                        with st.container(border=True):
+                            st.markdown("### Network Analysis")
+                            st.caption("Visualize connections between this person and related entities (publications, authors, sources, channels, tags, sentiment). Nodes represent entities, edges show co-occurrence in articles. Larger nodes indicate more articles.")
+                            
+                            # Toggle between interactive and static views
+                            use_interactive = st.checkbox(
+                                "Use Interactive Network (Draggable Nodes)",
+                                value=False,
+                                key="person_network_interactive",
+                                help="Enable interactive mode to drag and rearrange nodes. Requires streamlit-agraph package. In interactive mode, you can click and drag nodes to explore connections."
                             )
-                        else:
-                            st.info("Network graph not available for this selection.")
+                            
+                            if use_interactive and AGraph_AVAILABLE:
+                                try:
+                                    from streamlit_agraph import agraph
+                                    network_data = build_person_network_graph_interactive(person_articles, story_person)
+                                    if network_data:
+                                        nodes, edges, config = network_data
+                                        agraph(nodes=nodes, edges=edges, config=config)
+                                        
+                                        # Create legend for node types
+                                        st.markdown("**Legend:**")
+                                        legend_cols = st.columns(7)
+                                        legend_items = [
+                                            ("Person", "#12715D"),
+                                            ("Publication", "#4AB48E"),
+                                            ("Source Name/Type", "#2A9D8F"),
+                                            ("Channel", "#D4A115"),
+                                            ("Author", "#D94841"),
+                                            ("Tag", "#9467BD"),
+                                            ("Sentiment", "#8C564B"),
+                                        ]
+                                        for col, (label, color) in zip(legend_cols, legend_items):
+                                            with col:
+                                                st.markdown(f'<span style="color: {color};">●</span> {label}', unsafe_allow_html=True)
+                                        
+                                        st.caption("💡 **Tip:** Click and drag nodes to rearrange them. Hover over nodes for details.")
+                                    else:
+                                        st.info("Network graph not available for this selection.")
+                                except Exception as e:
+                                    st.warning(f"Interactive network unavailable: {e}. Falling back to static view.")
+                                    network_fig = build_person_network_graph(person_articles, story_person)
+                                    if network_fig:
+                                        st.plotly_chart(network_fig, width="stretch")
+                                    else:
+                                        st.info("Network graph not available for this selection.")
+                            else:
+                                if not AGraph_AVAILABLE:
+                                    st.info("💡 Install streamlit-agraph for interactive networks: `pip install streamlit-agraph`")
+                                network_fig = build_person_network_graph(person_articles, story_person)
+                                if network_fig:
+                                    st.plotly_chart(
+                                        network_fig,
+                                        width="stretch",
+                                        config={
+                                            "modeBarButtonsToRemove": [
+                                                "select2d", "lasso2d"
+                                            ],
+                                            "displayModeBar": True,
+                                            "displaylogo": False,
+                                            "doubleClick": "reset",
+                                            "toImageButtonOptions": {
+                                                "format": "png",
+                                                "filename": "network_graph",
+                                                "height": 600,
+                                                "width": 1200,
+                                                "scale": 1
+                                            }
+                                        }
+                                    )
+                                else:
+                                    st.info("Network graph not available for this selection.")
 
                         st.markdown("---")
                         st.markdown("### Articles Mentioning This Person")
+                        st.caption("Detailed table of all articles mentioning this person. Sortable columns show headline, publication, sentiment, emotion, circulation, source information, and topics.")
 
                         display_cols = [
                             'headline', 'publication_name',
@@ -1083,11 +902,10 @@ def main():
                             data=csv_export,
                             file_name=export_name,
                             mime="text/csv",
-                            key="export_people_data"
+                            key="export_people_data",
+                            help="Download the articles table as a CSV file for further analysis in Excel or other tools"
                         )
                         st.caption(f"Exporting {len(person_articles):,} articles with current filters.")
-        else:
-            st.info("Select a person to see detailed results.")
 
     # ------------------------------- Topics Tab ------------------------------- #
     with topic_tab:
@@ -1107,13 +925,15 @@ def main():
                     "Select Topic (tag_name)",
                     options=[""] + tag_options,
                     index=0,
-                    key="topic_select"
+                    key="topic_select",
+                    help="Select a topic to analyze. Topics are sorted by frequency (most mentioned topics first). Shows analysis of people, sentiment, emotions, and network connections related to this topic."
                 )
             with keyword_col:
                 topic_keyword = st.text_input(
                     "Keyword Filter",
                     placeholder="e.g., vaccine, policy...",
-                    key="topic_keyword"
+                    key="topic_keyword",
+                    help="Further filter articles within the selected topic by searching for specific keywords in headlines or article text"
                 )
 
             if selected_tag:
@@ -1150,7 +970,8 @@ def main():
                         max_value=50,
                         value=20,
                         step=5,
-                        key="top_people_slider"
+                        key="top_people_slider",
+                        help="Adjust how many top people (by mention count) are displayed in the charts below. Higher numbers show more individuals but may reduce chart clarity."
                     )
 
                     if not pbr_long_topic.empty:
@@ -1161,9 +982,11 @@ def main():
                     sentiment_scores = final_df_topic['sentiment_score'].dropna()
                     has_sentiment = len(sentiment_scores) > 0
                     if has_sentiment and 'sentiment_band' not in final_df_topic.columns:
+                        # Use appropriate thresholds for sentiment_score scale (-100 to 100)
+                        # Negative: < -10, Neutral: -10 to 10, Positive: > 10
                         final_df_topic['sentiment_band'] = pd.cut(
                             final_df_topic['sentiment_score'],
-                            bins=[-float('inf'), -0.1, 0.1, float('inf')],
+                            bins=[-float('inf'), -10, 10, float('inf')],
                             labels=['negative', 'neutral', 'positive']
                         )
 
@@ -1172,69 +995,14 @@ def main():
                     with chart_col1:
                         with st.container(border=True):
                             st.markdown(f"#### Top {num_people} People by Sentiment")
+                            st.caption("Sentiment analysis for top people mentioned in this topic. Shows how sentiment varies across different individuals.")
 
                             if has_sentiment and not pbr_long_topic.empty and len(top_n_people) > 0:
-                                pbr_filtered = pbr_long_topic[pbr_long_topic['person'].isin(top_n_people)].copy()
-                                pbr_filtered['row_index'] = pd.to_numeric(pbr_filtered['row_index'], errors='coerce')
-                                final_df_topic['row_index'] = pd.to_numeric(final_df_topic['row_index'], errors='coerce')
-
-                                sent_merge = pbr_filtered[['row_index', 'person']].merge(
-                                    final_df_topic[['row_index', 'sentiment_band']],
-                                    on='row_index',
-                                    how='left'
+                                fig_sent = create_topic_sentiment_by_people_chart(
+                                    pbr_long_topic, final_df_topic, top_n_people, num_people
                                 )
-                                sent_merge = sent_merge[sent_merge['sentiment_band'].notna()]
-
-                                if not sent_merge.empty:
-                                    sent_counts = (
-                                        sent_merge.groupby(['person', 'sentiment_band'])
-                                        .size()
-                                        .reset_index(name='count')
-                                    )
-                                    all_bands = ['negative', 'neutral', 'positive']
-                                    sent_pivot = sent_counts.pivot_table(
-                                        index='person',
-                                        columns='sentiment_band',
-                                        values='count',
-                                        fill_value=0
-                                    ).reset_index()
-                                    sent_pivot = sent_pivot[sent_pivot['person'].isin(top_n_people)]
-                                    for band in all_bands:
-                                        if band not in sent_pivot.columns:
-                                            sent_pivot[band] = 0
-                                    sent_pivot['total'] = sent_pivot[all_bands].sum(axis=1)
-                                    sent_pivot = sent_pivot.sort_values('total', ascending=True).tail(num_people)
-                                    sent_chart_df = sent_pivot.melt(
-                                        id_vars=['person', 'total'],
-                                        value_vars=all_bands,
-                                        var_name='sentiment_band',
-                                        value_name='count'
-                                    )
-
-                                    fig_sent = go.Figure()
-                                    band_colors = {'negative': '#D94841', 'neutral': '#D4A115', 'positive': '#4AB48E'}
-                                    for band in all_bands:
-                                        band_df = sent_chart_df[sent_chart_df['sentiment_band'] == band]
-                                        fig_sent.add_trace(go.Bar(
-                                            name=band.title(),
-                                            y=band_df['person'],
-                                            x=band_df['count'],
-                                            orientation='h',
-                                            marker_color=band_colors.get(band, '#808080')
-                                        ))
-                                    person_order = sent_pivot.sort_values('total', ascending=True)['person'].tolist()
-                                    fig_sent.update_layout(
-                                        template='simple_white',
-                                        margin=dict(l=10, r=10, t=10, b=10),
-                                        height=max(600, len(top_n_people) * 25),
-                                        barmode='stack',
-                                        xaxis_title='Number of Articles',
-                                        yaxis_title='Person',
-                                        yaxis={'categoryorder': 'array', 'categoryarray': person_order},
-                                        legend=dict(orientation="v", yanchor="top", y=1, xanchor="left", x=1.02),
-                                        showlegend=True
-                                    )
-                                    st.plotly_chart(fig_sent, use_container_width=True)
+                                if fig_sent:
+                                    st.plotly_chart(fig_sent, width="stretch")
                                 else:
                                     st.info("No sentiment data available for the top people in this topic.")
                             else:
@@ -1250,73 +1018,14 @@ def main():
                     with chart_col2:
                         with st.container(border=True):
                             st.markdown(f"#### Top {num_people} People by Emotion")
+                            st.caption("Emotion distribution for top people in this topic. Shows which emotions are most associated with each person.")
 
                             if not pbr_long_topic.empty and len(top_n_people) > 0:
-                                pbr_filtered_emotion = pbr_long_topic[pbr_long_topic['person'].isin(top_n_people)].copy()
-                                pbr_filtered_emotion['row_index'] = pd.to_numeric(
-                                    pbr_filtered_emotion['row_index'], errors='coerce'
+                                fig_emotion = create_topic_emotion_by_people_chart(
+                                    pbr_long_topic, final_df_topic, top_n_people, num_people
                                 )
-                                final_df_topic['row_index'] = pd.to_numeric(final_df_topic['row_index'], errors='coerce')
-
-                                emotion_merge = pbr_filtered_emotion[['row_index', 'person']].merge(
-                                    final_df_topic[['row_index', 'emotion_body']],
-                                    on='row_index',
-                                    how='left'
-                                )
-                                emotion_merge = emotion_merge[emotion_merge['emotion_body'].notna()]
-                                emotion_merge['emotion_body'] = emotion_merge['emotion_body'].str.capitalize()
-
-                                if not emotion_merge.empty:
-                                    emotion_counts = (
-                                        emotion_merge.groupby(['person', 'emotion_body'])
-                                        .size()
-                                        .reset_index(name='count')
-                                    )
-                                    all_emotions = sorted(emotion_counts['emotion_body'].unique())
-                                    emotion_pivot = emotion_counts.pivot_table(
-                                        index='person',
-                                        columns='emotion_body',
-                                        values='count',
-                                        fill_value=0
-                                    ).reset_index()
-                                    emotion_pivot = emotion_pivot[emotion_pivot['person'].isin(top_n_people)]
-                                    emotion_pivot['total'] = emotion_pivot[all_emotions].sum(axis=1)
-                                    emotion_pivot = emotion_pivot.sort_values('total', ascending=True).tail(num_people)
-                                    emotion_chart_df = emotion_pivot.melt(
-                                        id_vars=['person', 'total'],
-                                        value_vars=all_emotions,
-                                        var_name='emotion',
-                                        value_name='count'
-                                    )
-
-                                    fig_emotion = go.Figure()
-                                    emotion_colors = px.colors.qualitative.Set3[:len(all_emotions)]
-                                    if len(all_emotions) > len(emotion_colors):
-                                        emotion_colors.extend(
-                                            px.colors.qualitative.Pastel[:len(all_emotions) - len(emotion_colors)]
-                                        )
-                                    for idx, emotion in enumerate(all_emotions):
-                                        emotion_df = emotion_chart_df[emotion_chart_df['emotion'] == emotion]
-                                        fig_emotion.add_trace(go.Bar(
-                                            name=emotion.title() if emotion else 'Unknown',
-                                            y=emotion_df['person'],
-                                            x=emotion_df['count'],
-                                            orientation='h',
-                                            marker_color=emotion_colors[idx % len(emotion_colors)]
-                                        ))
-                                    person_order_emotion = emotion_pivot.sort_values('total', ascending=True)['person'].tolist()
-                                    fig_emotion.update_layout(
-                                    template='simple_white',
-                                    margin=dict(l=10, r=10, t=10, b=10),
-                                        height=max(600, len(top_n_people) * 25),
-                                        barmode='stack',
-                                        xaxis_title='Number of Articles',
-                                        yaxis_title='Person',
-                                        yaxis={'categoryorder': 'array', 'categoryarray': person_order_emotion},
-                                        legend=dict(orientation="v", yanchor="top", y=1, xanchor="left", x=1.02),
-                                        showlegend=True
-                                    )
-                                    st.plotly_chart(fig_emotion, use_container_width=True)
+                                if fig_emotion:
+                                    st.plotly_chart(fig_emotion, width="stretch")
                                 else:
                                     st.info("No emotion data available.")
                             else:
@@ -1324,69 +1033,14 @@ def main():
 
                     with st.container(border=True):
                         st.markdown(f"#### Mentions Over Time - Top {num_people} People")
+                        st.caption("Timeline showing when top people were mentioned in articles about this topic. Helps identify trends and peak coverage periods for each person.")
 
                         if not pbr_long_topic.empty and len(top_n_people) > 0:
-                            pbr_filtered_time = pbr_long_topic[pbr_long_topic['person'].isin(top_n_people)].copy()
-                            pbr_filtered_time['row_index'] = pd.to_numeric(
-                                pbr_filtered_time['row_index'], errors='coerce'
+                            fig_time = create_topic_mentions_over_time_chart(
+                                pbr_long_topic, final_df_topic, top_n_people
                             )
-                            final_df_topic['row_index'] = pd.to_numeric(final_df_topic['row_index'], errors='coerce')
-
-                            time_merge = pbr_filtered_time[['row_index', 'person']].merge(
-                                final_df_topic[['row_index', 'published_datetime', 'circulation_size']],
-                                on='row_index',
-                                how='left'
-                            )
-                            time_merge = time_merge[time_merge['published_datetime'].notna()]
-                            time_merge = time_merge[time_merge['circulation_size'].notna()]
-
-                            if not time_merge.empty:
-                                time_merge['published_datetime'] = pd.to_datetime(
-                                    time_merge['published_datetime'], errors='coerce'
-                                )
-                                time_merge = time_merge[time_merge['published_datetime'].notna()]
-                                time_merge['date'] = time_merge['published_datetime'].dt.date
-                                time_grouped = (
-                                    time_merge.groupby(['date', 'person'])['circulation_size']
-                                    .sum()
-                                    .reset_index()
-                                )
-                                time_pivot = time_grouped.pivot_table(
-                                    index='date',
-                                    columns='person',
-                                    values='circulation_size',
-                                    fill_value=0
-                                ).sort_index()
-
-                                fig_time = go.Figure()
-                                colors = px.colors.qualitative.Set3[:len(top_n_people)]
-                                if len(top_n_people) > len(colors):
-                                    colors.extend(px.colors.qualitative.Pastel[:len(top_n_people) - len(colors)])
-
-                                for idx, person in enumerate(top_n_people):
-                                    if person in time_pivot.columns:
-                                        fig_time.add_trace(go.Scatter(
-                                            name=person,
-                                            x=time_pivot.index,
-                                            y=time_pivot[person],
-                                            mode='lines',
-                                            stackgroup='one',
-                                            fill='tonexty' if idx > 0 else 'tozeroy',
-                                            line=dict(width=0.6, color=colors[idx % len(colors)]),
-                                            fillcolor=colors[idx % len(colors)]
-                                        ))
-
-                                fig_time.update_layout(
-                                    template='simple_white',
-                                    margin=dict(l=10, r=10, t=10, b=10),
-                                    height=500,
-                                    xaxis_title='Date',
-                                    yaxis_title='Circulation Size',
-                                    hovermode='x unified',
-                                    legend=dict(orientation="v", yanchor="top", y=1, xanchor="left", x=1.02),
-                                    showlegend=True
-                                )
-                                st.plotly_chart(fig_time, use_container_width=True)
+                            if fig_time:
+                                st.plotly_chart(fig_time, width="stretch")
                             else:
                                 st.info("No data available for mentions over time.")
                         else:
@@ -1394,121 +1048,108 @@ def main():
 
                     with st.container(border=True):
                         st.markdown("#### Circulation Quartile Distribution")
-
-                        final_df_topic_circ = final_df_topic.copy()
-                        circ_data = final_df_topic_circ['circulation_size'].dropna()
-
-                        if len(circ_data) > 0:
-                            try:
-                                final_df_topic_circ['circulation_quartile'] = pd.qcut(
-                                    circ_data,
-                                    q=min(4, len(circ_data.unique())),
-                                    labels=['Q1 (Lowest)', 'Q2', 'Q3', 'Q4 (Highest)'][:min(4, len(circ_data.unique()))],
-                                    duplicates='drop'
-                                )
-                                quartile_counts = (
-                                    final_df_topic_circ['circulation_quartile']
-                                    .value_counts()
-                                    .sort_index()
-                                )
-
-                                if not quartile_counts.empty:
-                                    fig_circ = go.Figure(data=[
-                                        go.Bar(
-                                            x=quartile_counts.index.astype(str),
-                                            y=quartile_counts.values,
-                                            marker_color='#12715D',
-                                            text=quartile_counts.values,
-                                            textposition='outside'
-                                        )
-                                    ])
-                                    fig_circ.update_layout(
-                                        template='simple_white',
-                                        margin=dict(l=10, r=10, t=10, b=10),
-                                        height=300,
-                                        xaxis_title='Circulation Quartile',
-                                        yaxis_title='Number of Articles',
-                                        showlegend=False
-                                    )
-                                    st.plotly_chart(fig_circ, use_container_width=True)
-                                else:
-                                    st.info("No circulation quartile data available.")
-                            except (ValueError, TypeError):
-                                try:
-                                    bins = pd.cut(
-                                        circ_data,
-                                        bins=4,
-                                        labels=['Q1 (Lowest)', 'Q2', 'Q3', 'Q4 (Highest)'],
-                                        duplicates='drop'
-                                    )
-                                    final_df_topic_circ.loc[circ_data.index, 'circulation_quartile'] = bins
-                                    quartile_counts = (
-                                        final_df_topic_circ['circulation_quartile']
-                                        .value_counts()
-                                        .sort_index()
-                                    )
-
-                                    if not quartile_counts.empty:
-                                        fig_circ = go.Figure(data=[
-                                            go.Bar(
-                                                x=quartile_counts.index.astype(str),
-                                                y=quartile_counts.values,
-                                                marker_color='#12715D',
-                                                text=quartile_counts.values,
-                                                textposition='outside'
-                                            )
-                                        ])
-                                        fig_circ.update_layout(
-                                            template='simple_white',
-                                            margin=dict(l=10, r=10, t=10, b=10),
-                                            height=300,
-                                            xaxis_title='Circulation Quartile',
-                                            yaxis_title='Number of Articles',
-                                            showlegend=False
-                                        )
-                                        st.plotly_chart(fig_circ, use_container_width=True)
-                                    else:
-                                        st.info("Unable to create circulation quartiles.")
-                                except Exception:
-                                    st.info("Circulation data available but cannot be divided into quartiles.")
+                        st.caption("Shows the distribution of article circulation sizes (readership/reach) for this topic. Quartiles help understand the reach profile of coverage.")
+                        fig_circ = create_circulation_quartile_chart(final_df_topic)
+                        if fig_circ:
+                            st.plotly_chart(fig_circ, width="stretch")
                         else:
                             st.info("No circulation data available.")
 
                     with st.container(border=True):
                         st.markdown("#### Network Analysis")
+                        st.caption("Visualize connections between this topic and related entities (people, publications, authors, sources, channels, tags, sentiment). Nodes represent entities, edges show co-occurrence in articles. Green/purple edges connect to the topic center, grey edges show connections between other entities.")
                         
-                        categorical_network_fig = build_topic_categorical_network_graph(
-                            selected_tag,
-                            final_df_topic,
-                            pbr_long_topic
+                        # Toggle between interactive and static views
+                        use_interactive = st.checkbox(
+                            "Use Interactive Network (Draggable Nodes)",
+                            value=False,
+                            key="topic_network_interactive",
+                            help="Enable interactive mode to drag and rearrange nodes. Requires streamlit-agraph package. In interactive mode, you can click and drag nodes to explore connections and see labels inside nodes."
                         )
-                        if categorical_network_fig:
-                            st.plotly_chart(
-                                categorical_network_fig,
-                                use_container_width=True,
-                                config={
-                                    "modeBarButtonsToRemove": [
-                                        "select2d", "lasso2d"
-                                    ],
-                                    "displayModeBar": True,
-                                    "displaylogo": False,
-                                    "doubleClick": "reset",
-                                    "toImageButtonOptions": {
-                                        "format": "png",
-                                        "filename": "network_graph",
-                                        "height": 600,
-                                        "width": 1200,
-                                        "scale": 1
-                                    }
-                                }
-                            )
-                            st.caption(
-                                f"Network showing connections between topic '{selected_tag}' and all categorical attributes. "
-                                "Categorical columns with more than 20 options are filtered to top 20. "
-                                "Node size represents number of articles."
-                            )
+                        
+                        if use_interactive and AGraph_AVAILABLE:
+                            try:
+                                from streamlit_agraph import agraph
+                                network_data = build_topic_categorical_network_graph_interactive(
+                                    selected_tag,
+                                    final_df_topic,
+                                    pbr_long_topic
+                                )
+                                if network_data:
+                                    nodes, edges, config = network_data
+                                    agraph(nodes=nodes, edges=edges, config=config)
+                                    
+                                    # Create legend for node types
+                                    st.markdown("**Legend:**")
+                                    legend_cols = st.columns(8)
+                                    legend_items = [
+                                        ("Topic", "#9467BD"),
+                                        ("Person", "#12715D"),
+                                        ("Publication", "#4AB48E"),
+                                        ("Source Name/Type", "#2A9D8F"),
+                                        ("Channel", "#D4A115"),
+                                        ("Author", "#D94841"),
+                                        ("Tag", "#9467BD"),
+                                        ("Sentiment", "#8C564B"),
+                                    ]
+                                    for col, (label, color) in zip(legend_cols, legend_items):
+                                        with col:
+                                            st.markdown(f'<span style="color: {color}; font-size: 1.2em;">●</span> {label}', unsafe_allow_html=True)
+                                    
+                                    st.caption(
+                                        f"💡 **Tip:** Click and drag nodes to rearrange them. Hover over nodes for details. "
+                                        f"Network showing connections between topic '{selected_tag}' and all categorical attributes. "
+                                        "Categorical columns with more than 20 options are filtered to top 20. "
+                                        "Node size represents number of articles."
+                                    )
+                                else:
+                                    st.info("Categorical network graph not available for this topic.")
+                            except Exception as e:
+                                st.warning(f"Interactive network unavailable: {e}. Falling back to static view.")
+                                categorical_network_fig = build_topic_categorical_network_graph(
+                                    selected_tag,
+                                    final_df_topic,
+                                    pbr_long_topic
+                                )
+                                if categorical_network_fig:
+                                    st.plotly_chart(categorical_network_fig, width="stretch")
+                                else:
+                                    st.info("Categorical network graph not available for this topic.")
                         else:
-                            st.info("Categorical network graph not available for this topic.")
+                            if not AGraph_AVAILABLE:
+                                st.info("💡 Install streamlit-agraph for interactive networks: `pip install streamlit-agraph`")
+                            categorical_network_fig = build_topic_categorical_network_graph(
+                                selected_tag,
+                                final_df_topic,
+                                pbr_long_topic
+                            )
+                            if categorical_network_fig:
+                                st.plotly_chart(
+                                    categorical_network_fig,
+                                    width="stretch",
+                                    config={
+                                        "modeBarButtonsToRemove": [
+                                            "select2d", "lasso2d"
+                                        ],
+                                        "displayModeBar": True,
+                                        "displaylogo": False,
+                                        "doubleClick": "reset",
+                                        "toImageButtonOptions": {
+                                            "format": "png",
+                                            "filename": "network_graph",
+                                            "height": 600,
+                                            "width": 1200,
+                                            "scale": 1
+                                        }
+                                    }
+                                )
+                                st.caption(
+                                    f"Network showing connections between topic '{selected_tag}' and all categorical attributes. "
+                                    "Categorical columns with more than 20 options are filtered to top 20. "
+                                    "Node size represents number of articles."
+                                )
+                            else:
+                                st.info("Categorical network graph not available for this topic.")
 
     render_footer()
 
