@@ -16,10 +16,19 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 
+# Add the streamlit_app directory to the path for imports
+if __name__ == "__main__" or "streamlit" in sys.modules:
+    # When running as Streamlit app, add current directory to path
+    app_dir = Path(__file__).parent
+    if str(app_dir) not in sys.path:
+        sys.path.insert(0, str(app_dir))
+
 # Suppress Plotly deprecation warnings that Streamlit displays
 warnings.filterwarnings('ignore', message='.*keyword arguments.*deprecated.*')
 warnings.filterwarnings('ignore', message='.*deprecated.*will be removed.*')
-from charts import (
+
+try:
+    from charts import (
     create_emotion_chart,
     create_person_emotion_chart,
     create_person_sentiment_chart,
@@ -32,14 +41,41 @@ from charts import (
     create_sentiment_by_cluster_chart,
     create_circulation_by_cluster_chart,
 )
-from network_analysis import (
-    build_person_network_graph,
-    build_topic_people_network_graph,
-    build_topic_categorical_network_graph,
-    build_person_network_graph_interactive,
-    build_topic_categorical_network_graph_interactive,
-    AGraph_AVAILABLE,
-)
+except ImportError:
+    # Fallback for different import paths
+    from streamlit_app.charts import (
+        create_emotion_chart,
+        create_person_emotion_chart,
+        create_person_sentiment_chart,
+        create_person_mentions_over_time_chart,
+        create_topic_sentiment_by_people_chart,
+        create_topic_emotion_by_people_chart,
+        create_topic_mentions_over_time_chart,
+        create_circulation_quartile_chart,
+        create_top_people_bar_chart,
+        create_sentiment_by_cluster_chart,
+        create_circulation_by_cluster_chart,
+    )
+
+try:
+    from network_analysis import (
+        build_person_network_graph,
+        build_topic_people_network_graph,
+        build_topic_categorical_network_graph,
+        build_person_network_graph_interactive,
+        build_topic_categorical_network_graph_interactive,
+        AGraph_AVAILABLE,
+    )
+except ImportError:
+    # Fallback for different import paths
+    from streamlit_app.network_analysis import (
+        build_person_network_graph,
+        build_topic_people_network_graph,
+        build_topic_categorical_network_graph,
+        build_person_network_graph_interactive,
+        build_topic_categorical_network_graph_interactive,
+        AGraph_AVAILABLE,
+    )
 from typing import Optional
 
 # Ensure current folder is importable 
