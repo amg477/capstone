@@ -545,7 +545,7 @@ def create_topic_mentions_over_time_chart(
     final_df_topic: pd.DataFrame,
     top_n_people: list
 ) -> go.Figure:
-    """Create a stacked area chart showing circulation over time by people for a topic."""
+    """Create a stacked area chart showing number of articles over time by people for a topic."""
     if pbr_long_topic is None or pbr_long_topic.empty or len(top_n_people) == 0:
         return None
     
@@ -554,12 +554,11 @@ def create_topic_mentions_over_time_chart(
     final_df_topic['row_index'] = pd.to_numeric(final_df_topic['row_index'], errors='coerce')
     
     time_merge = pbr_filtered_time[['row_index', 'person']].merge(
-        final_df_topic[['row_index', 'published_datetime', 'circulation_size']],
+        final_df_topic[['row_index', 'published_datetime']],
         on='row_index',
         how='left'
     )
     time_merge = time_merge[time_merge['published_datetime'].notna()]
-    time_merge = time_merge[time_merge['circulation_size'].notna()]
     
     if time_merge.empty:
         return None
@@ -567,15 +566,16 @@ def create_topic_mentions_over_time_chart(
     time_merge['published_datetime'] = pd.to_datetime(time_merge['published_datetime'], errors='coerce')
     time_merge = time_merge[time_merge['published_datetime'].notna()]
     time_merge['date'] = time_merge['published_datetime'].dt.date
+    # Count number of articles (unique row_index) per date and person
     time_grouped = (
-        time_merge.groupby(['date', 'person'])['circulation_size']
-        .sum()
-        .reset_index()
+        time_merge.groupby(['date', 'person'])['row_index']
+        .nunique()
+        .reset_index(name='article_count')
     )
     time_pivot = time_grouped.pivot_table(
         index='date',
         columns='person',
-        values='circulation_size',
+        values='article_count',
         fill_value=0
     ).sort_index()
     
@@ -602,7 +602,7 @@ def create_topic_mentions_over_time_chart(
         margin=dict(l=10, r=10, t=10, b=10),
         height=500,
         xaxis_title='Date',
-        yaxis_title='Circulation Size',
+        yaxis_title='Number of Articles',
         hovermode='x unified',
         legend=dict(orientation="v", yanchor="top", y=1, xanchor="left", x=1.02),
         showlegend=True
