@@ -332,7 +332,8 @@ def main():
     channel_options = get_filter_options(final_df_sample, "channel_name")
     topic_options_global = get_filter_options(final_df_sample, "tag_name")
 
-    col1, col2, col3, col4, col5, col6, col7 = st.columns(7)
+    # First row of filters (4 columns)
+    col1, col2, col3, col4 = st.columns(4)
     with col1:
         selected_clusters = st.multiselect(
             "Select Clusters", 
@@ -369,6 +370,9 @@ def main():
             key="tab1_select_publications",
             help="Filter articles by publication source. Shows articles from selected publications."
         )
+    
+    # Second row of filters (4 columns)
+    col5, col6, col7, col8 = st.columns(4)
     with col5:
         selected_source_names_global = st.multiselect(
             "Source Names", 
@@ -390,6 +394,61 @@ def main():
             key="tab1_select_topics",
             help="Filter articles by topic tags. Topics represent the main themes or subjects of articles."
         )
+    with col8:
+        # Date range filter - get bounds from data
+        date_min = None
+        date_max = None
+        default_start_date = pd.Timestamp('2024-01-01').date()
+        
+        if final_df_sample is not None and not final_df_sample.empty and 'published_datetime' in final_df_sample.columns:
+            dates = pd.to_datetime(final_df_sample['published_datetime'], errors='coerce').dropna()
+            if not dates.empty:
+                date_min = dates.min().date()
+                date_max = dates.max().date()
+                # Ensure default_start_date is within range
+                if default_start_date < date_min:
+                    default_start_date = date_min
+                if default_start_date > date_max:
+                    default_start_date = date_min
+        
+        if date_min and date_max:
+            date_range_global = st.date_input(
+                "Date Range",
+                value=(default_start_date, date_max),
+                min_value=date_min,
+                max_value=date_max,
+                key="global_date_range",
+                help="Filter articles by publication date range. Default starts from 2024."
+            )
+            
+            # Handle date range input
+            try:
+                if isinstance(date_range_global, tuple):
+                    if len(date_range_global) == 2:
+                        selected_date_start, selected_date_end = date_range_global
+                    elif len(date_range_global) == 1:
+                        selected_date_start = date_range_global[0]
+                        selected_date_end = date_max
+                    else:
+                        selected_date_start = default_start_date
+                        selected_date_end = date_max
+                else:
+                    selected_date_start = date_range_global if date_range_global else default_start_date
+                    selected_date_end = date_max
+                
+                if selected_date_start is None:
+                    selected_date_start = default_start_date
+                if selected_date_end is None:
+                    selected_date_end = date_max
+                
+                selected_date_start_ts = pd.Timestamp(selected_date_start) if selected_date_start else None
+                selected_date_end_ts = pd.Timestamp(selected_date_end) if selected_date_end else None
+            except Exception:
+                selected_date_start_ts = pd.Timestamp(default_start_date) if default_start_date else None
+                selected_date_end_ts = pd.Timestamp(date_max) if date_max else None
+        else:
+            selected_date_start_ts = None
+            selected_date_end_ts = None
 
     # Apply global filters to the article-level data for use in both sub-tabs
     final_df_filtered = None
@@ -423,6 +482,31 @@ def main():
             final_df_filtered = final_df_filtered[
                 final_df_filtered['sentiment_band'].isin(selected_sentiment_bands_global)
             ]
+        
+        # Apply date range filter if provided
+        if selected_date_start_ts is not None or selected_date_end_ts is not None:
+            if 'published_datetime' in final_df_filtered.columns:
+                final_df_filtered['published_datetime'] = pd.to_datetime(final_df_filtered['published_datetime'], errors='coerce')
+                # Convert to date for comparison to avoid timezone issues
+                try:
+                    if final_df_filtered['published_datetime'].dt.tz is not None:
+                        final_df_filtered['date_only'] = final_df_filtered['published_datetime'].dt.tz_convert('UTC').dt.date
+                    else:
+                        final_df_filtered['date_only'] = final_df_filtered['published_datetime'].dt.date
+                    
+                    if selected_date_start_ts is not None:
+                        date_start_date = selected_date_start_ts.date() if isinstance(selected_date_start_ts, pd.Timestamp) else pd.to_datetime(selected_date_start_ts).date()
+                        final_df_filtered = final_df_filtered[final_df_filtered['date_only'] >= date_start_date]
+                    
+                    if selected_date_end_ts is not None:
+                        date_end_date = selected_date_end_ts.date() if isinstance(selected_date_end_ts, pd.Timestamp) else pd.to_datetime(selected_date_end_ts).date()
+                        final_df_filtered = final_df_filtered[final_df_filtered['date_only'] <= date_end_date]
+                    
+                    if 'date_only' in final_df_filtered.columns:
+                        final_df_filtered = final_df_filtered.drop(columns=['date_only'])
+                except Exception:
+                    if 'date_only' in final_df_filtered.columns:
+                        final_df_filtered = final_df_filtered.drop(columns=['date_only'])
 
     filtered_row_indices = None
     if final_df_filtered is not None and not final_df_filtered.empty and 'row_index' in final_df_filtered.columns:
@@ -896,61 +980,14 @@ def main():
                             else:
                                 st.caption("Timeline showing when articles mentioning this person were published. Helps identify trends and peak coverage periods.")
                             
-                            # Get date range from data for date picker bounds
-                            all_dates = []
-                            if not person_articles.empty and 'published_datetime' in person_articles.columns:
-                                dates1 = pd.to_datetime(person_articles['published_datetime'], errors='coerce').dropna()
-                                all_dates.extend(dates1.tolist())
-                            if is_comparison and not person2_articles.empty and 'published_datetime' in person2_articles.columns:
-                                dates2 = pd.to_datetime(person2_articles['published_datetime'], errors='coerce').dropna()
-                                all_dates.extend(dates2.tolist())
-                            
-                            # Date range filter
-                            if all_dates:
-                                min_date = pd.Timestamp(min(all_dates)).date()
-                                max_date = pd.Timestamp(max(all_dates)).date()
-                                default_start = pd.Timestamp('2024-01-01').date()
-                                
-                                # Ensure default_start is within the data range
-                                if default_start < min_date:
-                                    default_start = min_date
-                                if default_start > max_date:
-                                    default_start = min_date
-                                
-                                date_range = st.date_input(
-                                    "Filter by Date Range",
-                                    value=(default_start, max_date),
-                                    min_value=min_date,
-                                    max_value=max_date,
-                                    key="person_mentions_date_range",
-                                    help="Select a date range to filter the timeline. Default starts from 2024."
-                                )
-                                
-                                # Handle date range input (can be tuple or single date)
-                                if isinstance(date_range, tuple) and len(date_range) == 2:
-                                    date_start, date_end = date_range
-                                elif isinstance(date_range, tuple) and len(date_range) == 1:
-                                    date_start = date_range[0]
-                                    date_end = max_date
-                                else:
-                                    # Single date selected
-                                    date_start = date_range if date_range else default_start
-                                    date_end = max_date
-                                
-                                # Convert to Timestamp for the chart function
-                                date_start_ts = pd.Timestamp(date_start) if date_start else None
-                                date_end_ts = pd.Timestamp(date_end) if date_end else None
-                            else:
-                                date_start_ts = None
-                                date_end_ts = None
-                            
+                            # Use the global date range filter
                             fig_mentions = create_person_mentions_over_time_chart(
                                 person_articles,
                                 story_person,
                                 person2_articles if is_comparison else None,
                                 story_person2_clean if is_comparison else None,
-                                date_start=date_start_ts,
-                                date_end=date_end_ts
+                                date_start=selected_date_start_ts,
+                                date_end=selected_date_end_ts
                             )
                             if fig_mentions:
                                 st.plotly_chart(fig_mentions, width="stretch")

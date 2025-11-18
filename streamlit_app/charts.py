@@ -202,28 +202,54 @@ def create_person_mentions_over_time_chart(person_articles: pd.DataFrame, person
     mentions_df['published_datetime'] = pd.to_datetime(mentions_df['published_datetime'], errors='coerce')
     mentions_df = mentions_df.dropna(subset=['published_datetime'])
     
+    if mentions_df.empty:
+        return None
+    
     # Apply date range filter if provided
-    # Convert to date for comparison to avoid timezone issues
-    mentions_df['date_only'] = mentions_df['published_datetime'].dt.date
-    
-    if date_start is not None:
-        # Convert to date if it's a Timestamp
-        if isinstance(date_start, pd.Timestamp):
-            date_start_date = date_start.date()
-        else:
-            date_start_date = pd.to_datetime(date_start).date()
-        mentions_df = mentions_df[mentions_df['date_only'] >= date_start_date]
-    
-    if date_end is not None:
-        # Convert to date if it's a Timestamp
-        if isinstance(date_end, pd.Timestamp):
-            date_end_date = date_end.date()
-        else:
-            date_end_date = pd.to_datetime(date_end).date()
-        mentions_df = mentions_df[mentions_df['date_only'] <= date_end_date]
-    
-    # Drop the temporary date_only column
-    mentions_df = mentions_df.drop(columns=['date_only'])
+    if date_start is not None or date_end is not None:
+        try:
+            # Convert to date for comparison to avoid timezone issues
+            # Handle both timezone-aware and timezone-naive datetimes
+            try:
+                # Try to check if timezone-aware
+                tz = mentions_df['published_datetime'].dt.tz
+                if tz is not None:
+                    # Timezone-aware: convert to UTC first, then extract date
+                    mentions_df['date_only'] = mentions_df['published_datetime'].dt.tz_convert('UTC').dt.date
+                else:
+                    # Timezone-naive: extract date directly
+                    mentions_df['date_only'] = mentions_df['published_datetime'].dt.date
+            except (AttributeError, TypeError):
+                # Fallback: try direct date extraction
+                mentions_df['date_only'] = mentions_df['published_datetime'].dt.date
+            
+            if date_start is not None:
+                # Convert to date if it's a Timestamp
+                if isinstance(date_start, pd.Timestamp):
+                    date_start_date = date_start.date()
+                elif hasattr(date_start, 'date'):
+                    date_start_date = date_start.date()
+                else:
+                    date_start_date = pd.to_datetime(date_start).date()
+                mentions_df = mentions_df[mentions_df['date_only'] >= date_start_date]
+            
+            if date_end is not None:
+                # Convert to date if it's a Timestamp
+                if isinstance(date_end, pd.Timestamp):
+                    date_end_date = date_end.date()
+                elif hasattr(date_end, 'date'):
+                    date_end_date = date_end.date()
+                else:
+                    date_end_date = pd.to_datetime(date_end).date()
+                mentions_df = mentions_df[mentions_df['date_only'] <= date_end_date]
+            
+            # Drop the temporary date_only column if it exists
+            if 'date_only' in mentions_df.columns:
+                mentions_df = mentions_df.drop(columns=['date_only'])
+        except Exception:
+            # If date filtering fails, continue without filtering
+            if 'date_only' in mentions_df.columns:
+                mentions_df = mentions_df.drop(columns=['date_only'])
     
     if mentions_df.empty:
         return None
@@ -247,27 +273,50 @@ def create_person_mentions_over_time_chart(person_articles: pd.DataFrame, person
         mentions_df2 = mentions_df2.dropna(subset=['published_datetime'])
         
         # Apply same date range filter to person2
-        # Convert to date for comparison to avoid timezone issues
-        mentions_df2['date_only'] = mentions_df2['published_datetime'].dt.date
-        
-        if date_start is not None:
-            # Convert to date if it's a Timestamp
-            if isinstance(date_start, pd.Timestamp):
-                date_start_date = date_start.date()
-            else:
-                date_start_date = pd.to_datetime(date_start).date()
-            mentions_df2 = mentions_df2[mentions_df2['date_only'] >= date_start_date]
-        
-        if date_end is not None:
-            # Convert to date if it's a Timestamp
-            if isinstance(date_end, pd.Timestamp):
-                date_end_date = date_end.date()
-            else:
-                date_end_date = pd.to_datetime(date_end).date()
-            mentions_df2 = mentions_df2[mentions_df2['date_only'] <= date_end_date]
-        
-        # Drop the temporary date_only column
-        mentions_df2 = mentions_df2.drop(columns=['date_only'])
+        if date_start is not None or date_end is not None:
+            try:
+                # Convert to date for comparison to avoid timezone issues
+                # Handle both timezone-aware and timezone-naive datetimes
+                try:
+                    # Try to check if timezone-aware
+                    tz = mentions_df2['published_datetime'].dt.tz
+                    if tz is not None:
+                        # Timezone-aware: convert to UTC first, then extract date
+                        mentions_df2['date_only'] = mentions_df2['published_datetime'].dt.tz_convert('UTC').dt.date
+                    else:
+                        # Timezone-naive: extract date directly
+                        mentions_df2['date_only'] = mentions_df2['published_datetime'].dt.date
+                except (AttributeError, TypeError):
+                    # Fallback: try direct date extraction
+                    mentions_df2['date_only'] = mentions_df2['published_datetime'].dt.date
+                
+                if date_start is not None:
+                    # Convert to date if it's a Timestamp
+                    if isinstance(date_start, pd.Timestamp):
+                        date_start_date = date_start.date()
+                    elif hasattr(date_start, 'date'):
+                        date_start_date = date_start.date()
+                    else:
+                        date_start_date = pd.to_datetime(date_start).date()
+                    mentions_df2 = mentions_df2[mentions_df2['date_only'] >= date_start_date]
+                
+                if date_end is not None:
+                    # Convert to date if it's a Timestamp
+                    if isinstance(date_end, pd.Timestamp):
+                        date_end_date = date_end.date()
+                    elif hasattr(date_end, 'date'):
+                        date_end_date = date_end.date()
+                    else:
+                        date_end_date = pd.to_datetime(date_end).date()
+                    mentions_df2 = mentions_df2[mentions_df2['date_only'] <= date_end_date]
+                
+                # Drop the temporary date_only column if it exists
+                if 'date_only' in mentions_df2.columns:
+                    mentions_df2 = mentions_df2.drop(columns=['date_only'])
+            except Exception:
+                # If date filtering fails, continue without filtering
+                if 'date_only' in mentions_df2.columns:
+                    mentions_df2 = mentions_df2.drop(columns=['date_only'])
         
         if not mentions_df2.empty:
             mentions_df2['date'] = mentions_df2['published_datetime'].dt.date
