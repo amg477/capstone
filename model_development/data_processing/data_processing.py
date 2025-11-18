@@ -2,18 +2,35 @@
 """
 data_processing.py
 
-Stage 1: Combine + Filter + Column unification → combined_data.parquet
-Stage 2: Proportional stratified SAMPLE (no text processing) → sampled_data.parquet
+EXECUTION ORDER: Step 1 of 5 in the data processing pipeline.
 
-Notes:
-- No spaCy, no NLTK here.
-- We read only needed columns from Excel for speed.
-- We ensure headline/body columns exist but DO NOT modify their contents.
-- Text processing will be done AFTER PERSON extraction on the sampled dataset.
+This script performs the initial data processing steps:
+  Stage 1: Combines multiple Excel files, applies filters (language='en', country='US'),
+           and unifies column schemas → combined_data.parquet
+  Stage 2: Performs proportional stratified sampling → sampled_data.parquet
 
-Env (optional):
-  SAMPLE_N=100000
-  SAMPLE_SEED=2025
+INPUT FILES:
+  - data_storage/raw_data/penta_raw_1.xlsx through penta_raw_9.xlsx
+
+OUTPUT FILES:
+  - data_storage/processed_data/combined_data.parquet
+  - data_storage/processed_data/sampled_data.parquet
+
+USAGE:
+    python data_processing.py
+
+ENVIRONMENT VARIABLES (optional):
+  SAMPLE_N=100000      # Target number of rows for sampling (default: 50000)
+  SAMPLE_SEED=2025     # Random seed for reproducible sampling (default: 2025)
+
+NOTES:
+  - No spaCy or NLTK dependencies required at this stage
+  - Reads only needed columns from Excel files for speed
+  - Ensures headline/body columns exist but does NOT modify their contents
+  - Text processing and person extraction happen in subsequent steps
+
+NEXT STEP:
+  After this script completes, run: python names_then_text.py
 """
 
 import os

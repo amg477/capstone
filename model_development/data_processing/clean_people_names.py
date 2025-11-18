@@ -1,13 +1,39 @@
 #!/usr/bin/env python3
 """
-Offline cleaner for person-name columns in processed_with_people_emotion.parquet ONLY.
-Reads processed_with_people_emotion.parquet, removes stopwords and non-name tokens from people strings,
-and writes cleaned_sampled_data.parquet to final_data folder.
+clean_people_names.py
 
-Usage:
-  python clean_people_names.py \
-    --sampled data_storage/processed_data/processed_with_people_emotion.parquet \
-    --outdir data_storage/final_data
+EXECUTION ORDER: Step 3 of 5 in the data processing pipeline.
+
+This script performs advanced cleaning of person-name columns:
+  - Removes stopwords and non-name tokens from people strings
+  - Builds surname upgrade map (e.g., "Obama" -> "Barack Obama")
+  - Applies surname upgrades to single-token surnames
+  - Merges within-row name variants (e.g., "Joe Biden" + "Joe Biden's" -> "Joe Biden")
+  - Applies final non-person phrase filtering
+  - Drops raw text columns (article_body_raw, headline_raw) to reduce file size
+
+INPUT FILES:
+  - data_storage/processed_data/processed_with_people_emotion.parquet (from names_then_text.py)
+
+OUTPUT FILES:
+  - data_storage/final_data/cleaned_sampled_data.parquet
+
+USAGE:
+    python clean_people_names.py
+
+    # Or with custom paths:
+    python clean_people_names.py \
+      --sampled data_storage/processed_data/processed_with_people_emotion.parquet \
+      --outdir data_storage/streamlit_app_data
+
+NOTES:
+  - Automatically detects people column (people_by_row, persons_by_row, persons, or people)
+  - Creates cleaned version of the people column with suffix _clean
+  - Output goes to streamlit_app_data folder for use by Streamlit application
+
+NEXT STEP:
+  After this script completes, run attribution.py (if needed) and pca.py, then:
+  python clean_persons_by_row.py
 """
 
 from __future__ import annotations
@@ -601,6 +627,34 @@ def _name_core(s: str) -> str:
         return f"{parts[0]} {parts[-1]}"  # Just first and last
     return parts[0]
 
+def _normalize_plural_surname(name: str) -> str:
+    """
+    Normalize plural surnames (e.g., "Donald Trumps" -> "Donald Trump").
+    Only removes trailing 's' from last name if it's likely a plural form.
+    Preserves legitimate names ending in 's' (like "James", "Harris", "Charles").
+    """
+    if not name or not str(name).strip():
+        return name
+    
+    parts = name.strip().split()
+    if len(parts) < 2:
+        return name  # Single-word names: don't modify (could be "James", "Harris", etc.)
+    
+    last_name = parts[-1]
+    # Only remove 's' if:
+    # 1. Last name ends with 's'
+    # 2. Last name is longer than 3 characters (to avoid "As", "Is", etc.)
+    # 3. The name without 's' is not a common single-letter name
+    if last_name.endswith('s') and len(last_name) > 3:
+        last_name_no_s = last_name[:-1]
+        # Check if removing 's' creates a valid name (not too short, not a common single name)
+        if len(last_name_no_s) >= 3:
+            # Reconstruct name with normalized last name
+            normalized_parts = parts[:-1] + [last_name_no_s]
+            return " ".join(normalized_parts)
+    
+    return name
+
 def _canonicalize_name(name: str) -> str:
     """
     Normalize a name to a canonical form (case-insensitive).
@@ -611,9 +665,13 @@ def _canonicalize_name(name: str) -> str:
     - "harris" -> "Kamala Harris"
     
     For other names, converts to Title Case for full names.
+    Also handles plural forms (e.g., "Donald Trumps" -> "Donald Trump").
     """
     if not name or not str(name).strip():
         return ""
+    
+    # First normalize plural surnames (e.g., "Donald Trumps" -> "Donald Trump")
+    name = _normalize_plural_surname(name)
     
     name_lower = name.strip().lower()
     
@@ -832,16 +890,20 @@ def _build_surname_upgrade_map(series_list: list[pd.Series],
     Build a map from single-token surname -> dominant full name using dataset-wide evidence.
     Only create a mapping if a full name with that surname occurs at least `min_full_count`
     and represents at least `dominance_ratio` of all full names with that surname.
+    Normalizes plural surnames (e.g., "Donald Trumps" -> "Donald Trump") before counting.
     """
     # Count full names per surname
     surname_to_full_counts: dict[str, dict[str, int]] = {}
     for series in series_list:
         for name in _iter_names(series):
-            toks = name.split()
+            # Normalize plural surnames before processing (e.g., "Donald Trumps" -> "Donald Trump")
+            name_normalized = _normalize_plural_surname(name)
+            toks = name_normalized.split()
             if len(toks) >= 2:
                 surname = toks[-1].lower()
                 d = surname_to_full_counts.setdefault(surname, {})
-                d[name] = d.get(name, 0) + 1
+                # Use normalized name for counting
+                d[name_normalized] = d.get(name_normalized, 0) + 1
 
     upgrade_map: dict[str, str] = {}
     for surname, full_counts in surname_to_full_counts.items():
@@ -934,11 +996,14 @@ def _merge_within_cell_variants(series: pd.Series, upgrade_map: dict[str, str]) 
         Map known variants:
         - Robert F Kennedy Jr. -> Robert F Kennedy
         - Robert Kennedy -> Robert F Kennedy (if intent is RFK)
+        - Also normalize plural surnames (e.g., "Donald Trumps" -> "Donald Trump")
         """
         s = name.strip()
         low = s.lower()
         # Normalize punctuation/spacing
         s = _strip_suffixes(_strip_possessive(s))
+        # Normalize plural surnames (e.g., "Donald Trumps" -> "Donald Trump")
+        s = _normalize_plural_surname(s)
         # RFK mappings
         if re.fullmatch(r"robert\s+f\.?\s+kennedy", s, flags=re.IGNORECASE):
             return "Robert F Kennedy"
@@ -1073,11 +1138,11 @@ def run(sampled_path: Path, outdir: Path) -> None:
             sampled = sampled.drop(columns=columns_to_drop)
             print(f"[drop] Dropped columns: {columns_to_drop}")
         
-        # Write output
-        out_path = outdir / "cleaned_sampled_data.parquet"
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        sampled.to_parquet(out_path, index=False)
-        print(f"[ok] Wrote cleaned sampled dataset -> {out_path}")
+        # Write output to final_data folder
+        final_data_path = ROOT / "data_storage" / "final_data" / "cleaned_sampled_data.parquet"
+        final_data_path.parent.mkdir(parents=True, exist_ok=True)
+        sampled.to_parquet(final_data_path, index=False)
+        print(f"[ok] Wrote cleaned sampled dataset -> {final_data_path}")
         print(f"[ok] Output shape: {sampled.shape}")
         
     except Exception as e:

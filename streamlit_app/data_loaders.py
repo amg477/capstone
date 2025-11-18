@@ -39,14 +39,24 @@ def _get_tried_paths():
 def _find_file(filename: str) -> tuple[Path | None, list[str]]:
     """Find a file by checking all possible paths. Returns (file_path, tried_paths)"""
     tried_paths = []
+    # First check streamlit_app_data locations (preferred)
     possible_dirs = [
         APP_DIR.parent / "data_storage" / "streamlit_app_data",
         Path("data_storage/streamlit_app_data"),
         Path("/mount/src/capstone/data_storage/streamlit_app_data"),
-        Path("/Users/annaglass/capstone/capstone/data_storage/streamlit_app_data"),
     ]
     
-    for data_dir in possible_dirs:
+    # Also check final_data as fallback (for files like final_dataset_with_attribution.parquet)
+    final_data_dirs = [
+        APP_DIR.parent / "data_storage" / "final_data",
+        Path("data_storage/final_data"),
+        Path("/mount/src/capstone/data_storage/final_data")
+    ]
+    
+    # Combine both lists
+    all_dirs = possible_dirs + final_data_dirs
+    
+    for data_dir in all_dirs:
         tried_paths.append(str(data_dir))
         file_path = data_dir / filename
         if file_path.exists():

@@ -1,11 +1,31 @@
 #!/usr/bin/env python3
 """
-Clean persons_by_row.parquet by removing single-word names and initials from
-the comma-separated 'persons' column, except for a whitelist of known 
-single-name celebrities/public figures.
+clean_persons_by_row.py
 
-Usage:
+EXECUTION ORDER: Step 4 of 5 in the data processing pipeline.
+
+This script cleans the persons_by_row.parquet file by:
+  - Removing single-word names and initials from the comma-separated 'persons' column
+  - Keeping only full names (first + last) or known single-name celebrities/public figures
+  - Maintaining a whitelist of exception names (e.g., "Trump", "Biden", "Harris")
+
+INPUT FILES:
+  - data_storage/final_data/persons_by_row.parquet (created by attribution.py)
+
+OUTPUT FILES:
+  - data_storage/streamlit_app_data/persons_by_row_cleaned.parquet
+
+USAGE:
     python clean_persons_by_row.py
+
+NOTES:
+  - Automatically searches multiple possible input locations if file not found in default location
+  - Removes single names/initials that are NOT in the exception list
+  - Updates has_person flag if present in the dataframe
+  - Output goes to streamlit_app_data folder for use by Streamlit application
+
+NEXT STEP:
+  After this script completes, run: python clean_influencer_table.py
 """
 
 from __future__ import annotations

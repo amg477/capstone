@@ -29,7 +29,6 @@ warnings.filterwarnings('ignore', message='.*deprecated.*will be removed.*')
 
 try:
     from charts import (
-    create_emotion_chart,
     create_person_emotion_chart,
     create_person_sentiment_chart,
     create_person_mentions_over_time_chart,
@@ -44,7 +43,6 @@ try:
 except ImportError:
     # Fallback for different import paths
     from streamlit_app.charts import (
-        create_emotion_chart,
         create_person_emotion_chart,
         create_person_sentiment_chart,
         create_person_mentions_over_time_chart,
@@ -60,7 +58,6 @@ except ImportError:
 try:
     from network_analysis import (
         build_person_network_graph,
-        build_topic_people_network_graph,
         build_topic_categorical_network_graph,
         build_person_network_graph_interactive,
         build_topic_categorical_network_graph_interactive,
@@ -70,7 +67,6 @@ except ImportError:
     # Fallback for different import paths
     from streamlit_app.network_analysis import (
         build_person_network_graph,
-        build_topic_people_network_graph,
         build_topic_categorical_network_graph,
         build_person_network_graph_interactive,
         build_topic_categorical_network_graph_interactive,
@@ -100,12 +96,97 @@ def explode_persons(persons_by_row_df: pd.DataFrame) -> pd.DataFrame:
     df['person_norm_lc'] = df['person'].str.lower()
     return df[['row_index', 'person', 'person_norm_lc']]
 
+def _normalize_name_for_dedup(name: str) -> str:
+    """Normalize name to handle plural forms and common variations"""
+    if not name or not isinstance(name, str):
+        return name
+    name = name.strip()
+    if not name:
+        return name
+    
+    # Split into parts
+    parts = name.split()
+    if len(parts) < 2:
+        return name
+    
+    # Check if last name ends with 's' and might be a plural form
+    last_name = parts[-1]
+    # Remove trailing 's' if it looks like a plural (simple heuristic)
+    # Only if the name without 's' is a known variation
+    if last_name.endswith('s') and len(last_name) > 3:
+        # Check if removing 's' would match a more common form
+        last_name_no_s = last_name[:-1]
+        # This is a simple approach - in production you might want a mapping dict
+        # For now, we'll create a normalized version
+        normalized_parts = parts[:-1] + [last_name_no_s]
+        return " ".join(normalized_parts)
+    
+    return name
+
+def _get_name_search_variants(name: str) -> set:
+    """Get all search variants for a name (including plural forms)"""
+    if not name or not isinstance(name, str):
+        return {name.lower() if name else ""}
+    
+    name_lower = name.strip().lower()
+    variants = {name_lower}
+    
+    # Split into parts
+    parts = name_lower.split()
+    if len(parts) >= 2:
+        last_name = parts[-1]
+        # Add variant with 's' appended to last name
+        if not last_name.endswith('s'):
+            variant_with_s = " ".join(parts[:-1] + [last_name + 's'])
+            variants.add(variant_with_s)
+        # Add variant with 's' removed from last name
+        elif last_name.endswith('s') and len(last_name) > 3:
+            variant_no_s = " ".join(parts[:-1] + [last_name[:-1]])
+            variants.add(variant_no_s)
+    
+    return variants
+
 @st.cache_data(show_spinner=False, ttl=3600)
 def get_all_people_list(pbr_long: pd.DataFrame) -> list:
-    """Get cached list of all people"""
+    """Get cached list of all people with normalized names to deduplicate variations"""
     if pbr_long is None or pbr_long.empty:
         return []
-    return pbr_long['person'].value_counts().head(5000).index.tolist()
+    
+    # Get all person names with counts
+    person_counts = pbr_long['person'].value_counts().head(5000)
+    
+    # Create a mapping: normalized_name -> best_canonical_name
+    # The "best" name is the one with the highest count
+    name_mapping = {}
+    normalized_to_names = {}
+    
+    for name, count in person_counts.items():
+        normalized = _normalize_name_for_dedup(name).lower()
+        if normalized not in normalized_to_names:
+            normalized_to_names[normalized] = []
+        normalized_to_names[normalized].append((name, count))
+    
+    # For each normalized form, pick the most common variant
+    for normalized, variants in normalized_to_names.items():
+        # Sort by count (descending) and take the first
+        variants_sorted = sorted(variants, key=lambda x: x[1], reverse=True)
+        canonical_name = variants_sorted[0][0]
+        
+        # Map all variants to the canonical name
+        for variant_name, _ in variants:
+            name_mapping[variant_name] = canonical_name
+    
+    # Return unique canonical names, sorted by frequency
+    canonical_names = list(name_mapping.values())
+    # Get counts for canonical names
+    canonical_counts = {}
+    for name, count in person_counts.items():
+        canonical = name_mapping.get(name, name)
+        canonical_counts[canonical] = canonical_counts.get(canonical, 0) + count
+    
+    # Sort by count and return
+    sorted_canonical = sorted(canonical_counts.items(), key=lambda x: x[1], reverse=True)
+    return [name for name, _ in sorted_canonical]
 
 
 def get_filter_options(df: Optional[pd.DataFrame], column: str, limit: int = 100) -> list[str]:
@@ -355,12 +436,12 @@ def main():
             persons_by_row_filtered = persons_by_row_filtered[
                 persons_by_row_filtered['row_index'].isin(filtered_row_indices)
             ]
-        if selected_topics_global and persons_by_row_filtered is not None and 'tag_name' in persons_by_row_filtered.columns:
+        if selected_topics_global and 'tag_name' in persons_by_row_filtered.columns:
             persons_by_row_filtered = persons_by_row_filtered[
                 persons_by_row_filtered['tag_name'].astype(str).str.strip().isin(selected_topics_global)
             ]
 
-    if persons_by_row_filtered is None or persons_by_row_filtered is None or (
+    if persons_by_row_filtered is None or (
         isinstance(persons_by_row_filtered, pd.DataFrame) and persons_by_row_filtered.empty
     ):
         pbr_long_filtered = pd.DataFrame(columns=['row_index', 'person', 'person_norm_lc'])
@@ -517,10 +598,11 @@ def main():
                     if 'row_index' not in final_df_people.columns:
                         final_df_people = final_df_people.reset_index().rename(columns={'index': 'row_index'})
 
-                    # Get articles for first person
+                    # Get articles for first person (including name variations)
                     needle = story_person.strip().lower()
+                    search_variants = _get_name_search_variants(story_person)
                     matching_rows = pbr_long_filtered.loc[
-                        pbr_long_filtered['person_norm_lc'] == needle, 'row_index'
+                        pbr_long_filtered['person_norm_lc'].isin(search_variants), 'row_index'
                     ].unique()
                     person_articles = (
                         final_df_people[final_df_people['row_index'].isin(matching_rows)].copy()
@@ -531,9 +613,9 @@ def main():
                     person2_articles = pd.DataFrame()
                     story_person2_clean = story_person2.strip() if story_person2 and story_person2.strip() else None
                     if story_person2_clean and story_person2_clean.lower() != needle:
-                        needle2 = story_person2_clean.lower()
+                        search_variants2 = _get_name_search_variants(story_person2_clean)
                         matching_rows2 = pbr_long_filtered.loc[
-                            pbr_long_filtered['person_norm_lc'] == needle2, 'row_index'
+                            pbr_long_filtered['person_norm_lc'].isin(search_variants2), 'row_index'
                         ].unique()
                         person2_articles = (
                             final_df_people[final_df_people['row_index'].isin(matching_rows2)].copy()

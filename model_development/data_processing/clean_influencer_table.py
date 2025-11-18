@@ -1,10 +1,31 @@
 #!/usr/bin/env python3
 """
-Clean influencer_table.parquet by removing single-word names and initials,
-except for a whitelist of known single-name celebrities/public figures.
+clean_influencer_table.py
 
-Usage:
+EXECUTION ORDER: Step 5 of 5 in the data processing pipeline.
+
+This script cleans the influencer_table.parquet file by:
+  - Removing rows where person_list contains single-word names or initials
+  - Keeping rows with full names (first + last) or known single-name celebrities/public figures
+  - Maintaining a whitelist of exception names (e.g., "Trump", "Biden", "Harris")
+
+INPUT FILES:
+  - data_storage/final_data/influencer_table.parquet (created by pca.py)
+
+OUTPUT FILES:
+  - data_storage/streamlit_app_data/influencer_table_cleaned.parquet
+
+USAGE:
     python clean_influencer_table.py
+
+NOTES:
+  - Filters entire rows based on person_list column
+  - Removes rows where person_list is a single name/initial NOT in exception list
+  - Output goes to streamlit_app_data folder for use by Streamlit application
+
+PIPELINE COMPLETE:
+  After this script completes, all cleaned data files are ready in streamlit_app_data/
+  for use by the Streamlit application.
 """
 
 from __future__ import annotations
@@ -20,7 +41,7 @@ import pandas as pd
 # =============================================================================
 ROOT = Path(__file__).resolve().parents[2]  # .../capstone/capstone
 INPUT_FILE = ROOT / "data_storage" / "final_data" / "influencer_table.parquet"
-OUTPUT_FILE = ROOT / "data_storage" / "final_data" / "influencer_table_cleaned.parquet"
+OUTPUT_FILE = ROOT / "data_storage" / "streamlit_app_data" / "influencer_table_cleaned.parquet"
 
 # =============================================================================
 # Exception List - Single names/initials to KEEP (case-insensitive)

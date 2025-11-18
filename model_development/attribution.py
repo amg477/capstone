@@ -49,9 +49,6 @@ DATA_PARQUET = ROOT / "data_storage" / "final_data" / "cleaned_sampled_data.parq
 OUT_DIR  = ROOT / "data_storage" / "final_data"
 OUT_FILE = OUT_DIR / "attribution_dataset.parquet"
 
-KEYWORDS = OUT_DIR / "top_1000_keywords.parquet"
-BIGRAMS  = OUT_DIR / "top_1000_bigrams.parquet"
-
 PERSONS_FILE        = OUT_DIR / "persons_detected.parquet"
 PERSONS_BY_ROW_FILE = OUT_DIR / "persons_by_row.parquet"
 FULL_DATASET_FILE   = OUT_DIR / "final_dataset_with_attribution.parquet"
@@ -610,6 +607,13 @@ def main():
     print(f"[ok] saved conversion-only dataset -> {FULL_DATASET_FILE}")
     print(f"[ok] conversion-only shape: {df_out.shape}")
     print(f"[ok] dataset columns: {list(df_out.columns)}")
+    
+    # Also copy to streamlit_app_data for Streamlit app
+    streamlit_app_data_dir = ROOT / "data_storage" / "streamlit_app_data"
+    streamlit_app_data_dir.mkdir(parents=True, exist_ok=True)
+    streamlit_path = streamlit_app_data_dir / "final_dataset_with_attribution.parquet"
+    df_out.to_parquet(streamlit_path, index=False)
+    print(f"[ok] also copied to streamlit_app_data -> {streamlit_path}")
 
     # --- Tag-level PCA table (from ALL rows) ---
     write_tagname_summary(df, TAG_PCA_FILE)

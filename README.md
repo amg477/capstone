@@ -27,39 +27,104 @@ Open terminal and navigate to your repo folder:
     >>> nltk.download('stopwords')
 
 -----------------------------------------------------
-2. Run Preprocessing Scripts
+2. Model Development
 -----------------------------------------------------
 
-Clean text:
+The Makefile orchestrates the complete data processing pipeline from raw Excel files to cleaned data files ready for analysis and the Streamlit application.
 
-    from text_cleaning import clean_text
-    df['clean_text'] = df['text'].apply(clean_text)
+### 2.1 View Available Commands
 
-Normalize sources:
+To see all available Makefile targets:
 
-    from source_normalization import normalize_source
-    df['source'] = df['source'].apply(normalize_source)
+    make help
+
+### 2.2 Run Complete Pipeline
+
+To run the entire pipeline (all 7 steps):
+
+    make all
+
+This executes:
+- Step 1: Combine and sample raw Excel files
+- Step 2: Extract person names, process text, detect emotions
+- Step 3: Clean person names
+- Step 4: Attribution analysis (model development)
+- Step 5: PCA clustering and influencer table (model development)
+- Step 6: Clean persons_by_row
+- Step 7: Clean influencer_table
+
+### 2.3 Run Individual Pipeline Stages
+
+**Data Processing (Steps 1-3):**
+Processes raw data and extracts/cleans person names:
+
+    make data-processing
+
+**Model Development (Steps 4-5):**
+Runs attribution analysis and PCA clustering (requires step 3 to be completed first):
+
+    make model-dev
+
+**Final Cleaning (Steps 6-7):**
+Cleans final output files for Streamlit app (requires steps 4-5 to be completed first):
+
+    make cleaning
+
+### 2.4 Run Individual Steps
+
+You can also run individual steps:
+
+    make step1    # Combine and sample raw Excel files
+    make step2    # Extract person names and process text
+    make step3    # Clean person names
+    make step4    # Attribution analysis
+    make step5    # PCA clustering
+    make step6    # Clean persons_by_row
+    make step7    # Clean influencer_table
+
+### 2.5 Clean Generated Files
+
+To remove all generated parquet files:
+
+    make clean
+
+### 2.6 Output Locations
+
+After running the pipeline, output files are located in:
+- Processed data: `data_storage/processed_data/`
+- Final data: `data_storage/final_data/`
+- Streamlit app data: `data_storage/streamlit_app_data/`
 
 -----------------------------------------------------
-3. Build Narrative Paths
+3. Streamlit App
 -----------------------------------------------------
 
-Generate influence paths based on events:
+### 3.1 Prepare Data for Streamlit
 
-    from path_building import build_paths
-    paths_df = build_paths(mentions_df, events_df, window_days=7)
+Before running the Streamlit app, ensure the data processing pipeline has been completed:
+
+    make all
+
+This generates the required files:
+- `final_dataset_with_attribution.parquet`
+- `persons_by_row_cleaned.parquet`
+- `influencer_table_cleaned.parquet`
+
+### 3.2 Run the Streamlit App
+
+Navigate to the streamlit_app directory and run:
+
+    cd streamlit_app
+    streamlit run app.py
+
+Or from the project root:
+
+    streamlit run streamlit_app/app.py
+
+The app will open in your default web browser, typically at `http://localhost:8501`.
 
 -----------------------------------------------------
-4. Run Attribution Modeling
------------------------------------------------------
-
-Run Markov attribution model:
-
-    from attribution_modeling import run_attribution_model
-    result = run_attribution_model(paths_df)
-
------------------------------------------------------
-5. Git Workflow (Use Daily)
+4. Git Workflow (Use Daily)
 -----------------------------------------------------
 
     git status
@@ -69,20 +134,19 @@ Run Markov attribution model:
     git push origin main
 
 -----------------------------------------------------
-6. Project Structure
+5. Project Structure
 -----------------------------------------------------
 
 capstone/
-├── data/              ← raw and processed data files
-├── notebooks/         ← EDA and modeling notebooks
-├── src/               ← all Python scripts
-├── reports/           ← figures and presentation content
-├── app/               ← Streamlit app (optional)
-├── requirements.txt   ← dependencies
+├── data_storage/      ← raw, processed, and final data files
+├── streamlit_app/     ← Streamlit application (app.py, charts.py, etc.)
+├── model_development/ ← data processing and model development scripts
+├── requirements.txt   ← Python dependencies (single file for entire project)
+├── Makefile           ← data processing pipeline automation
 └── README.md
 
 -----------------------------------------------------
-7. Project Goals
+6. Project Goals
 -----------------------------------------------------
 
 - Identify who originates vs. amplifies healthcare narratives

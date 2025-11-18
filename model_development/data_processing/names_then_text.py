@@ -2,16 +2,47 @@
 """
 names_then_text.py
 
-Pipeline on the *sampled* dataset:
-  Stage 1: PERSON extraction (spaCy) on sampled_data.parquet → sampled_with_people.parquet
-  Stage 2: Text processing + categorical normalization on sampled_with_people.parquet
-           → processed_with_people.parquet
-  Stage 3: Emotion of article_body (cleaned) → processed_with_people_emotion.parquet
+EXECUTION ORDER: Step 2 of 5 in the data processing pipeline.
 
-Guarantees:
-- Stage 1 writes raw PERSON strings to people_by_row (comma-space separated, e.g., "Jane Doe, John Smith").
-- Stage 2 adds people_by_row_clean (deduped, accent-folded, title-cased; comma-space separated).
-- Set OVERWRITE_PEOPLE_NAMES=1 to overwrite people_by_row with the cleaned version during Stage 2.
+This script performs person name extraction, text processing, and emotion detection:
+  Stage 1: PERSON extraction using spaCy NER on sampled_data.parquet
+           → sampled_with_people.parquet (adds people_by_row column)
+  Stage 2: Text processing, categorical normalization, and name cleaning
+           → processed_with_people.parquet (adds people_by_row_clean column)
+  Stage 3: Emotion detection on cleaned article_body
+           → processed_with_people_emotion.parquet (adds emotion_body column)
+
+INPUT FILES:
+  - data_storage/processed_data/sampled_data.parquet (from data_processing.py)
+
+OUTPUT FILES:
+  - data_storage/processed_data/sampled_with_people.parquet
+  - data_storage/processed_data/processed_with_people.parquet
+  - data_storage/processed_data/processed_with_people_emotion.parquet
+
+USAGE:
+    python names_then_text.py
+
+ENVIRONMENT VARIABLES (optional):
+  SPACY_MODEL=en_core_web_sm        # spaCy model for NER (default: en_core_web_sm)
+  SPACY_NPROC=4                     # Number of processes for spaCy (default: 4)
+  SPACY_BATCH_SIZE=512              # Batch size for spaCy processing (default: 512)
+  NER_SOURCE=full                   # "headline" or "full" text for NER (default: full)
+  USE_LEMMATIZATION=0                # Enable lemmatization (0 or 1, default: 0)
+  STAGE2_BATCH_ROWS=200000          # Batch size for text processing (default: 200000)
+  OVERWRITE_PEOPLE_NAMES=0          # Overwrite people_by_row with cleaned version (0 or 1, default: 0)
+  EMOTION_MODEL=j-hartmann/emotion-english-distilroberta-base  # Emotion model (default: j-hartmann/...)
+  EMOTION_BATCH_SIZE=64             # Batch size for emotion detection (default: 64)
+  EMOTION_MAX_LEN=512               # Max token length for emotion model (default: 512)
+
+NOTES:
+  - Requires spaCy model: python -m spacy download en_core_web_sm
+  - Stage 1 writes raw PERSON strings to people_by_row (comma-space separated)
+  - Stage 2 adds people_by_row_clean (deduped, accent-folded, title-cased)
+  - Stage 3 requires transformers library for emotion detection
+
+NEXT STEP:
+  After this script completes, run: python clean_people_names.py
 """
 
 import os
