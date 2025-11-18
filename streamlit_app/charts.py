@@ -193,14 +193,37 @@ def create_person_sentiment_chart(person_articles: pd.DataFrame, person_name: st
     return fig
 
 
-def create_person_mentions_over_time_chart(person_articles: pd.DataFrame, person_name: str = None, person2_articles: pd.DataFrame = None, person2_name: str = None) -> go.Figure:
-    """Create a line chart showing mentions over time for a person, with optional comparison."""
+def create_person_mentions_over_time_chart(person_articles: pd.DataFrame, person_name: str = None, person2_articles: pd.DataFrame = None, person2_name: str = None, date_start: pd.Timestamp = None, date_end: pd.Timestamp = None) -> go.Figure:
+    """Create a line chart showing mentions over time for a person, with optional comparison and date filtering."""
     if person_articles is None or person_articles.empty or 'published_datetime' not in person_articles.columns:
         return None
     
     mentions_df = person_articles[['published_datetime']].copy()
     mentions_df['published_datetime'] = pd.to_datetime(mentions_df['published_datetime'], errors='coerce')
     mentions_df = mentions_df.dropna(subset=['published_datetime'])
+    
+    # Apply date range filter if provided
+    # Convert to date for comparison to avoid timezone issues
+    mentions_df['date_only'] = mentions_df['published_datetime'].dt.date
+    
+    if date_start is not None:
+        # Convert to date if it's a Timestamp
+        if isinstance(date_start, pd.Timestamp):
+            date_start_date = date_start.date()
+        else:
+            date_start_date = pd.to_datetime(date_start).date()
+        mentions_df = mentions_df[mentions_df['date_only'] >= date_start_date]
+    
+    if date_end is not None:
+        # Convert to date if it's a Timestamp
+        if isinstance(date_end, pd.Timestamp):
+            date_end_date = date_end.date()
+        else:
+            date_end_date = pd.to_datetime(date_end).date()
+        mentions_df = mentions_df[mentions_df['date_only'] <= date_end_date]
+    
+    # Drop the temporary date_only column
+    mentions_df = mentions_df.drop(columns=['date_only'])
     
     if mentions_df.empty:
         return None
@@ -222,6 +245,29 @@ def create_person_mentions_over_time_chart(person_articles: pd.DataFrame, person
         mentions_df2 = person2_articles[['published_datetime']].copy()
         mentions_df2['published_datetime'] = pd.to_datetime(mentions_df2['published_datetime'], errors='coerce')
         mentions_df2 = mentions_df2.dropna(subset=['published_datetime'])
+        
+        # Apply same date range filter to person2
+        # Convert to date for comparison to avoid timezone issues
+        mentions_df2['date_only'] = mentions_df2['published_datetime'].dt.date
+        
+        if date_start is not None:
+            # Convert to date if it's a Timestamp
+            if isinstance(date_start, pd.Timestamp):
+                date_start_date = date_start.date()
+            else:
+                date_start_date = pd.to_datetime(date_start).date()
+            mentions_df2 = mentions_df2[mentions_df2['date_only'] >= date_start_date]
+        
+        if date_end is not None:
+            # Convert to date if it's a Timestamp
+            if isinstance(date_end, pd.Timestamp):
+                date_end_date = date_end.date()
+            else:
+                date_end_date = pd.to_datetime(date_end).date()
+            mentions_df2 = mentions_df2[mentions_df2['date_only'] <= date_end_date]
+        
+        # Drop the temporary date_only column
+        mentions_df2 = mentions_df2.drop(columns=['date_only'])
         
         if not mentions_df2.empty:
             mentions_df2['date'] = mentions_df2['published_datetime'].dt.date

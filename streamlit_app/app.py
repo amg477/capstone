@@ -895,11 +895,62 @@ def main():
                                 st.caption(f"Timeline comparison: {story_person} vs {story_person2_clean}. Helps identify trends and peak coverage periods for both individuals.")
                             else:
                                 st.caption("Timeline showing when articles mentioning this person were published. Helps identify trends and peak coverage periods.")
+                            
+                            # Get date range from data for date picker bounds
+                            all_dates = []
+                            if not person_articles.empty and 'published_datetime' in person_articles.columns:
+                                dates1 = pd.to_datetime(person_articles['published_datetime'], errors='coerce').dropna()
+                                all_dates.extend(dates1.tolist())
+                            if is_comparison and not person2_articles.empty and 'published_datetime' in person2_articles.columns:
+                                dates2 = pd.to_datetime(person2_articles['published_datetime'], errors='coerce').dropna()
+                                all_dates.extend(dates2.tolist())
+                            
+                            # Date range filter
+                            if all_dates:
+                                min_date = pd.Timestamp(min(all_dates)).date()
+                                max_date = pd.Timestamp(max(all_dates)).date()
+                                default_start = pd.Timestamp('2024-01-01').date()
+                                
+                                # Ensure default_start is within the data range
+                                if default_start < min_date:
+                                    default_start = min_date
+                                if default_start > max_date:
+                                    default_start = min_date
+                                
+                                date_range = st.date_input(
+                                    "Filter by Date Range",
+                                    value=(default_start, max_date),
+                                    min_value=min_date,
+                                    max_value=max_date,
+                                    key="person_mentions_date_range",
+                                    help="Select a date range to filter the timeline. Default starts from 2024."
+                                )
+                                
+                                # Handle date range input (can be tuple or single date)
+                                if isinstance(date_range, tuple) and len(date_range) == 2:
+                                    date_start, date_end = date_range
+                                elif isinstance(date_range, tuple) and len(date_range) == 1:
+                                    date_start = date_range[0]
+                                    date_end = max_date
+                                else:
+                                    # Single date selected
+                                    date_start = date_range if date_range else default_start
+                                    date_end = max_date
+                                
+                                # Convert to Timestamp for the chart function
+                                date_start_ts = pd.Timestamp(date_start) if date_start else None
+                                date_end_ts = pd.Timestamp(date_end) if date_end else None
+                            else:
+                                date_start_ts = None
+                                date_end_ts = None
+                            
                             fig_mentions = create_person_mentions_over_time_chart(
                                 person_articles,
                                 story_person,
                                 person2_articles if is_comparison else None,
-                                story_person2_clean if is_comparison else None
+                                story_person2_clean if is_comparison else None,
+                                date_start=date_start_ts,
+                                date_end=date_end_ts
                             )
                             if fig_mentions:
                                 st.plotly_chart(fig_mentions, width="stretch")
